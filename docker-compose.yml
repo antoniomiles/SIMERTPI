@@ -1,0 +1,26 @@
+services:
+
+  postgres:
+    image: postgres:16
+    container_name: simertpi-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: simertpi
+      POSTGRES_USER: simertpi
+      POSTGRES_PASSWORD: simertpi_dev_2026
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - simertpi_postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U simertpi -d simertpi"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  simertpi_postgres_data:

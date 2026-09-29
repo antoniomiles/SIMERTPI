@@ -1,0 +1,30 @@
+﻿spring:
+  application:
+    name: simertpi-backend
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/simertpi
+    username: simertpi
+    password: simertpi_dev_2026
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+  flyway:
+    enabled: true
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+  endpoint:
+    health:
+      show-details: always
