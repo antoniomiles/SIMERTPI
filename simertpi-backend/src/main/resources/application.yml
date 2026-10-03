@@ -39,6 +39,9 @@ management:
       show-details: never
 
 simertpi:
+  parking:
+    rules:
+      time-zone: ${SIMERTPI_PARKING_TIME_ZONE:America/Guayaquil}
   control:
     scheduler:
       enabled: true

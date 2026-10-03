@@ -46,6 +46,7 @@ public class CreatePaymentService {
     private final PaymentRepository paymentRepository;
     private final PaymentAttemptRepository attemptRepository;
     private final PaymentEventPublisher eventPublisher;
+    private final ec.gob.simertpi.application.parking.rules.ParkingRulesService rules;
 
     public CreatePaymentService(IdempotencyStore idempotencyStore,
                                 UserRepository userRepository,
@@ -53,7 +54,9 @@ public class CreatePaymentService {
                                 TariffRepository tariffRepository,
                                 PaymentRepository paymentRepository,
                                 PaymentAttemptRepository attemptRepository,
-                                PaymentEventPublisher eventPublisher) {
+                                PaymentEventPublisher eventPublisher,
+                                ec.gob.simertpi.application.parking.rules.ParkingRulesService rules) {
+        this.rules = rules;
         this.idempotencyStore = idempotencyStore;
         this.userRepository = userRepository;
         this.sessionRepository = sessionRepository;
@@ -117,7 +120,9 @@ public class CreatePaymentService {
                 || (tariff.getValidTo() != null && tariff.getValidTo().isBefore(now))) {
             throw new IllegalArgumentException("Tariff is not currently available");
         }
-        BigDecimal amount = tariff.getAmount();
+        // Preserve pre-CP10 sessions with unconfigured legacy tariffs; configured tariffs use the central calculation.
+        BigDecimal amount = tariff.getRoundingMode() == null ? tariff.getAmount()
+                : rules.calculateAmount(tariff, java.time.Duration.between(session.getStartedAt(), session.getExpectedEndAt()).toMinutes());
         if (amount == null || amount.signum() <= 0) {
             throw new IllegalArgumentException("Payment amount must be greater than zero");
         }
@@ -147,7 +152,7 @@ public class CreatePaymentService {
             payment.setId(UUID.randomUUID());
             payment.setParkingSessionId(session.getId());
             payment.setCreatedAt(now);
-            payment.setCurrency("USD");
+            payment.setCurrency(tariff.getCurrency() == null ? "USD" : tariff.getCurrency());
         }
         payment.setProvider(NOT_CONFIGURED_PROVIDER);
         payment.setIdempotencyKey(key);

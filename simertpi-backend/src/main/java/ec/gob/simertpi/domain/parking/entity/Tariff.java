@@ -29,6 +29,18 @@ public class Tariff {
     @Column(name = "name", nullable = false, length = 150)
     private String name;
 
+    @Column(name = "zone_id")
+    private UUID zoneId;
+
+    @Column(name = "currency", length = 3)
+    private String currency;
+
+    @Column(name = "rounding_mode", length = 20)
+    private String roundingMode;
+
+    @Column(name = "grace_period_minutes")
+    private Integer gracePeriodMinutes;
+
     @Column(name = "amount", nullable = false, precision = 12, scale = 2)
     private BigDecimal amount;
 

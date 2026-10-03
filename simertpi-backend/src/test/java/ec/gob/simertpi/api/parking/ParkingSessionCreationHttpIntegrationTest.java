@@ -71,12 +71,12 @@ class ParkingSessionCreationHttpIntegrationTest {
                 fixture.zone, "ZT-" + fixture.tag, "Integration zone");
         jdbc.update("INSERT INTO parking.streets(id, zone_id, code, name) VALUES (?, ?, ?, ?)",
                 fixture.street, fixture.zone, "ST-" + fixture.tag, "Integration street");
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(java.time.ZoneId.of("America/Guayaquil"));
         jdbc.update("INSERT INTO parking.schedules(id, zone_id, day_of_week, start_time, end_time) VALUES (?, ?, ?, ?, ?)",
                 UUID.randomUUID(), fixture.zone, (short) today.getDayOfWeek().getValue(),
                 LocalTime.MIDNIGHT, LocalTime.of(23, 59, 59));
-        jdbc.update("INSERT INTO parking.tariffs(id, code, name, amount, duration_minutes, min_minutes, max_continuous_minutes, valid_from) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                fixture.tariff, "TR-" + fixture.tag, "Integration tariff", 1.00, 60, 30, 240, now.minusDays(1));
+        jdbc.update("INSERT INTO parking.tariffs(id, code, name, amount, duration_minutes, min_minutes, max_continuous_minutes, valid_from, zone_id, currency, rounding_mode, grace_period_minutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                fixture.tariff, "TR-" + fixture.tag, "Integration tariff", new java.math.BigDecimal("1.00"), 60, 30, 240, now.minusDays(1), fixture.zone, "USD", "HALF_UP", 10);
         createSpace(fixture.spaceA, "01");
         createSpace(fixture.spaceB, "02");
         createSpace(fixture.spaceC, "03");
@@ -91,12 +91,16 @@ class ParkingSessionCreationHttpIntegrationTest {
         jdbc.update("DELETE FROM notification.notifications WHERE user_id IN (?, ?)", fixture.userA, fixture.userB);
         jdbc.update("DELETE FROM parking.parking_control_events WHERE user_id IN (?, ?)", fixture.userA, fixture.userB);
         jdbc.update("DELETE FROM configuration.notification_rules WHERE code = ?", "LIFECYCLE-" + fixture.tag);
+        jdbc.update("DELETE FROM audit.outbox_events WHERE aggregate_type = 'PAYMENT' AND aggregate_id IN (SELECT p.id FROM payments.payments p JOIN parking.parking_sessions s ON s.id = p.parking_session_id WHERE s.user_id IN (?, ?))", fixture.userA, fixture.userB);
+        jdbc.update("DELETE FROM payments.payment_attempts WHERE payment_id IN (SELECT p.id FROM payments.payments p JOIN parking.parking_sessions s ON s.id = p.parking_session_id WHERE s.user_id IN (?, ?))", fixture.userA, fixture.userB);
+        jdbc.update("DELETE FROM parking.session_extensions WHERE parking_session_id IN (SELECT id FROM parking.parking_sessions WHERE user_id IN (?, ?))", fixture.userA, fixture.userB);
+        jdbc.update("DELETE FROM payments.payments WHERE parking_session_id IN (SELECT id FROM parking.parking_sessions WHERE user_id IN (?, ?))", fixture.userA, fixture.userB);
         jdbc.update("DELETE FROM parking.parking_sessions WHERE user_id IN (?, ?)", fixture.userA, fixture.userB);
         jdbc.update("DELETE FROM parking.schedules WHERE zone_id = ?", fixture.zone);
         jdbc.update("DELETE FROM parking.parking_spaces WHERE street_id = ?", fixture.street);
         jdbc.update("DELETE FROM parking.streets WHERE id = ?", fixture.street);
-        jdbc.update("DELETE FROM parking.zones WHERE id = ?", fixture.zone);
         jdbc.update("DELETE FROM parking.tariffs WHERE id = ?", fixture.tariff);
+        jdbc.update("DELETE FROM parking.zones WHERE id = ?", fixture.zone);
         jdbc.update("DELETE FROM identity.vehicles WHERE user_id IN (?, ?)", fixture.userA, fixture.userB);
         jdbc.update("DELETE FROM identity.user_roles WHERE user_id IN (?, ?)", fixture.userA, fixture.userB);
         jdbc.update("DELETE FROM identity.users WHERE id IN (?, ?)", fixture.userA, fixture.userB);
@@ -230,14 +234,86 @@ class ParkingSessionCreationHttpIntegrationTest {
         assertThat(sessionRepository.countByParkingSpaceId(fixture.spaceA)).isEqualTo(2);
     }
 
+    @Autowired org.flywaydb.core.Flyway flyway;
+    @Autowired ec.gob.simertpi.application.parking.extension.ParkingSessionExtensionService extensionService;
+    @Autowired ec.gob.simertpi.application.payments.PaymentService paymentService;
+
+    private ResponseEntity<String> queryRules(String selector) {
+        HttpHeaders headers = new HttpHeaders(); headers.setBasicAuth("citizen-a-" + fixture.tag, "integration-password");
+        return restTemplate.exchange("http://localhost:" + port + "/api/v1/parking/rules?" + selector,
+                HttpMethod.GET, new HttpEntity<>(headers), String.class);
+    }
+    @Test
+    void citizenQueriesRulesBySpaceAndQrWithoutAuditNoise() throws Exception {
+        Long before = jdbc.queryForObject("SELECT count(*) FROM audit.functional_audit_log", Long.class);
+        var bySpace = queryRules("spaceId=" + fixture.spaceA + "&durationMinutes=31");
+        var byQr = queryRules("qrCode=QR-" + fixture.tag + "-01&durationMinutes=31");
+        assertThat(bySpace.getStatusCode()).isEqualTo(HttpStatus.OK); assertThat(byQr.getStatusCode()).isEqualTo(HttpStatus.OK);
+        var a = objectMapper.readTree(bySpace.getBody()); var b = objectMapper.readTree(byQr.getBody());
+        assertThat(a.get("reasonCode").asText()).isEqualTo("RULES_RESOLVED");
+        assertThat(a.get("calculatedAmount").decimalValue()).isEqualByComparingTo("1.00");
+        assertThat(a.get("billedDurationMinutes").asInt()).isEqualTo(60);
+        assertThat(a.get("maximumContinuousMinutes").asInt()).isEqualTo(240);
+        assertThat(a.get("gracePeriodMinutes").asInt()).isEqualTo(10);
+        assertThat(a.get("spaceId")).isEqualTo(b.get("spaceId"));
+        assertThat(bySpace.getBody()).doesNotContain("tariffId", "createdAt", "normativeReference");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM audit.functional_audit_log", Long.class)).isEqualTo(before);
+        assertThat(flyway.info().current().getVersion().toString()).isEqualTo("26");
+        assertThat(flyway.validateWithResult().validationSuccessful).isTrue();
+    }
+    @Test
+    void anonymousCannotQueryRulesAndSelectorsAreValidated() {
+        assertThat(restTemplate.getForEntity("http://localhost:" + port + "/api/v1/parking/rules?spaceId=" + fixture.spaceA, String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(queryRules("spaceId=" + fixture.spaceA + "&qrCode=QR-" + fixture.tag + "-01").getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(queryRules("durationMinutes=60").getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+    @Test
+    void missingConfigurationPreventsSessionAndHolidayPrevails() throws Exception {
+        jdbc.update("UPDATE parking.tariffs SET grace_period_minutes = NULL WHERE id = ?", fixture.tariff);
+        assertThat(objectMapper.readTree(queryRules("spaceId=" + fixture.spaceA + "&durationMinutes=60").getBody()).get("reasonCode").asText()).isEqualTo("NO_GRACE_CONFIGURATION");
+        assertThat(post("citizen-a-" + fixture.tag, "NO-CONFIG", fixture.spaceA, fixture.vehicleA).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(sessionRepository.countByParkingSpaceId(fixture.spaceA)).isZero();
+        UUID holiday = UUID.randomUUID();
+        try {
+            jdbc.update("INSERT INTO parking.holidays(id, holiday_date, name, zone_id, holiday_type, tariffed, valid_from) VALUES (?, ?, 'TEST ONLY', ?, 'NON_TARIFFED', false, ?)", holiday, LocalDate.now(java.time.ZoneId.of("America/Guayaquil")), fixture.zone, LocalDate.of(2026,1,1));
+            assertThat(objectMapper.readTree(queryRules("spaceId=" + fixture.spaceA).getBody()).get("reasonCode").asText()).isEqualTo("HOLIDAY_NON_CHARGEABLE");
+            assertThat(post("citizen-a-" + fixture.tag, "HOLIDAY", fixture.spaceA, fixture.vehicleA).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+            assertThat(sessionRepository.countByParkingSpaceId(fixture.spaceA)).isZero();
+        } finally { jdbc.update("DELETE FROM parking.holidays WHERE id = ?", holiday); }
+    }
+    @Test
+    void configuredQuoteMatchesPaymentAndAccumulatedExtensionLimit() throws Exception {
+        var created = post("citizen-a-" + fixture.tag, "RULES-PAYMENT", fixture.spaceA, fixture.vehicleA, 90);
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        UUID session = UUID.fromString(objectMapper.readTree(created.getBody()).get("id").asText());
+        HttpHeaders headers = new HttpHeaders(); headers.setBasicAuth("citizen-a-" + fixture.tag, "integration-password");
+        headers.setContentType(MediaType.APPLICATION_JSON); headers.set("Idempotency-Key", "RULES-PAYMENT-KEY");
+        var response = restTemplate.exchange("http://localhost:" + port + "/api/v1/payments", HttpMethod.POST,
+                new HttpEntity<>(Map.of("parkingSessionId", session, "paymentMethod", "TEST_METHOD"), headers), String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        var payment = objectMapper.readTree(response.getBody());
+        assertThat(payment.get("amount").decimalValue()).isEqualByComparingTo("1.50");
+        paymentService.approve(UUID.fromString(payment.get("id").asText()), "TEST-ONLY-INITIAL");
+        var extension = extensionService.requestExtension(session, 30, "TEST_PROVIDER", "TEST_METHOD", "RULES-EXTENSION");
+        assertThat(extension.getAmount()).isEqualByComparingTo("0.50");
+        paymentService.approve(extension.getPaymentId(), "TEST-ONLY-EXTENSION");
+        var saved = sessionRepository.findById(session).orElseThrow();
+        assertThat(java.time.Duration.between(saved.getStartedAt(),saved.getExpectedEndAt()).toMinutes()).isEqualTo(120);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> extensionService.requestExtension(session, 121, "TEST_PROVIDER", "TEST_METHOD", "RULES-TOO-LONG"))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("MAX_CONTINUOUS_EXCEEDED");
+    }
+
     private ResponseEntity<String> post(String username, String key, UUID spaceId, UUID vehicleId) {
+        return post(username, key, spaceId, vehicleId, 60);
+    }
+    private ResponseEntity<String> post(String username, String key, UUID spaceId, UUID vehicleId, int duration) {
         String password = "integration-password";
         HttpHeaders headers = new HttpHeaders();
         headers.setBasicAuth(username, password);
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("Idempotency-Key", key);
         Map<String, Object> body = Map.of("parkingSpaceQrCode", "QR-" + fixture.tag + "-" + spaceSuffix(spaceId),
-                "vehicleId", vehicleId, "tariffId", fixture.tariff, "durationMinutes", 60);
+                "vehicleId", vehicleId, "tariffId", fixture.tariff, "durationMinutes", duration);
         return restTemplate.exchange("http://localhost:" + port + "/api/v1/parking/sessions",
                 HttpMethod.POST, new HttpEntity<>(body, headers), String.class);
     }

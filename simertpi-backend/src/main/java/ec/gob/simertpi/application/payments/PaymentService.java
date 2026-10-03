@@ -21,7 +21,6 @@ import ec.gob.simertpi.domain.payments.repository.PaymentRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -41,6 +40,7 @@ public class PaymentService {
     private final PaymentAttemptRepository paymentAttemptRepository;
     private final IdempotencyStore idempotencyStore;
     private final PaymentEventPublisher eventPublisher;
+    private final ec.gob.simertpi.application.parking.rules.ParkingRulesService rules;
 
     public PaymentService(
             PaymentRepository paymentRepository,
@@ -49,8 +49,10 @@ public class PaymentService {
             SessionExtensionRepository sessionExtensionRepository,
             PaymentAttemptRepository paymentAttemptRepository,
             IdempotencyStore idempotencyStore,
-            PaymentEventPublisher eventPublisher
+            PaymentEventPublisher eventPublisher,
+            ec.gob.simertpi.application.parking.rules.ParkingRulesService rules
     ) {
+        this.rules = rules;
         this.paymentRepository = paymentRepository;
         this.parkingSessionRepository = parkingSessionRepository;
         this.tariffRepository = tariffRepository;
@@ -173,70 +175,10 @@ public class PaymentService {
                 );
             }
 
-            if ("EXPIRED".equals(session.getStatus())) {
-                if (session.getExpectedEndAt() == null) {
-                    throw new IllegalArgumentException(
-                            "Parking session has no expected end time"
-                    );
-                }
-
-                long minutesOverdue = Math.max(
-                        0,
-                        Duration.between(
-                                session.getExpectedEndAt(),
-                                now
-                        ).toMinutes()
-                );
-
-                if (minutesOverdue > 10) {
-                    throw new IllegalArgumentException(
-                            "Parking session extension period has expired"
-                    );
-                }
-            }
-
-            if (session.getTariffId() == null) {
-                throw new IllegalArgumentException(
-                        "Parking session has no tariff"
-                );
-            }
-
-            Tariff tariff = tariffRepository.findById(session.getTariffId())
-                    .orElseThrow(() ->
-                            new ResourceNotFoundException("Tariff not found")
-                    );
-
-            if (!tariff.isActive()) {
-                throw new IllegalArgumentException("Tariff is inactive");
-            }
-
-            if (tariff.getValidFrom().isAfter(now)) {
-                throw new IllegalArgumentException("Tariff is not yet valid");
-            }
-
-            if (tariff.getValidTo() != null
-                    && tariff.getValidTo().isBefore(now)) {
-                throw new IllegalArgumentException("Tariff has expired");
-            }
-
-            if (extension.getNewExpectedEndAt() == null) {
-                throw new IllegalArgumentException(
-                        "Extension has no new expected end time"
-                );
-            }
-
-            if (tariff.getMaxContinuousMinutes() != null) {
-                long totalMinutes = Duration.between(
-                        session.getStartedAt(),
-                        extension.getNewExpectedEndAt()
-                ).toMinutes();
-
-                if (totalMinutes > tariff.getMaxContinuousMinutes()) {
-                    throw new IllegalArgumentException(
-                            "Extension exceeds maximum continuous parking time"
-                    );
-                }
-            }
+            var quote = rules.evaluateExtension(session, extension.getAdditionalMinutes(), now.toInstant());
+            if (!quote.extensionAllowed()) throw new IllegalArgumentException(quote.reasonCode());
+            if (extension.getNewExpectedEndAt() == null || !extension.getNewExpectedEndAt().toInstant().equals(quote.expiresAt()))
+                throw new IllegalArgumentException("EXTENSION_END_MISMATCH");
 
             session.setExpectedEndAt(extension.getNewExpectedEndAt());
             session.setExtensionCount(session.getExtensionCount() + 1);
@@ -328,7 +270,7 @@ public class PaymentService {
                 .orElseThrow(() -> new ResourceNotFoundException("Parking session not found"));
 
         if (!"ACTIVE".equals(session.getStatus())
-                && !"EXTENDED".equals(session.getStatus())) {
+                && !"EXTENDED".equals(session.getStatus()) && !"EXPIRED".equals(session.getStatus())) {
             throw new IllegalArgumentException(
                     "Parking session is not active"
             );
@@ -360,9 +302,6 @@ public class PaymentService {
             if ("PENDING".equals(pending.getStatus()) || "PROCESSING".equals(pending.getStatus())) {
                 throw new IllegalArgumentException("A payment is already in progress for this session");
             }
-            if ("APPROVED".equals(pending.getStatus())) {
-                throw new IllegalArgumentException("Parking session already has an approved payment");
-            }
         }
 
         Payment payment = new Payment();
@@ -372,7 +311,8 @@ public class PaymentService {
         payment.setProviderTransactionId(null);
         payment.setIdempotencyKey(idempotencyKey);
         payment.setAmount(amount);
-        payment.setCurrency("USD");
+        Tariff sessionTariff = tariffRepository.findById(session.getTariffId()).orElse(null);
+        payment.setCurrency(sessionTariff == null || sessionTariff.getCurrency() == null ? "USD" : sessionTariff.getCurrency());
         payment.setStatus("PENDING");
         payment.setPaymentMethod(paymentMethod);
         payment.setPaidAt(null);

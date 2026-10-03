@@ -51,6 +51,8 @@ class PaymentServiceTest {
     @Mock
     private PaymentEventPublisher paymentEventPublisher;
 
+    @Mock private ec.gob.simertpi.application.parking.rules.ParkingRulesService rules;
+
     @InjectMocks
     private PaymentService service;
 
@@ -82,8 +84,7 @@ class PaymentServiceTest {
         when(sessionExtensionRepository.findByPaymentId(payment.getId()))
                 .thenReturn(Optional.of(extension));
 
-        when(tariffRepository.findById(session.getTariffId()))
-                .thenReturn(Optional.of(createTariff(240)));
+        when(rules.evaluateExtension(eq(session), any(), any())).thenReturn(quote(extension, true, "RULES_RESOLVED"));
 
         when(sessionExtensionRepository.save(any(SessionExtension.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -142,6 +143,8 @@ class PaymentServiceTest {
         when(sessionExtensionRepository.findByPaymentId(payment.getId()))
                 .thenReturn(Optional.of(extension));
 
+        when(rules.evaluateExtension(eq(session), any(), any())).thenReturn(quote(extension, false, "EXTENSION_GRACE_EXCEEDED"));
+
         IllegalArgumentException exception = assertThrows(
                 IllegalArgumentException.class,
                 () -> service.approve(
@@ -151,7 +154,7 @@ class PaymentServiceTest {
         );
 
         assertEquals(
-                "Parking session extension period has expired",
+                "EXTENSION_GRACE_EXCEEDED",
                 exception.getMessage()
         );
 
@@ -193,8 +196,7 @@ class PaymentServiceTest {
         when(sessionExtensionRepository.findByPaymentId(payment.getId()))
                 .thenReturn(Optional.of(extension));
 
-        when(tariffRepository.findById(session.getTariffId()))
-                .thenReturn(Optional.of(createTariff(240)));
+        when(rules.evaluateExtension(eq(session), any(), any())).thenReturn(quote(extension, false, "MAX_CONTINUOUS_EXCEEDED"));
 
         IllegalArgumentException exception = assertThrows(
                 IllegalArgumentException.class,
@@ -205,7 +207,7 @@ class PaymentServiceTest {
         );
 
         assertEquals(
-                "Extension exceeds maximum continuous parking time",
+                "MAX_CONTINUOUS_EXCEEDED",
                 exception.getMessage()
         );
 
@@ -229,6 +231,13 @@ class PaymentServiceTest {
 
         verify(parkingSessionRepository, never()).findByIdForUpdate(any(UUID.class));
         verify(paymentRepository, never()).save(any(Payment.class));
+    }
+
+    private ec.gob.simertpi.application.parking.rules.ParkingRulesResult quote(SessionExtension extension, boolean allowed, String reason) {
+        return new ec.gob.simertpi.application.parking.rules.ParkingRulesResult(null, null,
+                java.time.Instant.now().atZone(java.time.ZoneOffset.UTC), allowed, allowed, false, null,
+                "TEST", 30, 240, 10, "USD", BigDecimal.ONE, 60, null, extension.getAdditionalMinutes(), null,
+                extension.getNewExpectedEndAt().toInstant(), allowed, reason, null);
     }
 
     private ParkingSession createSession(

@@ -4,19 +4,16 @@ import ec.gob.simertpi.application.audit.Audited;
 
 import ec.gob.simertpi.api.ResourceNotFoundException;
 import ec.gob.simertpi.api.ForbiddenException;
-import ec.gob.simertpi.application.parking.calendar.ParkingCalendarService;
 import ec.gob.simertpi.domain.identity.entity.User;
 import ec.gob.simertpi.domain.identity.repository.UserRepository;
 import ec.gob.simertpi.domain.parking.entity.ParkingSession;
 import ec.gob.simertpi.domain.parking.entity.ParkingSessionStatus;
 import ec.gob.simertpi.domain.parking.entity.ParkingSpace;
 import ec.gob.simertpi.domain.parking.entity.Street;
-import ec.gob.simertpi.domain.parking.entity.Tariff;
 import ec.gob.simertpi.domain.parking.entity.Zone;
 import ec.gob.simertpi.domain.parking.repository.ParkingSessionRepository;
 import ec.gob.simertpi.domain.parking.repository.ParkingSpaceRepository;
 import ec.gob.simertpi.domain.parking.repository.StreetRepository;
-import ec.gob.simertpi.domain.parking.repository.TariffRepository;
 import ec.gob.simertpi.domain.parking.repository.ZoneRepository;
 import ec.gob.simertpi.domain.vehicles.entity.Vehicle;
 import ec.gob.simertpi.domain.vehicles.repository.VehicleRepository;
@@ -45,8 +42,7 @@ public class ParkingSessionService {
     private final VehicleRepository vehicleRepository;
     private final ParkingSpaceRepository parkingSpaceRepository;
     private final StreetRepository streetRepository;
-    private final TariffRepository tariffRepository;
-    private final ParkingCalendarService parkingCalendarService;
+    private final ec.gob.simertpi.application.parking.rules.ParkingRulesService rules;
     private final ZoneRepository zoneRepository;
 
     public ParkingSessionService(
@@ -55,8 +51,7 @@ public class ParkingSessionService {
             VehicleRepository vehicleRepository,
             ParkingSpaceRepository parkingSpaceRepository,
             StreetRepository streetRepository,
-            TariffRepository tariffRepository,
-            ParkingCalendarService parkingCalendarService,
+            ec.gob.simertpi.application.parking.rules.ParkingRulesService rules,
             ZoneRepository zoneRepository
     ) {
         this.parkingSessionRepository = parkingSessionRepository;
@@ -64,8 +59,7 @@ public class ParkingSessionService {
         this.vehicleRepository = vehicleRepository;
         this.parkingSpaceRepository = parkingSpaceRepository;
         this.streetRepository = streetRepository;
-        this.tariffRepository = tariffRepository;
-        this.parkingCalendarService = parkingCalendarService;
+        this.rules = rules;
         this.zoneRepository = zoneRepository;
     }
 
@@ -216,54 +210,19 @@ public class ParkingSessionService {
             throw new IllegalArgumentException("Parking zone is inactive");
         }
 
-        Tariff tariff = tariffRepository.findById(tariffId)
-                .orElseThrow(() -> new ResourceNotFoundException("Tariff not found"));
-
+        if (durationMinutes == null) throw new IllegalArgumentException("INVALID_DURATION");
         OffsetDateTime now = OffsetDateTime.now();
-
-        if (!tariff.isActive()) {
-            throw new IllegalArgumentException("Tariff is inactive");
-        }
-
-        if (tariff.getValidFrom().isAfter(now)) {
-            throw new IllegalArgumentException("Tariff is not yet valid");
-        }
-
-        if (tariff.getValidTo() != null && tariff.getValidTo().isBefore(now)) {
-            throw new IllegalArgumentException("Tariff has expired");
-        }
-
-        if (!parkingCalendarService.isOperational(
-                street.getZoneId(),
-                now.toLocalDate(),
-                now.toLocalTime()
-        )) {
-            throw new IllegalArgumentException(
-                    "Parking service is not operational at this time"
-            );
-        }
-
-        if (durationMinutes < tariff.getMinMinutes()) {
-            throw new IllegalArgumentException(
-                    "Duration must be at least " + tariff.getMinMinutes() + " minutes"
-            );
-        }
-
-        if (tariff.getMaxContinuousMinutes() != null
-                && durationMinutes > tariff.getMaxContinuousMinutes()) {
-            throw new IllegalArgumentException(
-                    "Duration exceeds maximum continuous parking time"
-            );
-        }
-
-        OffsetDateTime expectedEndAt = now.plusMinutes(durationMinutes);
+        var quote = rules.evaluateForZone(zone.getId(), parkingSpaceId, now.toInstant(), durationMinutes);
+        if (!quote.operational()) throw new IllegalArgumentException(quote.reasonCode());
+        if (!java.util.Objects.equals(tariffId, quote.tariffId())) throw new IllegalArgumentException("TARIFF_NOT_APPLICABLE");
+        OffsetDateTime expectedEndAt = quote.expiresAt().atOffset(now.getOffset());
 
         ParkingSession session = new ParkingSession();
         session.setId(UUID.randomUUID());
         session.setUserId(user.getId());
         session.setVehicleId(vehicle.getId());
         session.setParkingSpaceId(parkingSpace.getId());
-        session.setTariffId(tariff.getId());
+        session.setTariffId(quote.tariffId());
         session.setStartedAt(now);
         session.setExpectedEndAt(expectedEndAt);
         session.setEndedAt(null);

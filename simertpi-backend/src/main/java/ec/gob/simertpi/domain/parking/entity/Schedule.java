@@ -23,8 +23,14 @@ public class Schedule {
     @Column(name = "id", nullable = false)
     private UUID id;
 
-    @Column(name = "zone_id", nullable = false)
+    @Column(name = "zone_id")
     private UUID zoneId;
+
+    @Column(name = "valid_from")
+    private java.time.LocalDate validFrom;
+
+    @Column(name = "valid_to")
+    private java.time.LocalDate validTo;
 
     @Column(name = "day_of_week", nullable = false)
     private Short dayOfWeek;

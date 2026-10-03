@@ -377,7 +377,7 @@ class EnforcementHttpPostgresIntegrationTest {
         }
         assertThat(evidence.findByViolationId(violationId)).hasSize(2);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM audit.functional_audit_log WHERE action = 'EVIDENCE_UPLOAD_FAILED' AND actor_id = ? AND result = 'FAILURE'", Long.class, fixture.inspectorId)).isEqualTo(4);
-        assertThat(flyway.info().current().getVersion().toString()).isEqualTo("25");
+        assertThat(flyway.info().current().getVersion()).isGreaterThanOrEqualTo(org.flywaydb.core.api.MigrationVersion.fromVersion("25"));
         assertThat(flyway.validateWithResult().validationSuccessful).isTrue();
     }
 

@@ -27,7 +27,7 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class ParkingControlEvaluationServiceTest {
     @Mock ParkingControlEventRepository events;
-    @Mock TariffRepository tariffs;
+    @Mock ec.gob.simertpi.application.parking.rules.ParkingRulesService rules;
     @Mock ParkingSessionRepository sessions;
     @Mock NotificationGenerationService notificationGeneration;
     @Mock AuditService audit;
@@ -37,7 +37,7 @@ class ParkingControlEvaluationServiceTest {
     void expiresAtContractEndWithoutRecordingSanctionDuringGrace() {
         OffsetDateTime end = OffsetDateTime.parse("2026-10-02T10:00:00Z");
         ParkingSession session = session("ACTIVE", end.minusHours(1), end);
-        when(tariffs.findById(session.getTariffId())).thenReturn(Optional.of(tariff(240)));
+        when(rules.sessionPolicy(session)).thenReturn(new ec.gob.simertpi.application.parking.rules.ParkingRulesService.SessionPolicy(240, 10, "RULES_RESOLVED"));
         when(events.insertIfAbsent(any(), any(), any(), any(), any(), anyString(), any(), anyInt())).thenReturn(1);
 
         service.evaluate(session, end.plusMinutes(5));
@@ -52,7 +52,7 @@ class ParkingControlEvaluationServiceTest {
     void recordsExpirationAndExcessOnceAcrossRepeatedEvaluation() {
         OffsetDateTime end = OffsetDateTime.parse("2026-10-02T10:00:00Z");
         ParkingSession session = session("ACTIVE", end.minusHours(1), end);
-        when(tariffs.findById(session.getTariffId())).thenReturn(Optional.of(tariff(240)));
+        when(rules.sessionPolicy(session)).thenReturn(new ec.gob.simertpi.application.parking.rules.ParkingRulesService.SessionPolicy(240, 10, "RULES_RESOLVED"));
         AtomicInteger insertionAttempts = new AtomicInteger();
         when(events.insertIfAbsent(any(), any(), any(), any(), any(), anyString(), any(), anyInt()))
                 .thenAnswer(invocation -> insertionAttempts.getAndIncrement() == 0 ? 1 : 0);
@@ -81,7 +81,7 @@ class ParkingControlEvaluationServiceTest {
         OffsetDateTime end = OffsetDateTime.parse("2026-10-02T10:00:00Z");
         OffsetDateTime evaluation = end.plusMinutes(10).plusSeconds(1);
         ParkingSession session = session("ACTIVE", end.minusHours(1), end);
-        when(tariffs.findById(session.getTariffId())).thenReturn(Optional.of(tariff(1000)));
+        when(rules.sessionPolicy(session)).thenReturn(new ec.gob.simertpi.application.parking.rules.ParkingRulesService.SessionPolicy(1000, 10, "RULES_RESOLVED"));
         when(events.insertIfAbsent(any(), any(), any(), any(), any(), anyString(), any(), anyInt())).thenReturn(1);
 
         service.evaluate(session, evaluation);
@@ -94,7 +94,7 @@ class ParkingControlEvaluationServiceTest {
     void marksMaximumTimeOnceAndDoesNotAlsoMarkExpiry() {
         OffsetDateTime now = OffsetDateTime.parse("2026-10-02T10:00:00Z");
         ParkingSession session = session("ACTIVE", now.minusMinutes(240), now.minusMinutes(20));
-        when(tariffs.findById(session.getTariffId())).thenReturn(Optional.of(tariff(240)));
+        when(rules.sessionPolicy(session)).thenReturn(new ec.gob.simertpi.application.parking.rules.ParkingRulesService.SessionPolicy(240, 10, "RULES_RESOLVED"));
         when(events.insertIfAbsent(any(), any(), any(), any(), any(), anyString(), any(), anyInt())).thenReturn(1);
 
         service.evaluate(session, now);
@@ -108,7 +108,7 @@ class ParkingControlEvaluationServiceTest {
     void emitsNotificationsOnlyWhenAControlEventWasInserted() {
         OffsetDateTime end = OffsetDateTime.parse("2026-10-02T10:00:00Z");
         ParkingSession session = session("ACTIVE", end.minusHours(1), end);
-        when(tariffs.findById(session.getTariffId())).thenReturn(Optional.of(tariff(240)));
+        when(rules.sessionPolicy(session)).thenReturn(new ec.gob.simertpi.application.parking.rules.ParkingRulesService.SessionPolicy(240, 10, "RULES_RESOLVED"));
         when(events.insertIfAbsent(any(), any(), any(), any(), any(), anyString(), any(), anyInt())).thenReturn(0);
 
         service.evaluate(session, end.plusMinutes(5));
@@ -116,11 +116,30 @@ class ParkingControlEvaluationServiceTest {
         verifyNoInteractions(notificationGeneration);
     }
 
+    @Test
+    void missingGraceExpiresPurchasedTimeWithoutSanction() {
+        var end = OffsetDateTime.parse("2026-10-02T10:00:00Z");
+        var session = session("ACTIVE", end.minusHours(1), end);
+        when(rules.sessionPolicy(session)).thenReturn(new ec.gob.simertpi.application.parking.rules.ParkingRulesService.SessionPolicy(300, null, "NO_CONTROL_CONFIGURATION"));
+        assertEquals("NO_CONTROL_CONFIGURATION", service.evaluate(session, end.plusMinutes(50)));
+        assertEquals("EXPIRED", session.getStatus());
+        verify(events, never()).insertIfAbsent(any(), any(), any(), any(), any(), eq("AMONESTACION"), any(), anyInt());
+    }
+
+    @Test
+    void usesConfiguredGraceInsteadOfTenMinutes() {
+        var end = OffsetDateTime.parse("2026-10-02T10:00:00Z");
+        var session = session("ACTIVE", end.minusHours(1), end);
+        when(rules.sessionPolicy(session)).thenReturn(new ec.gob.simertpi.application.parking.rules.ParkingRulesService.SessionPolicy(300, 25, "RULES_RESOLVED"));
+        assertEquals("GRACE_PERIOD", service.evaluate(session, end.plusMinutes(20)));
+        verify(events, never()).insertIfAbsent(any(), any(), any(), any(), any(), eq("AMONESTACION"), any(), anyInt());
+    }
+
     private void assertOverdueBand(int minutes, String expectedEvent) {
-        reset(events, tariffs, notificationGeneration);
+        reset(events, rules, notificationGeneration);
         OffsetDateTime end = OffsetDateTime.parse("2026-10-02T10:00:00Z");
         ParkingSession session = session("ACTIVE", end.minusHours(1), end);
-        when(tariffs.findById(session.getTariffId())).thenReturn(Optional.of(tariff(1000)));
+        when(rules.sessionPolicy(session)).thenReturn(new ec.gob.simertpi.application.parking.rules.ParkingRulesService.SessionPolicy(1000, 10, "RULES_RESOLVED"));
         when(events.insertIfAbsent(any(), any(), any(), any(), any(), anyString(), any(), anyInt())).thenReturn(1);
         service.evaluate(session, end.plusMinutes(minutes));
         verify(events).insertIfAbsent(any(), eq(session.getId()), any(), any(), any(), eq(expectedEvent), any(), anyInt());

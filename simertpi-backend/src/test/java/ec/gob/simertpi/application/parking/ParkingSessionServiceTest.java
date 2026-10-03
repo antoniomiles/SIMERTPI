@@ -61,7 +61,7 @@ class ParkingSessionServiceTest {
     private TariffRepository tariffRepository;
 
     @Mock
-    private ParkingCalendarService parkingCalendarService;
+    private ec.gob.simertpi.application.parking.rules.ParkingRulesService rules;
 
     @Mock
     private ZoneRepository zoneRepository;
@@ -143,12 +143,8 @@ class ParkingSessionServiceTest {
         when(parkingSessionRepository.existsByParkingSpaceIdAndStatusIn(parkingSpaceId, List.of("PENDING_PAYMENT", "ACTIVE", "EXTENDED", "EXPIRED", "MAX_TIME_REACHED"))).thenReturn(false);
         when(streetRepository.findById(streetId)).thenReturn(Optional.of(street));
         when(zoneRepository.findById(zoneId)).thenReturn(Optional.of(zone));
-        when(tariffRepository.findById(tariffId)).thenReturn(Optional.of(tariff));
-        when(parkingCalendarService.isOperational(
-                any(UUID.class),
-                any(),
-                any()
-        )).thenReturn(true);
+        var quote = mockQuote(true, "RULES_RESOLVED");
+        when(rules.evaluateForZone(any(), any(), any(), any())).thenReturn(quote);
 
         when(parkingSessionRepository.save(any(ParkingSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
         ParkingSession savedSession = parkingSessionService.create(
@@ -166,11 +162,7 @@ class ParkingSessionServiceTest {
         assertEquals("PENDING_PAYMENT", savedSession.getStatus());
 
         verify(parkingSessionRepository).save(any(ParkingSession.class));
-        verify(parkingCalendarService).isOperational(
-                any(UUID.class),
-                any(),
-                any()
-        );
+        verify(rules).evaluateForZone(any(), any(), any(), any());
     }
 
     @Test
@@ -181,12 +173,7 @@ class ParkingSessionServiceTest {
         when(parkingSessionRepository.existsByParkingSpaceIdAndStatusIn(parkingSpaceId, List.of("PENDING_PAYMENT", "ACTIVE", "EXTENDED", "EXPIRED", "MAX_TIME_REACHED"))).thenReturn(false);
         when(streetRepository.findById(streetId)).thenReturn(Optional.of(street));
         when(zoneRepository.findById(zoneId)).thenReturn(Optional.of(zone));
-        when(tariffRepository.findById(tariffId)).thenReturn(Optional.of(tariff));
-        when(parkingCalendarService.isOperational(
-                any(UUID.class),
-                any(),
-                any()
-        )).thenReturn(false);
+        when(rules.evaluateForZone(any(), any(), any(), any())).thenReturn(mockQuote(false, "OUTSIDE_OPERATION_HOURS"));
 
         IllegalArgumentException exception = assertThrows(
                 IllegalArgumentException.class,
@@ -200,15 +187,11 @@ class ParkingSessionServiceTest {
         );
 
         assertEquals(
-                "Parking service is not operational at this time",
+                "OUTSIDE_OPERATION_HOURS",
                 exception.getMessage()
         );
 
-        verify(parkingCalendarService).isOperational(
-                any(UUID.class),
-                any(),
-                any()
-        );
+        verify(rules).evaluateForZone(any(), any(), any(), any());
         verify(parkingSessionRepository, never()).save(any(ParkingSession.class));
     }
 
@@ -271,7 +254,7 @@ class ParkingSessionServiceTest {
         when(streetRepository.findById(streetId)).thenReturn(Optional.of(street));
         when(zoneRepository.findById(zoneId)).thenReturn(Optional.of(zone));
         tariff.setValidTo(OffsetDateTime.now().minusDays(1));
-        when(tariffRepository.findById(tariffId)).thenReturn(Optional.of(tariff));
+        when(rules.evaluateForZone(any(), any(), any(), any())).thenReturn(mockQuote(false, "NO_ACTIVE_TARIFF"));
         assertThrows(IllegalArgumentException.class,
                 () -> parkingSessionService.create(userId, vehicleId, parkingSpaceId, tariffId, 60));
         verify(parkingSessionRepository, never()).save(any(ParkingSession.class));
@@ -324,4 +307,11 @@ class ParkingSessionServiceTest {
                 () -> parkingSessionService.findByVehicleIdForUsername(vehicleId, "citizen-a"));
         verify(parkingSessionRepository, never()).findByVehicleId(vehicleId);
     }
+    private ec.gob.simertpi.application.parking.rules.ParkingRulesResult mockQuote(boolean operational, String reason) {
+        return new ec.gob.simertpi.application.parking.rules.ParkingRulesResult(zoneId, parkingSpaceId,
+                java.time.Instant.now().atZone(java.time.ZoneOffset.UTC), operational, operational, false, null,
+                "TEST", 30, 240, 10, "USD", new BigDecimal("0.25"), 60, null, 60, 60L,
+                java.time.Instant.now().plusSeconds(3600), operational, reason, tariffId);
+    }
+
 }

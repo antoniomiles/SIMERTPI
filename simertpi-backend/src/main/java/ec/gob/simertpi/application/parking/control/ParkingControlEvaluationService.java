@@ -5,10 +5,8 @@ import ec.gob.simertpi.application.notifications.NotificationEventIds;
 import ec.gob.simertpi.application.audit.AuditService;
 import ec.gob.simertpi.domain.parking.entity.ParkingControlEvent;
 import ec.gob.simertpi.domain.parking.entity.ParkingSession;
-import ec.gob.simertpi.domain.parking.entity.Tariff;
 import ec.gob.simertpi.domain.parking.repository.ParkingControlEventRepository;
 import ec.gob.simertpi.domain.parking.repository.ParkingSessionRepository;
-import ec.gob.simertpi.domain.parking.repository.TariffRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,55 +21,56 @@ public class ParkingControlEvaluationService {
     private static final String EXTENDED = "EXTENDED";
     private static final String EXPIRED = "EXPIRED";
     private static final String MAX_TIME_REACHED = "MAX_TIME_REACHED";
-    private static final int GRACE_MINUTES = 10;
     private static final int MAX_TIME_WARNING_MINUTES = 30;
 
     private final ParkingControlEventRepository events;
-    private final TariffRepository tariffs;
+    private final ec.gob.simertpi.application.parking.rules.ParkingRulesService rules;
     private final ParkingSessionRepository sessions;
     private final NotificationGenerationService notificationGeneration;
     private final AuditService audit;
 
     public ParkingControlEvaluationService(ParkingControlEventRepository events,
-                                           TariffRepository tariffs,
+                                           ec.gob.simertpi.application.parking.rules.ParkingRulesService rules,
                                            ParkingSessionRepository sessions,
                                            NotificationGenerationService notificationGeneration,
                                            AuditService audit) {
         this.events = events;
-        this.tariffs = tariffs;
+        this.rules = rules;
         this.sessions = sessions;
         this.notificationGeneration = notificationGeneration;
         this.audit = audit;
     }
 
     @Transactional
-    public void evaluate(UUID sessionId) {
-        evaluate(sessionId, OffsetDateTime.now());
+    public String evaluate(UUID sessionId) {
+        return evaluate(sessionId, OffsetDateTime.now());
     }
 
-    public void evaluate(ParkingSession session) {
-        evaluate(session, OffsetDateTime.now());
+    public String evaluate(ParkingSession session) {
+        return evaluate(session, OffsetDateTime.now());
     }
 
     @Transactional
-    public void evaluate(UUID sessionId, OffsetDateTime now) {
+    public String evaluate(UUID sessionId, OffsetDateTime now) {
         ParkingSession session = sessions.findById(sessionId).orElse(null);
         if (session != null) {
-            evaluate(session, now);
+            return evaluate(session, now);
         }
+        return "SESSION_NOT_FOUND";
     }
 
     /** Deterministic entry point used by focused lifecycle tests. */
     @Transactional
-    public void evaluate(ParkingSession session, OffsetDateTime now) {
-        if (session == null || now == null || session.getExpectedEndAt() == null) return;
+    public String evaluate(ParkingSession session, OffsetDateTime now) {
+        if (session == null || now == null || session.getExpectedEndAt() == null) return "IGNORED";
         String status = session.getStatus();
         if (!ACTIVE.equals(status) && !EXTENDED.equals(status)
-                && !EXPIRED.equals(status) && !MAX_TIME_REACHED.equals(status)) return;
+                && !EXPIRED.equals(status) && !MAX_TIME_REACHED.equals(status)) return "IGNORED";
 
-        evaluateMaximumContinuousTime(session, now);
-        if (MAX_TIME_REACHED.equals(session.getStatus())) return;
-        if (now.isBefore(session.getExpectedEndAt())) return;
+        var policy = rules.sessionPolicy(session);
+        evaluateMaximumContinuousTime(session, now, policy.maximumContinuousMinutes());
+        if (MAX_TIME_REACHED.equals(session.getStatus())) return "MAX_TIME_REACHED";
+        if (now.isBefore(session.getExpectedEndAt())) return policy.reasonCode();
 
         Duration overdue = Duration.between(session.getExpectedEndAt(), now);
         long wholeMinutes = Math.max(0, overdue.toMinutes());
@@ -83,24 +82,24 @@ public class ParkingControlEvaluationService {
             session.setUpdatedAt(now);
         }
 
-        // Expiration only closes purchased time. It does not assert that the vehicle left.
-        if (overdue.compareTo(Duration.ofMinutes(GRACE_MINUTES)) <= 0) {
+        // Missing policy never implies zero grace or permission to sanction.
+        if (!"RULES_RESOLVED".equals(policy.reasonCode())) return policy.reasonCode();
+        if (overdue.compareTo(Duration.ofMinutes(policy.gracePeriodMinutes())) <= 0) {
             record(session, "GRACE_PERIOD", (int) overdueMinutes, now);
-            return;
+            return "GRACE_PERIOD";
         }
         record(session, "AMONESTACION", (int) overdueMinutes, now);
         if (overdueMinutes <= 30) record(session, "EXCESS_11_30", (int) overdueMinutes, now);
         else if (overdueMinutes <= 60) record(session, "EXCESS_31_60", (int) overdueMinutes, now);
         else if (overdueMinutes <= 120) record(session, "EXCESS_61_120", (int) overdueMinutes, now);
         else record(session, "EXCESS_OVER_120", (int) overdueMinutes, now);
+        return "EXCESS_RECORDED";
     }
 
-    private void evaluateMaximumContinuousTime(ParkingSession session, OffsetDateTime now) {
-        if (session.getStartedAt() == null || session.getTariffId() == null) return;
-        Tariff tariff = tariffs.findById(session.getTariffId()).orElse(null);
-        if (tariff == null || tariff.getMaxContinuousMinutes() == null) return;
+    private void evaluateMaximumContinuousTime(ParkingSession session, OffsetDateTime now, Integer maximumMinutes) {
+        if (session.getStartedAt() == null || maximumMinutes == null) return;
         long elapsed = Duration.between(session.getStartedAt(), now).toMinutes();
-        long remaining = tariff.getMaxContinuousMinutes() - elapsed;
+        long remaining = maximumMinutes - elapsed;
         if (remaining > MAX_TIME_WARNING_MINUTES) return;
         if (remaining > 0) {
             record(session, "MAX_TIME_WARNING", 0, now);
