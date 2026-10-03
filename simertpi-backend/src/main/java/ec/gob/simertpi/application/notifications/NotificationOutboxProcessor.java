@@ -25,6 +25,9 @@ public class NotificationOutboxProcessor {
     private static final Logger log = LoggerFactory.getLogger(NotificationOutboxProcessor.class);
     private static final Set<String> EVENT_TYPES = Set.of("PERMIT_CREATED", "PERMIT_CANCELLED", "PERMIT_EXPIRED",
             "PAYMENT_CREATED", "PAYMENT_APPROVED", "PAYMENT_DECLINED", "PAYMENT_FAILED", "PAYMENT_CANCELLED_TIMEOUT");
+    private final org.springframework.transaction.support.TransactionTemplate tx;
+    private final ec.gob.simertpi.application.reconciliation.RecoveryConfiguration config;
+    private final ec.gob.simertpi.application.reconciliation.ReconciliationFindings findings;
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
     private final NotificationGenerationService generation;
@@ -33,7 +36,13 @@ public class NotificationOutboxProcessor {
 
     public NotificationOutboxProcessor(JdbcTemplate jdbc, ObjectMapper mapper,
                                         NotificationGenerationService generation,
-                                        PaymentRepository payments, ParkingSessionRepository sessions) {
+                                        PaymentRepository payments, ParkingSessionRepository sessions,
+                                        org.springframework.transaction.PlatformTransactionManager manager,
+                                        ec.gob.simertpi.application.reconciliation.RecoveryConfiguration config,
+                                        ec.gob.simertpi.application.reconciliation.ReconciliationFindings findings) {
+        this.tx = new org.springframework.transaction.support.TransactionTemplate(manager);
+        this.config = config;
+        this.findings = findings;
         this.jdbc = jdbc;
         this.mapper = mapper;
         this.generation = generation;
@@ -42,36 +51,70 @@ public class NotificationOutboxProcessor {
     }
 
     @Scheduled(fixedDelayString = "${simertpi.notifications.outbox.fixed-delay-ms:5000}")
-    @Transactional
-    public void processPending() {
-        OffsetDateTime now = OffsetDateTime.now();
-        List<OutboxEvent> events = jdbc.query("""
-                SELECT id, aggregate_type, aggregate_id, event_type, payload, occurred_at
-                FROM audit.outbox_events
-                WHERE status = 'PENDING' AND event_type = ANY (?)
-                  AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
-                ORDER BY occurred_at
-                LIMIT 100
-                FOR UPDATE SKIP LOCKED
-                """, statement -> {
-            statement.setArray(1, statement.getConnection().createArrayOf("varchar", EVENT_TYPES.toArray()));
-            statement.setObject(2, now);
-        }, (rs, row) -> new OutboxEvent(rs.getObject("id", UUID.class), rs.getString("aggregate_type"),
-                rs.getObject("aggregate_id", UUID.class), rs.getString("event_type"), rs.getString("payload"),
-                rs.getObject("occurred_at", OffsetDateTime.class)));
+    public void scheduledProcessing() {
+        if(config.enabled("simertpi.notifications.outbox.enabled"))
+            ec.gob.simertpi.application.reconciliation.ReconciliationSchedulers.runCorrelated(this::processPending);
+    }
 
-        for (OutboxEvent event : events) {
+    public void processPending() {
+        int max = Math.toIntExact(config.positive("simertpi.outbox.max-attempts"));
+        long backoff = config.positive("simertpi.outbox.backoff-seconds");
+        for(int batch=0;batch<100;batch++) {
+            UUID token=UUID.randomUUID(); OffsetDateTime now=OffsetDateTime.now();
+            OutboxEvent event=tx.execute(status -> {
+                List<OutboxEvent> events=jdbc.query("""
+                  SELECT id,aggregate_type,aggregate_id,event_type,payload,occurred_at FROM audit.outbox_events
+                  WHERE status IN ('PENDING','FAILED') AND retry_count < ? AND event_type=ANY(?)
+                    AND (next_attempt_at IS NULL OR next_attempt_at<=?)
+                  ORDER BY occurred_at LIMIT 1 FOR UPDATE SKIP LOCKED
+                  """, statement -> {
+                    statement.setInt(1,max);
+                    statement.setArray(2,statement.getConnection().createArrayOf("varchar",EVENT_TYPES.toArray()));
+                    statement.setObject(3,now);
+                  }, (rs,row) -> new OutboxEvent(rs.getObject("id",UUID.class),rs.getString("aggregate_type"),
+                    rs.getObject("aggregate_id",UUID.class),rs.getString("event_type"),rs.getString("payload"),rs.getObject("occurred_at",OffsetDateTime.class)));
+                if(events.isEmpty())return null;
+                OutboxEvent claimed=events.getFirst();
+                jdbc.update("UPDATE audit.outbox_events SET status='PROCESSING',retry_count=retry_count+1,last_attempt_at=?,processing_token=?,updated_at=? WHERE id=?",now,token,now,claimed.id());
+                return claimed;
+            });
+            if(event==null)return;
             try {
-                route(event);
-                jdbc.update("UPDATE audit.outbox_events SET status='PUBLISHED', published_at=?, updated_at=?, " +
-                        "last_error=NULL, next_attempt_at=NULL WHERE id=?", now, now, event.id());
-            } catch (RuntimeException processingFailure) {
-                log.warn("Notification outbox processing failed for event {}", event.id());
-                jdbc.update("UPDATE audit.outbox_events SET retry_count=retry_count+1, status='PENDING', " +
-                        "last_error='NOTIFICATION_PROCESSING_FAILED', next_attempt_at=?, updated_at=? WHERE id=?",
-                        now.plusMinutes(1), now, event.id());
+                tx.executeWithoutResult(status -> {
+                    var rows=jdbc.queryForList("SELECT id FROM audit.outbox_events WHERE id=? AND status='PROCESSING' AND processing_token=? FOR UPDATE",event.id(),token);
+                    if(rows.isEmpty())return;
+                    route(event);
+                    jdbc.update("UPDATE audit.outbox_events SET status='PUBLISHED',published_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP,last_error=NULL,next_attempt_at=NULL,processing_token=NULL WHERE id=? AND processing_token=?",event.id(),token);
+                });
+            }catch(RuntimeException processingFailure) {
+                log.warn("Notification outbox processing failed for event {}",event.id());
+                tx.executeWithoutResult(status -> {
+                    var rows=jdbc.queryForList("SELECT retry_count FROM audit.outbox_events WHERE id=? AND status='PROCESSING' AND processing_token=? FOR UPDATE",event.id(),token);
+                    if(rows.isEmpty())return;
+                    int attempts=((Number)rows.getFirst().get("retry_count")).intValue();
+                    boolean dead=attempts>=max;
+                    jdbc.update("UPDATE audit.outbox_events SET status=?,last_error='NOTIFICATION_PROCESSING_FAILED',next_attempt_at=?,processing_token=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                        dead?"DEAD":"FAILED",dead?null:OffsetDateTime.now().plusSeconds(Math.multiplyExact(backoff,attempts)),event.id());
+                    if(dead)findings.report("OUTBOX",event.id(),"RETRY_EXHAUSTED","MANUAL_REVIEW_REQUIRED","DEAD","OUTBOX_RETRY_EXHAUSTED");
+                });
             }
         }
+    }
+
+    public java.util.List<ec.gob.simertpi.application.reconciliation.ReconciliationResult> recoverStale() {
+        long timeout=config.positive("simertpi.outbox.processing-timeout-seconds");
+        int max=Math.toIntExact(config.positive("simertpi.outbox.max-attempts"));
+        long backoff=config.positive("simertpi.outbox.backoff-seconds");
+        return tx.execute(status -> {
+            var result=new java.util.ArrayList<ec.gob.simertpi.application.reconciliation.ReconciliationResult>();
+            var rows=jdbc.queryForList("SELECT id,retry_count FROM audit.outbox_events WHERE (status='PROCESSING' AND COALESCE(last_attempt_at,updated_at)<=?) OR (status IN ('PENDING','FAILED') AND retry_count>=?) ORDER BY id FOR UPDATE SKIP LOCKED",OffsetDateTime.now().minusSeconds(timeout),max);
+            for(var row:rows) {
+                UUID id=(UUID)row.get("id");boolean dead=((Number)row.get("retry_count")).intValue()>=max;
+                jdbc.update("UPDATE audit.outbox_events SET status=?,processing_token=NULL,last_error='STALE_PROCESSING',next_attempt_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",dead?"DEAD":"FAILED",dead?null:OffsetDateTime.now().plusSeconds(backoff),id);
+                result.add(findings.report("OUTBOX",id,dead?"RETRY_EXHAUSTED":"STALE_PROCESSING",dead?"MANUAL_REVIEW_REQUIRED":"AUTO_RECOVERABLE",dead?"DEAD":"RETRY_SCHEDULED",dead?"OUTBOX_RETRY_EXHAUSTED":"OUTBOX_STALE_PROCESSING_RECOVERED"));
+            }
+            return result;
+        });
     }
 
     private void route(OutboxEvent event) {

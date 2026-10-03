@@ -72,6 +72,10 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.PATCH, "/api/v1/notifications/*/read")
                     .hasAuthority("CITIZEN")
                 .requestMatchers("/api/v1/notifications/**").denyAll()
+                .requestMatchers(HttpMethod.POST, "/api/v1/admin/reconciliation/payments",
+                        "/api/v1/admin/reconciliation/evidence", "/api/v1/admin/reconciliation/outbox")
+                    .hasAuthority("SIMERTPI_ADMIN")
+                .requestMatchers("/api/v1/admin/reconciliation/**").denyAll()
                 .requestMatchers("/api/v1/audit/**").hasAuthority("SIMERTPI_ADMIN")
                 .requestMatchers(HttpMethod.POST, "/api/v1/vehicles")
                     .hasAuthority("CITIZEN")

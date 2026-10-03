@@ -33,6 +33,9 @@ import java.util.UUID;
 @Transactional
 public class PaymentService {
 
+    @jakarta.persistence.PersistenceContext
+    private jakarta.persistence.EntityManager entityManager;
+
     private final PaymentRepository paymentRepository;
     private final ParkingSessionRepository parkingSessionRepository;
     private final TariffRepository tariffRepository;
@@ -82,6 +85,7 @@ public class PaymentService {
         Payment payment = paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Payment not found"));
 
+        lockAndRefresh(payment);
         transition(payment, PaymentStatus.DECLINED);
 
         if (failureReason == null || failureReason.isBlank()) {
@@ -108,6 +112,7 @@ public class PaymentService {
         Payment payment = paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Payment not found"));
 
+        lockAndRefresh(payment);
         transition(payment, PaymentStatus.FAILED);
 
         if (failureReason == null || failureReason.isBlank()) {
@@ -148,6 +153,8 @@ public class PaymentService {
                 .findByIdForUpdate(payment.getParkingSessionId())
                 .orElseThrow(() -> new ResourceNotFoundException("Parking session not found"));
 
+        if (entityManager != null) entityManager.refresh(payment);
+        transition(payment, PaymentStatus.APPROVED);
         OffsetDateTime now = OffsetDateTime.now();
 
         /*
@@ -332,6 +339,12 @@ public class PaymentService {
         idempotencyStore.complete(scopedKey, 201, payment.getId().toString(), OffsetDateTime.now());
         return payment;
     }
+    private void lockAndRefresh(Payment payment) {
+        parkingSessionRepository.findByIdForUpdate(payment.getParkingSessionId())
+            .orElseThrow(() -> new ResourceNotFoundException("Parking session not found"));
+        if (entityManager != null) entityManager.refresh(payment);
+    }
+
     private void transition(Payment payment, PaymentStatus target) {
         PaymentStatus current = PaymentStatus.fromCode(payment.getStatus());
         if (!current.canTransitionTo(target)) {

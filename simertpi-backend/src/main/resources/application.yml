@@ -48,9 +48,25 @@ simertpi:
       fixed-delay-ms: 60000
   payments:
     pending-timeout:
-      enabled: false
+      enabled: ${SIMERTPI_PENDING_TIMEOUT_ENABLED:false}
+      # minutes must be supplied explicitly when enabled.
+  outbox:
+    max-attempts: ${SIMERTPI_OUTBOX_MAX_ATTEMPTS:3}
+    backoff-seconds: ${SIMERTPI_OUTBOX_BACKOFF_SECONDS:30}
+    processing-timeout-seconds: ${SIMERTPI_OUTBOX_PROCESSING_TIMEOUT_SECONDS:300}
+  reconciliation:
+    payments:
+      enabled: ${SIMERTPI_PAYMENT_RECONCILIATION_ENABLED:false}
+      fixed-delay-ms: ${SIMERTPI_PAYMENT_RECONCILIATION_DELAY_MS:60000}
+    evidence:
+      enabled: ${SIMERTPI_EVIDENCE_RECONCILIATION_ENABLED:false}
+      fixed-delay-ms: ${SIMERTPI_EVIDENCE_RECONCILIATION_DELAY_MS:300000}
+    outbox:
+      enabled: ${SIMERTPI_OUTBOX_RECOVERY_ENABLED:false}
+      fixed-delay-ms: ${SIMERTPI_OUTBOX_RECOVERY_DELAY_MS:60000}
   notifications:
     outbox:
+      enabled: ${SIMERTPI_OUTBOX_ENABLED:true}
       fixed-delay-ms: 5000
     reminders:
       fixed-delay-ms: 60000

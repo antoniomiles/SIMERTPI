@@ -63,6 +63,19 @@ public class LocalObjectStorage implements ObjectStorage {
         Files.deleteIfExists(resolve(key));
     }
 
+    @Override
+    public java.util.List<String> listKeys() throws IOException {
+        if (!properties.isEnabled()) throw new IllegalStateException("Evidence storage is disabled");
+        rejectSymbolicLinks(basePath);
+        if (!Files.exists(basePath)) return java.util.List.of();
+        try (var paths = Files.walk(basePath)) {
+            return paths.filter(path -> Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS))
+                .map(path -> basePath.relativize(path).toString().replace('\\', '/'))
+                .filter(key -> KEY_PATTERN.matcher(key).matches())
+                .peek(this::resolve).sorted().toList();
+        }
+    }
+
     private Path resolve(String key) {
         if (!properties.isEnabled()) throw new IllegalStateException("Evidence storage is disabled");
         if (key == null || !KEY_PATTERN.matcher(key).matches()) throw new InvalidRequestException("Invalid storage key");
