@@ -1,4 +1,4 @@
-﻿spring:
+spring:
   application:
     name: simertpi-backend
 
@@ -9,12 +9,21 @@
     driver-class-name: org.postgresql.Driver
 
   jpa:
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
     hibernate:
       ddl-auto: validate
     open-in-view: false
 
   flyway:
     enabled: true
+
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 11MB
 
 server:
   port: 8080
@@ -27,4 +36,33 @@ management:
 
   endpoint:
     health:
-      show-details: always
+      show-details: never
+
+simertpi:
+  control:
+    scheduler:
+      enabled: true
+      fixed-delay-ms: 60000
+  payments:
+    pending-timeout:
+      enabled: false
+  notifications:
+    outbox:
+      fixed-delay-ms: 5000
+    reminders:
+      fixed-delay-ms: 60000
+  evidence:
+    storage:
+      enabled: true
+      base-path: ${java.io.tmpdir}/simertpi-evidence
+      max-file-size-bytes: 10485760
+      allowed-media-types:
+        - image/jpeg
+        - image/png
+        - application/pdf
+    retry:
+      fixed-delay-ms: 60000
+
+logging:
+  pattern:
+    level: "%5p [cid:%X{correlationId:-}]"

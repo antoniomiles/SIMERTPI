@@ -36,3 +36,11 @@ build/
 
 ### Mac OS ###
 .DS_Store
+### Temporary / backup files ###
+*.bak
+*.tmp
+*.log
+*.orig
+*.rej
+*~
+Thumbs.db
