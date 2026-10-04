@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app/bootstrap/bootstrap.dart';
 import '../../app/router/app_router.dart';
 import '../../core/theme/app_tokens.dart';
+import '../../core/theme/app_typography.dart';
 import '../../core/widgets/app_buttons.dart';
 import '../../core/widgets/app_qr_marker.dart';
 import '../../core/widgets/app_feedback.dart';
@@ -53,7 +54,7 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: const Text('SIMERTPI'),
+      title: const Text('SIMERTPI', style: AppTypography.brand),
       titleSpacing: AppSpace.lg,
       backgroundColor: AppColors.primary,
       foregroundColor: Colors.white,
@@ -96,15 +97,16 @@ class _HomePageState extends State<HomePage> {
                   child: Row(
                     children: [
                       const AppQrMarker(),
-                      const SizedBox(width: AppSpace.md),
+                      const SizedBox(width: AppSpace.xl),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
                               'Escanear código QR',
-                              style: Theme.of(context).textTheme.titleMedium
-                                  ?.copyWith(color: AppColors.primary),
+                              style: AppTypography.section.copyWith(
+                                color: AppColors.primary,
+                              ),
                             ),
                             const SizedBox(height: AppSpace.sm),
                             const Text('Identifica zona y espacio'),
@@ -124,13 +126,11 @@ class _HomePageState extends State<HomePage> {
                 ),
                 const SizedBox(height: AppSpace.xl),
                 TextButton(
+                  style: TextButton.styleFrom(padding: EdgeInsets.zero),
                   onPressed: _openVehicles,
                   child: Align(
                     alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Mis vehículos',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
+                    child: Text('Mis vehículos', style: AppTypography.section),
                   ),
                 ),
                 const SizedBox(height: AppSpace.md),
@@ -141,6 +141,7 @@ class _HomePageState extends State<HomePage> {
                 ),
                 const SizedBox(height: AppSpace.xl),
                 TextButton(
+                  style: TextButton.styleFrom(padding: EdgeInsets.zero),
                   onPressed: _future,
                   child: const Align(
                     alignment: Alignment.centerLeft,

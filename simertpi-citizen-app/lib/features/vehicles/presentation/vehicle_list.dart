@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_tokens.dart';
+import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/app_feedback.dart';
 import '../../../core/widgets/app_skeleton.dart';
 import '../state/vehicles_controller.dart';
@@ -58,17 +59,14 @@ class VehicleList extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     ExcludeSemantics(
-                      child: Text(
-                        vehicle.plate,
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
+                      child: Text(vehicle.plate, style: AppTypography.plate),
                     ),
                     const SizedBox(height: AppSpace.xs),
                     Text(
                       vehicle.description.isEmpty
                           ? 'Vehículo registrado'
                           : vehicle.description,
-                      style: Theme.of(context).textTheme.bodySmall,
+                      style: AppTypography.caption,
                     ),
                     if (!vehicle.active) const Text('Inactivo'),
                   ],

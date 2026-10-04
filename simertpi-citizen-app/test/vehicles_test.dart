@@ -14,7 +14,9 @@ import 'package:simertpi_citizen_app/app/bootstrap/bootstrap.dart';
 import 'package:simertpi_citizen_app/core/config/app_config.dart';
 import 'package:simertpi_citizen_app/core/errors/app_failure.dart';
 import 'package:simertpi_citizen_app/core/theme/app_theme.dart';
+import 'package:simertpi_citizen_app/core/theme/app_tokens.dart';
 import 'package:simertpi_citizen_app/core/widgets/app_skeleton.dart';
+import 'package:simertpi_citizen_app/core/widgets/app_buttons.dart';
 import 'package:simertpi_citizen_app/features/home/home_page.dart';
 import 'package:simertpi_citizen_app/features/vehicles/data/vehicle_service.dart';
 import 'package:simertpi_citizen_app/features/vehicles/state/vehicles_controller.dart';
@@ -226,12 +228,59 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        await tester.ensureVisible(find.text('Guardar vehículo'));
+        final fields = find.byType(TextFormField);
+        await tester.ensureVisible(fields.first);
+        await tester.tap(fields.first);
+        await tester.pumpAndSettle();
+        expect(tester.testTextInput.isVisible, true);
+        await tester.testTextInput.receiveAction(TextInputAction.next);
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .widget<EditableText>(find.byType(EditableText).at(1))
+              .focusNode
+              .hasFocus,
+          true,
+        );
+        await tester.ensureVisible(fields.last);
+        await tester.tap(fields.last);
+        await tester.pumpAndSettle();
+        expect(tester.testTextInput.isVisible, true);
+        final save = find.byType(AsyncButton);
+        await tester.ensureVisible(save);
+        await tester.pumpAndSettle();
+        final viewport = tester.getRect(find.byType(Scrollable).first);
+        expect(viewport.contains(tester.getCenter(save)), true);
+        await tester.tap(find.text('Guardar vehículo'));
+        await tester.pumpAndSettle();
+        expect(find.text('Ingresa la placa.'), findsOneWidget);
         expect(tester.takeException(), isNull);
         controller.dispose();
       },
     );
   }
+  testWidgets('Vehicle plate semantics and citizen actions remain accessible', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+
+    final controller = VehiclesController(FakeVehicles()..items = [vehicle]);
+    await tester.pumpWidget(await screen(VehiclesPage(controller: controller)));
+    await tester.pumpAndSettle();
+    expect(
+      find.bySemanticsLabel(RegExp('Vehículo, placa T E S T - 1 2 3')),
+      findsOneWidget,
+    );
+    await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+    await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+    final contrast =
+        (AppColors.accent.computeLuminance() + .05) /
+        (AppColors.ink.computeLuminance() + .05);
+    expect(contrast, greaterThanOrEqualTo(4.5));
+    expect(tester.takeException(), isNull);
+    controller.dispose();
+    semantics.dispose();
+  });
   testWidgets('Home reference render for visual review uses honest empty state', (
     tester,
   ) async {
@@ -295,6 +344,27 @@ void main() {
       ).writeAsBytes(data!.buffer.asUint8List());
       image.dispose();
     });
+    for (final entry in {
+      'vehicles-empty': VehiclesPage(controller: controller),
+      'vehicle-form': VehicleFormPage(controller: controller),
+    }.entries) {
+      await tester.pumpWidget(
+        await screen(RepaintBoundary(key: boundaryKey, child: entry.value)),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await tester.runAsync(() async {
+        final boundary =
+            boundaryKey.currentContext!.findRenderObject()!
+                as RenderRepaintBoundary;
+        final image = await boundary.toImage(pixelRatio: 1);
+        final data = await image.toByteData(format: ui.ImageByteFormat.png);
+        await File(
+          '${Platform.environment['TEMP'] ?? Directory.systemTemp.path}/simertpi-cp19-1-${entry.key}.png',
+        ).writeAsBytes(data!.buffer.asUint8List());
+        image.dispose();
+      });
+    }
     controller.dispose();
   });
 }
