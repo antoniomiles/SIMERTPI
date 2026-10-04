@@ -37,7 +37,18 @@ import java.util.concurrent.Future;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class ParkingSessionCreationHttpIntegrationTest {
+class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupport.AbstractPostgresIntegrationTest {
+
+    // Existing services use the wall clock. Keep valid-session scenarios away from
+    // midnight using the configurable operational timezone, without changing instants
+    // or mocking the rules engine. This offset stays within [-11, +12] hours.
+    private static final java.time.ZoneOffset TEST_TIME_ZONE = java.time.ZoneOffset.ofHours(
+            12 - java.time.Instant.now().atOffset(java.time.ZoneOffset.UTC).getHour());
+
+    @org.springframework.test.context.DynamicPropertySource
+    static void operationalTestTimeZone(org.springframework.test.context.DynamicPropertyRegistry registry) {
+        registry.add("simertpi.parking.rules.time-zone", TEST_TIME_ZONE::getId);
+    }
 
     @LocalServerPort
     int port;
@@ -71,7 +82,7 @@ class ParkingSessionCreationHttpIntegrationTest {
                 fixture.zone, "ZT-" + fixture.tag, "Integration zone");
         jdbc.update("INSERT INTO parking.streets(id, zone_id, code, name) VALUES (?, ?, ?, ?)",
                 fixture.street, fixture.zone, "ST-" + fixture.tag, "Integration street");
-        LocalDate today = LocalDate.now(java.time.ZoneId.of("America/Guayaquil"));
+        LocalDate today = LocalDate.now(TEST_TIME_ZONE);
         jdbc.update("INSERT INTO parking.schedules(id, zone_id, day_of_week, start_time, end_time) VALUES (?, ?, ?, ?, ?)",
                 UUID.randomUUID(), fixture.zone, (short) today.getDayOfWeek().getValue(),
                 LocalTime.MIDNIGHT, LocalTime.of(23, 59, 59));
@@ -275,7 +286,7 @@ class ParkingSessionCreationHttpIntegrationTest {
         assertThat(sessionRepository.countByParkingSpaceId(fixture.spaceA)).isZero();
         UUID holiday = UUID.randomUUID();
         try {
-            jdbc.update("INSERT INTO parking.holidays(id, holiday_date, name, zone_id, holiday_type, tariffed, valid_from) VALUES (?, ?, 'TEST ONLY', ?, 'NON_TARIFFED', false, ?)", holiday, LocalDate.now(java.time.ZoneId.of("America/Guayaquil")), fixture.zone, LocalDate.of(2026,1,1));
+            jdbc.update("INSERT INTO parking.holidays(id, holiday_date, name, zone_id, holiday_type, tariffed, valid_from) VALUES (?, ?, 'TEST ONLY', ?, 'NON_TARIFFED', false, ?)", holiday, LocalDate.now(TEST_TIME_ZONE), fixture.zone, LocalDate.of(2026,1,1));
             assertThat(objectMapper.readTree(queryRules("spaceId=" + fixture.spaceA).getBody()).get("reasonCode").asText()).isEqualTo("HOLIDAY_NON_CHARGEABLE");
             assertThat(post("citizen-a-" + fixture.tag, "HOLIDAY", fixture.spaceA, fixture.vehicleA).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
             assertThat(sessionRepository.countByParkingSpaceId(fixture.spaceA)).isZero();

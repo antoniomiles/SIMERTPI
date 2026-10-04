@@ -29,7 +29,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class EnforcementHttpPostgresIntegrationTest {
+class EnforcementHttpPostgresIntegrationTest extends ec.gob.simertpi.testsupport.AbstractPostgresIntegrationTest {
     static final java.nio.file.Path STORAGE_DIRECTORY = temporaryStorage();
     static java.nio.file.Path temporaryStorage() {
         try { return java.nio.file.Files.createTempDirectory("simertpi-cp9-http-"); }

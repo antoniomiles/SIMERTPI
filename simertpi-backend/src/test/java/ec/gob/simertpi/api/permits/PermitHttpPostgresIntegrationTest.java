@@ -22,7 +22,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class PermitHttpPostgresIntegrationTest {
+class PermitHttpPostgresIntegrationTest extends ec.gob.simertpi.testsupport.AbstractPostgresIntegrationTest {
     private static final String PASSWORD = "permit-checkpoint-test";
     @LocalServerPort int port;
     @Autowired TestRestTemplate http;

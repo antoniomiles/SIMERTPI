@@ -22,7 +22,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class SecurityHardeningHttpIntegrationTest {
+class SecurityHardeningHttpIntegrationTest extends ec.gob.simertpi.testsupport.AbstractPostgresIntegrationTest {
     private static final String PASSWORD = "security-hardening-test";
     private static final String CORRELATION_HEADER = "X-Correlation-ID";
 

@@ -32,7 +32,7 @@ import java.util.concurrent.Future;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class PaymentCreationHttpPostgresIntegrationTest {
+class PaymentCreationHttpPostgresIntegrationTest extends ec.gob.simertpi.testsupport.AbstractPostgresIntegrationTest {
 
     private static final String PASSWORD = "payment-flow-test";
 

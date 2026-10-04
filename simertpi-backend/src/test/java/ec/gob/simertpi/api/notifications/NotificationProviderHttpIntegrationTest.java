@@ -25,7 +25,7 @@ import static org.mockito.ArgumentMatchers.*;
 @SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT,properties={
  "simertpi.notifications.providers.push=SANDBOX","simertpi.notifications.providers.whatsapp=SANDBOX","simertpi.notifications.providers.email=SANDBOX",
  "simertpi.notifications.sandbox.enabled=true","simertpi.notifications.sandbox.outcome=DELIVERED"})
-class NotificationProviderHttpIntegrationTest {
+class NotificationProviderHttpIntegrationTest extends ec.gob.simertpi.testsupport.AbstractPostgresIntegrationTest {
  @Autowired io.micrometer.core.instrument.MeterRegistry metrics;
  private double metric(String name){var meter=metrics.find(name).counter();return meter==null?0:meter.count();}
 

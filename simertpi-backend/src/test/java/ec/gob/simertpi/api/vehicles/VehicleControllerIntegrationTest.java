@@ -3,6 +3,7 @@ package ec.gob.simertpi.api.vehicles;
 import ec.gob.simertpi.domain.identity.entity.User;
 import ec.gob.simertpi.domain.identity.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -19,7 +20,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class VehicleControllerIntegrationTest {
+class VehicleControllerIntegrationTest extends ec.gob.simertpi.testsupport.AbstractPostgresIntegrationTest {
     private static final String PASSWORD = "vehicle-test-password";
 
     @LocalServerPort private int port;
@@ -31,6 +32,13 @@ class VehicleControllerIntegrationTest {
     private UUID userId;
     private String username;
     private String inspectorUsername;
+
+    @AfterEach
+    void cleanUp() {
+        jdbc.update("DELETE FROM identity.vehicles WHERE user_id IN (SELECT id FROM identity.users WHERE username IN (?, ?))", username, inspectorUsername);
+        jdbc.update("DELETE FROM identity.user_roles WHERE user_id IN (SELECT id FROM identity.users WHERE username IN (?, ?))", username, inspectorUsername);
+        jdbc.update("DELETE FROM identity.users WHERE username IN (?, ?)", username, inspectorUsername);
+    }
 
     @BeforeEach
     void setUp() {

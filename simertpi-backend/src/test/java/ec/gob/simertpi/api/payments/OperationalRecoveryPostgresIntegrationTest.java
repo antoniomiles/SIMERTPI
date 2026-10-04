@@ -32,7 +32,7 @@ import java.util.concurrent.Future;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties={"simertpi.notifications.outbox.enabled=false", "simertpi.control.scheduler.enabled=false", "simertpi.outbox.max-attempts=2", "simertpi.outbox.backoff-seconds=60", "simertpi.outbox.processing-timeout-seconds=60"})
-class OperationalRecoveryPostgresIntegrationTest {
+class OperationalRecoveryPostgresIntegrationTest extends ec.gob.simertpi.testsupport.AbstractPostgresIntegrationTest {
 
     private static final String PASSWORD = "payment-flow-test";
 

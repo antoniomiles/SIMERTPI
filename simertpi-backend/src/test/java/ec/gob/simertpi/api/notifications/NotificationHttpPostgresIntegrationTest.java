@@ -24,7 +24,7 @@ import java.util.concurrent.Future;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class NotificationHttpPostgresIntegrationTest {
+class NotificationHttpPostgresIntegrationTest extends ec.gob.simertpi.testsupport.AbstractPostgresIntegrationTest {
     private static final String PASSWORD = "notification-test-password";
     @LocalServerPort int port;
     @Autowired TestRestTemplate http;

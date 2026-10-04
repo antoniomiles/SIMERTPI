@@ -32,7 +32,7 @@ import java.util.concurrent.Future;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class PaymentProviderHttpIntegrationTest {
+class PaymentProviderHttpIntegrationTest extends ec.gob.simertpi.testsupport.AbstractPostgresIntegrationTest {
     @Autowired io.micrometer.core.instrument.MeterRegistry metrics;
     private double metric(String name) { var meter=metrics.find(name).counter();return meter==null?0:meter.count(); }
 

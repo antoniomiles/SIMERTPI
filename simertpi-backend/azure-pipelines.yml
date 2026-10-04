@@ -1,0 +1,55 @@
+trigger:
+  branches:
+    include:
+      - develop
+      - main
+
+pr:
+  branches:
+    include:
+      - develop
+      - main
+
+pool:
+  vmImage: ubuntu-24.04
+
+steps:
+  - checkout: self
+    clean: true
+
+  - task: JavaToolInstaller@0
+    displayName: Select Java 21
+    inputs:
+      versionSpec: '21'
+      jdkArchitectureOption: x64
+      jdkSourceOption: PreInstalled
+
+  - bash: |
+      set -euo pipefail
+      java -version
+      mvn --version
+      docker info --format '{{.ServerVersion}}'
+    displayName: Validate Java, Maven and Docker
+    workingDirectory: $(Build.SourcesDirectory)/simertpi-backend
+
+  - bash: mvn --batch-mode --no-transfer-progress test
+    displayName: Unit and PostgreSQL integration tests
+    workingDirectory: $(Build.SourcesDirectory)/simertpi-backend
+
+  - task: PublishTestResults@2
+    displayName: Publish JUnit results
+    condition: always()
+    inputs:
+      testResultsFormat: JUnit
+      searchFolder: $(Build.SourcesDirectory)/simertpi-backend/target/surefire-reports
+      testResultsFiles: 'TEST-*.xml'
+      failTaskOnFailedTests: true
+      failTaskOnMissingResultsFile: true
+      testRunTitle: SIMERTPI backend
+
+  - task: PublishPipelineArtifact@1
+    displayName: Publish Surefire evidence
+    condition: always()
+    inputs:
+      targetPath: $(Build.SourcesDirectory)/simertpi-backend/target/surefire-reports
+      artifact: backend-surefire

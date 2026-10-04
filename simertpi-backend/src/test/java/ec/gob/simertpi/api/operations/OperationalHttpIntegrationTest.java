@@ -18,7 +18,7 @@ import static org.mockito.Mockito.*;
 @org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability
 @org.springframework.context.annotation.Import(OperationalHttpIntegrationTest.TestConfig.class)
 @SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT,properties={"simertpi.payments.provider=UNCONFIGURED"})
-class OperationalHttpIntegrationTest {
+class OperationalHttpIntegrationTest extends ec.gob.simertpi.testsupport.AbstractPostgresIntegrationTest {
  @Autowired TestRestTemplate http;@LocalServerPort int port;@Autowired JdbcTemplate jdbc;@Autowired PasswordEncoder encoder;@Autowired Flyway flyway;
  @MockitoSpyBean(name="dbHealthContributor") HealthContributor database;
  UUID user;String name;
