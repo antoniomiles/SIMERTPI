@@ -26,6 +26,9 @@ import static org.mockito.ArgumentMatchers.*;
  "simertpi.notifications.providers.push=SANDBOX","simertpi.notifications.providers.whatsapp=SANDBOX","simertpi.notifications.providers.email=SANDBOX",
  "simertpi.notifications.sandbox.enabled=true","simertpi.notifications.sandbox.outcome=DELIVERED"})
 class NotificationProviderHttpIntegrationTest {
+ @Autowired io.micrometer.core.instrument.MeterRegistry metrics;
+ private double metric(String name){var meter=metrics.find(name).counter();return meter==null?0:meter.count();}
+
  @Autowired ec.gob.simertpi.domain.configuration.repository.NotificationRuleRepository ruleRepository;
  @Autowired JdbcTemplate jdbc;@Autowired NotificationSettingsService settings;@Autowired NotificationGenerationService generation;
  @Autowired NotificationDispatcher dispatcher;@Autowired TestRestTemplate http;@Autowired PasswordEncoder encoder;@Autowired ObjectMapper json;@Autowired Flyway flyway;
@@ -88,9 +91,9 @@ class NotificationProviderHttpIntegrationTest {
   int count=audit("NOTIFICATION_PREFERENCE_CHANGED",owner);settings.preferences(username,Map.of(channel,false));assertThat(audit("NOTIFICATION_PREFERENCE_CHANGED",owner)).isEqualTo(count);
   assertThat(settings.preferences(othername)).allMatch(p->!p.enabled());assertThat(settings.preferences(username)).anyMatch(p->channel.equals(p.channel())&&!p.enabled());
  }
- @Test void oneDeviceProducesOneDelivery(){device("ANDROID");UUID n=notification("PUSH",false);process();assertThat(deliveries(n)).isEqualTo(1);assertThat(status(n)).isEqualTo("DELIVERED");}
+ @Test void oneDeviceProducesOneDelivery(){double count=metric("simertpi.notifications.delivered");device("ANDROID");UUID n=notification("PUSH",false);process();assertThat(deliveries(n)).isEqualTo(1);assertThat(status(n)).isEqualTo("DELIVERED");assertThat(metric("simertpi.notifications.delivered")).isEqualTo(count+1);}
  @Test void multiDeviceDoesNotDuplicateInbox(){device("ANDROID");device("IOS");UUID n=notification("PUSH",false);process();dispatcher.prepare(n);process();assertThat(deliveries(n)).isEqualTo(2);assertThat(jdbc.queryForObject("SELECT count(*) FROM notification.notifications WHERE id=?",Integer.class,n)).isEqualTo(1);verify(provider,times(2)).send(any());}
- @Test void pushWithoutDeviceIsNotDelivered(){UUID n=notification("PUSH",false);process();assertThat(status(n)).isEqualTo("NO_DESTINATION");verify(provider,never()).send(any());}
+ @Test void pushWithoutDeviceIsNotDelivered(){double count=metric("simertpi.notifications.no_destination");UUID n=notification("PUSH",false);process();assertThat(status(n)).isEqualTo("NO_DESTINATION");assertThat(metric("simertpi.notifications.no_destination")).isEqualTo(count+1);verify(provider,never()).send(any());}
  @Test void invalidDestinationDisablesOnlyThatDevice(){var first=device("ANDROID");var second=device("IOS");doAnswer(inv->{NotificationProviderRequest req=inv.getArgument(0);return req.destination().equals(jdbc.queryForObject("SELECT token FROM notification.devices WHERE id=?",String.class,first.id()))?NotificationProviderResult.failure(NotificationProviderResult.Status.INVALID_DESTINATION,"SANDBOX",false,"INVALID_DESTINATION"):new NotificationProviderResult(NotificationProviderResult.Status.DELIVERED,"SANDBOX","safe-id",false,null);}).when(provider).send(any());UUID n=notification("PUSH",false);process();assertThat(jdbc.queryForObject("SELECT active FROM notification.devices WHERE id=?",Boolean.class,first.id())).isFalse();assertThat(jdbc.queryForObject("SELECT active FROM notification.devices WHERE id=?",Boolean.class,second.id())).isTrue();assertThat(audit("NOTIFICATION_DESTINATION_DISABLED",first.id())).isEqualTo(1);process();assertThat(deliveries(n)).isEqualTo(2);}
  @ParameterizedTest @ValueSource(strings={"WHATSAPP","EMAIL"}) void validContactIsDelivered(String channel){UUID n=notification(channel,false);process();assertThat(status(n)).isEqualTo("DELIVERED");}
  @ParameterizedTest @ValueSource(strings={"WHATSAPP","EMAIL"}) void missingContactIsNoDestination(String channel){jdbc.update("UPDATE identity.users SET "+("EMAIL".equals(channel)?"email":"phone")+("EMAIL".equals(channel)?"=''":"=null")+" WHERE id=?",owner);UUID n=notification(channel,false);process();assertThat(status(n)).isEqualTo("NO_DESTINATION");}

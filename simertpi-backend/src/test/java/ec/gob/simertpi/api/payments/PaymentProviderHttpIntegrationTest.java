@@ -33,6 +33,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class PaymentProviderHttpIntegrationTest {
+    @Autowired io.micrometer.core.instrument.MeterRegistry metrics;
+    private double metric(String name) { var meter=metrics.find(name).counter();return meter==null?0:meter.count(); }
+
 
     private static final String PASSWORD = "payment-flow-test";
 
@@ -141,7 +144,8 @@ class PaymentProviderHttpIntegrationTest {
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.EnumSource(value=ec.gob.simertpi.application.payments.ProviderPaymentStatus.class,names={"APPROVED","DECLINED","PENDING","FAILED"})
     void providerOutcomesOnlyActivateApproved(ec.gob.simertpi.application.payments.ProviderPaymentStatus status) throws Exception {
-        outcome(status);UUID id=created();assertThat(paymentRepository.findById(id).orElseThrow().getStatus()).isEqualTo(status.name());assertThat(sessionState()).isEqualTo(status==ec.gob.simertpi.application.payments.ProviderPaymentStatus.APPROVED?"ACTIVE":"PENDING_PAYMENT");
+        String metricName="simertpi.payments."+status.name().toLowerCase(java.util.Locale.ROOT);double before=metric(metricName);
+        outcome(status);UUID id=created();assertThat(metric(metricName)).isEqualTo(before+1);assertThat(paymentRepository.findById(id).orElseThrow().getStatus()).isEqualTo(status.name());assertThat(sessionState()).isEqualTo(status==ec.gob.simertpi.application.payments.ProviderPaymentStatus.APPROVED?"ACTIVE":"PENDING_PAYMENT");
     }
     @Test void backendAmountAndCurrencyCannotBeChangedByCitizen() throws Exception {
         jdbc.update("UPDATE parking.tariffs SET currency='EUR' WHERE id=?",tariffId);
@@ -161,7 +165,7 @@ class PaymentProviderHttpIntegrationTest {
         assertThat(paymentRepository.findById(id).orElseThrow().getStatus()).isEqualTo("PROCESSING");assertThat(paymentRepository.findById(id).orElseThrow().getProviderOperationStatus()).isEqualTo("UNKNOWN");org.mockito.Mockito.verify(sandbox,org.mockito.Mockito.times(1)).createPayment(org.mockito.ArgumentMatchers.any());
         assertThat(reconciliation.reconcile()).anyMatch(r->sessionId.equals(r.resourceId()) && r.requiresManualReview());
     }
-    @Test void queryApprovalActivates() throws Exception {UUID id=created();query(ec.gob.simertpi.application.payments.ProviderPaymentStatus.APPROVED);integration.refresh(username,id);assertThat(sessionState()).isEqualTo("ACTIVE");assertThat(paymentRepository.findById(id).orElseThrow().getStatus()).isEqualTo("APPROVED");}
+    @Test void queryApprovalActivates() throws Exception {double count=metric("simertpi.payments.approved");UUID id=created();query(ec.gob.simertpi.application.payments.ProviderPaymentStatus.APPROVED);integration.refresh(username,id);assertThat(metric("simertpi.payments.approved")).isEqualTo(count+1);assertThat(sessionState()).isEqualTo("ACTIVE");assertThat(paymentRepository.findById(id).orElseThrow().getStatus()).isEqualTo("APPROVED");}
     @Test void queryPendingKeepsWaiting() throws Exception {UUID id=created();query(ec.gob.simertpi.application.payments.ProviderPaymentStatus.PENDING);integration.refresh(username,id);assertThat(sessionState()).isEqualTo("PENDING_PAYMENT");assertThat(paymentRepository.findById(id).orElseThrow().getStatus()).isEqualTo("PENDING");assertThat(audit("PAYMENT_PROVIDER_PENDING",id)).isEqualTo(1);}
     @Test void queryUnknownNeverApproves() throws Exception {UUID id=created();query(ec.gob.simertpi.application.payments.ProviderPaymentStatus.UNKNOWN);integration.refresh(username,id);assertThat(sessionState()).isEqualTo("PENDING_PAYMENT");assertThat(reconciliation.reconcile()).anyMatch(r->sessionId.equals(r.resourceId()) && r.requiresManualReview());}
     @Test void queryCannotDowngradeApproved() throws Exception {outcome(ec.gob.simertpi.application.payments.ProviderPaymentStatus.APPROVED);UUID id=created();query(ec.gob.simertpi.application.payments.ProviderPaymentStatus.DECLINED);integration.refresh(username,id);assertThat(paymentRepository.findById(id).orElseThrow().getStatus()).isEqualTo("APPROVED");}
@@ -174,7 +178,7 @@ class PaymentProviderHttpIntegrationTest {
     @Test void lateQueryApprovalIsPreservedForManualReview() throws Exception {UUID id=created();timeout(id);query(ec.gob.simertpi.application.payments.ProviderPaymentStatus.APPROVED);integration.refresh(username,id);assertThat(sessionState()).isEqualTo("CANCELLED");assertThat(audit("PAYMENT_LATE_APPROVAL_REVIEW_REQUIRED",id)).isEqualTo(1);assertThat(reconciliation.reconcile()).anyMatch(r->sessionId.equals(r.resourceId()) && r.requiresManualReview());}
     private String body(UUID id,String event,String status) {var payment=paymentRepository.findById(id).orElseThrow();return id+"|"+tag+event+"|"+status+"|"+payment.getProviderPaymentId()+"|sandbox-"+id+"|PRIVATE_FIXTURE_BODY";}
     private ResponseEntity<String> webhook(String provider,String raw,boolean verified) {var headers=new HttpHeaders();headers.setContentType(MediaType.TEXT_PLAIN);if(verified)headers.set("X-Test-Verified","yes");return restTemplate.postForEntity("http://localhost:"+port+"/api/v1/payments/webhooks/"+provider,new HttpEntity<>(raw,headers),String.class);}
-    @Test void webhookWithoutVerifierIsRejected() {assertThat(webhook("UNCONFIGURED","body",true).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);}
+    @Test void webhookWithoutVerifierIsRejected() {double count=metric("simertpi.payments.webhooks.rejected");assertThat(webhook("UNCONFIGURED","body",true).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);assertThat(metric("simertpi.payments.webhooks.rejected")).isEqualTo(count+1);}
     @Test void unknownWebhookProviderIsRejected() {assertThat(webhook("UNKNOWN","body",true).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);}
     @Test void webhookNeedsSuccessfulVerification() throws Exception {UUID id=created();assertThat(webhook("SANDBOX_STUB",body(id,"event","APPROVED"),false).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);assertThat(sessionState()).isEqualTo("PENDING_PAYMENT");}
     @Test void verifiedWebhookIsIdempotentAndDoesNotStoreRawBody() throws Exception {

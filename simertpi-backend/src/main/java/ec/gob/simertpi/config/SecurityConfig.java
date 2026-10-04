@@ -34,8 +34,9 @@ public class SecurityConfig {
         http
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/actuator/health").permitAll()
-                .requestMatchers("/actuator/info").hasAuthority("SIMERTPI_ADMIN")
+                .requestMatchers(HttpMethod.GET,"/actuator/health", "/actuator/health/liveness", "/actuator/health/readiness").permitAll()
+                .requestMatchers(HttpMethod.GET,"/actuator/info", "/actuator/metrics", "/actuator/metrics/**", "/actuator/prometheus").hasAuthority("SIMERTPI_ADMIN")
+                .requestMatchers("/actuator/**").denyAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/users").permitAll()
                 .requestMatchers(HttpMethod.GET, PUBLIC_CATALOG_GETS).permitAll()
                 .requestMatchers(HttpMethod.POST,"/api/v1/payments/webhooks/*").permitAll()
@@ -83,7 +84,8 @@ public class SecurityConfig {
                         "/api/v1/admin/reconciliation/evidence", "/api/v1/admin/reconciliation/outbox")
                     .hasAuthority("SIMERTPI_ADMIN")
                 .requestMatchers("/api/v1/admin/reconciliation/**").denyAll()
-                .requestMatchers("/api/v1/audit/**").hasAuthority("SIMERTPI_ADMIN")
+                .requestMatchers(HttpMethod.GET,"/api/v1/audit/**").hasAuthority("SIMERTPI_ADMIN")
+                .requestMatchers("/api/v1/audit/**").denyAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/vehicles")
                     .hasAuthority("CITIZEN")
                 .requestMatchers(HttpMethod.GET, "/api/v1/vehicles/plate/**")

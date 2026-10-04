@@ -17,6 +17,10 @@ import java.util.UUID;
 
 @Service
 public class NotificationGenerationService {
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private ec.gob.simertpi.application.operations.OperationalMetrics metrics;
+    private void metric(ec.gob.simertpi.application.operations.OperationalMetrics.Event event) { if(metrics!=null)metrics.event(event); }
+
     private final NotificationRuleRepository rules;
     private final NotificationRepository notifications;
     private final NotificationDeliveryService delivery;
@@ -70,6 +74,7 @@ public class NotificationGenerationService {
                 NotificationTemplateRenderer.render(rule.getMessageTemplate(), templateValues, 1000), referenceType, referenceId,
                 sourceEventId, outboxEventId, rule.getId(), null, createdAt);
         if (inserted != 1) return 0;
+        metric(ec.gob.simertpi.application.operations.OperationalMetrics.Event.NOTIFICATION_GENERATED);
         Notification notification = notifications.findById(notificationId).orElseThrow();
         delivery.deliver(notification);
         return 1;

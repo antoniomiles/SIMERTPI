@@ -32,6 +32,10 @@ import java.util.UUID;
 @Service
 @Transactional
 public class PaymentService {
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private ec.gob.simertpi.application.operations.OperationalMetrics metrics;
+    private void metric(ec.gob.simertpi.application.operations.OperationalMetrics.Event event) { if(metrics!=null)metrics.event(event); }
+
 
     @jakarta.persistence.PersistenceContext
     private jakarta.persistence.EntityManager entityManager;
@@ -192,6 +196,7 @@ public class PaymentService {
             session.setStatus("EXTENDED");
             session.setUpdatedAt(now);
 
+            metric(ec.gob.simertpi.application.operations.OperationalMetrics.Event.EXTENSION_APPROVED);
             extension.setStatus("APPROVED");
             extension.setUpdatedAt(now);
 
@@ -220,6 +225,7 @@ public class PaymentService {
             );
         }
 
+        metric(ec.gob.simertpi.application.operations.OperationalMetrics.Event.SESSION_ACTIVATED);
         session.setStatus("ACTIVE");
         session.setUpdatedAt(now);
 

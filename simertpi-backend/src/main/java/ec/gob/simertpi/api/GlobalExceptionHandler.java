@@ -14,6 +14,27 @@ import java.util.Map;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
+    public ResponseEntity<Map<String,Object>> handleAccessDenied(Exception exception) {
+        return ResponseEntity.status(403).body(Map.of("status",403,"error","Forbidden","message","Access denied"));
+    }
+
+    @ExceptionHandler(org.springframework.security.core.AuthenticationException.class)
+    public ResponseEntity<Map<String,Object>> handleAuthentication(Exception exception) {
+        return ResponseEntity.status(401).body(Map.of("status",401,"error","Unauthorized","message","Authentication required"));
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<Map<String,Object>> handleOperationalFailure(Exception exception) {
+        if(exception instanceof org.springframework.web.ErrorResponse error && error.getStatusCode().is4xxClientError()) {
+            int status=error.getStatusCode().value();
+            return ResponseEntity.status(status).body(Map.of("status",status,"error","Request rejected","message","Request could not be accepted"));
+        }
+        org.slf4j.LoggerFactory.getLogger(GlobalExceptionHandler.class).warn("event=operational_request result=FAILED");
+        return ResponseEntity.status(500).body(Map.of("status",500,"error","Internal Server Error",
+                "message","Operational request failed"));
+    }
+
     @ExceptionHandler(InvalidIdempotencyKeyException.class)
     public ResponseEntity<Map<String, Object>> handleInvalidIdempotencyKey(
             InvalidIdempotencyKeyException exception) {

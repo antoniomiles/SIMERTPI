@@ -9,6 +9,10 @@ import java.time.OffsetDateTime;
 import java.util.*;
 @Service
 public class NotificationDispatcher {
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private ec.gob.simertpi.application.operations.OperationalMetrics metrics;
+    private void metric(ec.gob.simertpi.application.operations.OperationalMetrics.Event event) { if(metrics!=null)metrics.event(event); }
+
  private final JdbcTemplate jdbc; private final TransactionTemplate tx;
  private final NotificationProviderRegistry registry; private final NotificationRetryPolicy retry; private final AuditService audit;
  public NotificationDispatcher(JdbcTemplate jdbc,PlatformTransactionManager manager,NotificationProviderRegistry registry,NotificationRetryPolicy retry,AuditService audit){
@@ -93,11 +97,13 @@ public class NotificationDispatcher {
   if(terminal!=null){
    jdbc.update("UPDATE notification.deliveries SET status=?,error_code=?,next_attempt_at=null,updated_at=? WHERE id=?",terminal,terminal,now,id);
    if("DEAD".equals(terminal))auditDelivery("NOTIFICATION_RETRY_EXHAUSTED",id,(String)row.get("channel"),terminal);
+   if("NO_DESTINATION".equals(terminal))metric(ec.gob.simertpi.application.operations.OperationalMetrics.Event.NOTIFICATION_NO_DESTINATION);
    aggregate((UUID)row.get("notification_id"));return new Claim(id,null,null,attempts,null,null);
   }
   String providerCode=(String)row.get("provider_code");
   // UNCONFIGURED never called an external provider, so resolving updated configuration is safe.
   if("UNCONFIGURED".equals(providerCode))providerCode=registry.configuredCode((String)row.get("channel"));
+  if(attempts>0)metric(ec.gob.simertpi.application.operations.OperationalMetrics.Event.NOTIFICATION_RETRY);
   UUID token=UUID.randomUUID();attempts++;
   jdbc.update("UPDATE notification.deliveries SET status='PROCESSING',provider_code=?,processing_token=?,attempts=?,last_attempt_at=?,next_attempt_at=null,updated_at=? WHERE id=?",providerCode,token,attempts,now,now,id);
   return new Claim(id,token,providerCode,attempts,destination.device(),new NotificationProviderRequest(id,(UUID)row.get("notification_id"),(String)row.get("channel"),destination.value(),(String)n.get("title"),(String)n.get("message")));
@@ -120,6 +126,7 @@ public class NotificationDispatcher {
    if(Set.of("PROVIDER_NOT_CONFIGURED","PROVIDER_UNKNOWN","SANDBOX_DISABLED").contains(result.errorCode()==null?"":result.errorCode()))error=result.errorCode();
   }
   jdbc.update("UPDATE notification.deliveries SET status=?,error_code=?,external_message_id=?,next_attempt_at=?,delivered_at=?,processing_token=null,updated_at=? WHERE id=?",status,error,external,next,"DELIVERED".equals(status)?now:null,now,c.id());
+  if(result!=null&&result.status()==NotificationProviderResult.Status.TEMPORARY_FAILURE&&result.retryable()&&c.provider().equals(result.providerCode()))metric(ec.gob.simertpi.application.operations.OperationalMetrics.Event.NOTIFICATION_TEMPORARY_FAILURE);
   if("INVALID_DESTINATION".equals(status)&&c.device()!=null){
    int disabled=jdbc.update("UPDATE notification.devices SET active=false,disabled_at=?,updated_at=? WHERE id=? AND active=true",now,now,c.device());
    if(disabled==1)audit.success("NOTIFICATION_DESTINATION_DISABLED","NOTIFICATION_DEVICE",c.device(),null,Map.of("destinationType","DEVICE"));

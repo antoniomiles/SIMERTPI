@@ -32,6 +32,7 @@ import java.util.UUID;
 @Service
 @Transactional
 public class EvidenceService {
+    @Autowired(required=false) private ec.gob.simertpi.application.operations.OperationalMetrics metrics;
     private static final Logger log = LoggerFactory.getLogger(EvidenceService.class);
     private static final byte[] PNG_MAGIC = {(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
     private final EvidenceRepository evidenceRepository;
@@ -148,6 +149,7 @@ public class EvidenceService {
                 byte[] bytes = object.stream().readNBytes(limit + 1);
                 if (bytes.length > limit || evidence.getFileSize() == null || bytes.length != evidence.getFileSize()
                         || !sha256(bytes).equals(evidence.getSha256Hash())) {
+                    if (metrics!=null) metrics.event(ec.gob.simertpi.application.operations.OperationalMetrics.Event.EVIDENCE_INTEGRITY_FAILURE);
                     throw new IllegalStateException("Evidence content integrity verification failed");
                 }
                 return new EvidenceDownload(evidence, new ObjectStorage.StoredObject(
@@ -172,7 +174,7 @@ public class EvidenceService {
             @Override
             public void afterCompletion(int status) {
                 if (status == STATUS_ROLLED_BACK) deleteQuietly(key);
-                else if (status == STATUS_UNKNOWN) log.warn("Evidence transaction outcome is unknown; object retained for reconciliation");
+                else if (status == STATUS_UNKNOWN) log.warn("event=evidence_transaction result=UNKNOWN");
             }
         });
     }
@@ -181,7 +183,7 @@ public class EvidenceService {
         try {
             storage.delete(key);
         } catch (IOException | RuntimeException cleanupFailure) {
-            log.warn("Could not clean up failed evidence storage object");
+            log.warn("event=evidence_compensation result=FAILED");
         }
     }
 

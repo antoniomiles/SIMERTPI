@@ -30,6 +30,8 @@ public class AuditService {
             ON CONFLICT DO NOTHING
             """;
 
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private ec.gob.simertpi.application.operations.OperationalMetrics metrics;
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
 
@@ -70,10 +72,11 @@ public class AuditService {
         } catch (JsonProcessingException impossible) {
             json = "{}";
         }
-        jdbc.update(INSERT, UUID.randomUUID(), actor.id(), actor.name(), actor.role(), action, resourceType,
+        int inserted = jdbc.update(INSERT, UUID.randomUUID(), actor.id(), actor.name(), actor.role(), action, resourceType,
                 resourceId, result, MDC.get("correlationId"), request == null ? null : request.getRemoteAddr(),
                 request == null ? null : truncate(request.getHeader("User-Agent"), 512), json,
                 idempotencyKey == null ? null : sha256(actor.name() + ":" + action + ":" + idempotencyKey));
+        if(inserted==1 && metrics!=null)metrics.auditEvent(action,result,rawMetadata);
     }
 
     private Actor actor() {

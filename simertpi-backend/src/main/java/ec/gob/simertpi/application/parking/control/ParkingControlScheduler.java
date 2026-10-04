@@ -51,7 +51,8 @@ public class ParkingControlScheduler {
             try {
                 parkingControlEvaluationService.evaluate(session.getId());
             } catch (RuntimeException exception) {
-                log.error("Parking control evaluation failed for session {}", session.getId(), exception);
+                ec.gob.simertpi.application.operations.OperationalMetrics.itemFailure();
+                log.error("event=parking_control_item result=FAILED scheduler=PARKING_CONTROL");
             }
         }
     }

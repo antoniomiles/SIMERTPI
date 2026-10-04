@@ -29,6 +29,8 @@ import java.util.Set;
 @Service
 @Transactional
 public class ParkingSessionService {
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private ec.gob.simertpi.application.operations.OperationalMetrics metrics;
+
 
     private static final Set<String> STAFF_ROLES = Set.of(
             "INSPECTOR", "SUPERVISOR", "SIMERTPI_ADMIN", "IT_ADMIN", "AUDITOR"
@@ -232,6 +234,7 @@ public class ParkingSessionService {
         session.setCreatedAt(now);
         session.setUpdatedAt(now);
 
+        if(metrics!=null)metrics.event(ec.gob.simertpi.application.operations.OperationalMetrics.Event.SESSION_CREATED);
         return parkingSessionRepository.save(session);
     }
 

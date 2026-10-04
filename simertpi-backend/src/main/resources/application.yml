@@ -32,11 +32,30 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,metrics,prometheus
 
   endpoint:
     health:
       show-details: never
+      show-components: never
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db
+  info:
+    env:
+      enabled: false
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+
+info:
+  app:
+    name: simertpi-backend
 
 simertpi:
   parking:
@@ -96,4 +115,4 @@ simertpi:
 
 logging:
   pattern:
-    level: "%5p [cid:%X{correlationId:-}]"
+    level: "%5p [correlationId=%X{correlationId:-}]"

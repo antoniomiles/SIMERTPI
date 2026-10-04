@@ -89,7 +89,8 @@ public class NotificationOutboxProcessor {
                     jdbc.update("UPDATE audit.outbox_events SET status='PUBLISHED',published_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP,last_error=NULL,next_attempt_at=NULL,processing_token=NULL WHERE id=? AND processing_token=?",event.id(),token);
                 });
             }catch(RuntimeException processingFailure) {
-                log.warn("Notification outbox processing failed for event {}",event.id());
+                ec.gob.simertpi.application.operations.OperationalMetrics.itemFailure();
+                log.warn("event=outbox_processing result=FAILED scheduler=NOTIFICATION_OUTBOX");
                 tx.executeWithoutResult(status -> {
                     var rows=jdbc.queryForList("SELECT retry_count FROM audit.outbox_events WHERE id=? AND status='PROCESSING' AND processing_token=? FOR UPDATE",event.id(),token);
                     if(rows.isEmpty())return;
