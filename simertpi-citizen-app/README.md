@@ -1,7 +1,7 @@
 # SIMERTPI Ciudadano
 
-Flutter Android/iOS. CP18 incorpora autenticación HTTP Basic y registro reales;
-el Home sigue siendo el showcase CP17, sin operaciones de estacionamiento.
+Flutter Android/iOS. CP18.1 incorpora sesión Bearer persistente y registro reales;
+CP19 incorpora Home y vehículos propios. No incluye estacionamiento, mapa ni pagos.
 
 Requisitos: Flutter 3.47.6 / Dart 3.13.5, Android SDK; macOS/Xcode para iOS.
 
@@ -17,7 +17,8 @@ flutter build apk --debug
 proviene del despliegue real, nunca de un dominio inventado. Sin URL, DEV
 muestra login pero las operaciones fallan de forma controlada.
 
-Ver [CP17](docs/checkpoint-17.md) y [CP18](docs/checkpoint-18.md).
-La sesión Basic vive solo en memoria: reiniciar requiere ingresar nuevamente.
-No se persisten contraseñas. Recuperación, refresh y tokens no están soportados
-por el backend actual. Sin secretos ni proveedores externos.
+Ver [CP17](docs/checkpoint-17.md), [CP18](docs/checkpoint-18.md) y
+[CP18.1](docs/checkpoint-18-1.md). La sesión se conserva en almacenamiento seguro
+nativo; nunca se persiste la contraseña. El backend rota access/refresh y revoca
+la sesión en logout. Recuperación de contraseña sigue sin contrato.
+Ver [CP19](docs/checkpoint-19.md). Sin secretos ni proveedores externos.

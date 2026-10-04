@@ -14,7 +14,7 @@ void main() {
   late AuthController auth;
   setUp(() {
     fake = FakeAuthGateway();
-    auth = AuthController(fake);
+    auth = AuthController(fake, store: MemorySessionStore());
   });
   tearDown(() => auth.dispose());
   Future<void> fillLogin(WidgetTester tester) async {
@@ -69,20 +69,21 @@ void main() {
       expect(fake.calls, 1);
       fake.pending!.complete();
       await tester.pumpAndSettle();
-      expect(find.text('Demostración'), findsOneWidget);
+      expect(find.text('¿Dónde vas a estacionar?'), findsOneWidget);
       expect(
-        Navigator.of(tester.element(find.text('Demostración'))).canPop(),
+        Navigator.of(tester.element(find.text('¿Dónde vas a estacionar?')))
+            .canPop(),
         false,
       );
-      await tester.ensureVisible(find.text('Cerrar sesión'));
-      await tester.tap(find.text('Cerrar sesión'));
+      await tester.ensureVisible(find.byTooltip('Cerrar sesión'));
+      await tester.tap(find.byTooltip('Cerrar sesión'));
       await tester.pumpAndSettle();
       expect(find.text('Inicia sesión'), findsOneWidget);
       expect(
         Navigator.of(tester.element(find.text('Inicia sesión'))).canPop(),
         false,
       );
-      expect(find.text('Demostración'), findsNothing);
+      expect(find.text('¿Dónde vas a estacionar?'), findsNothing);
     },
   );
   testWidgets(
@@ -109,14 +110,14 @@ void main() {
     (tester) async {
       await tester.pumpWidget(authTestApp(auth, route: AppRoute.home));
       expect(find.text('Inicia sesión'), findsOneWidget);
-      expect(find.text('Demostración'), findsNothing);
+      expect(find.text('¿Dónde vas a estacionar?'), findsNothing);
       await auth.login('citizen', 'fixture-password');
       await tester.pumpAndSettle();
-      expect(find.text('Demostración'), findsOneWidget);
-      auth.logout(expired: true);
+      expect(find.text('¿Dónde vas a estacionar?'), findsOneWidget);
+      await auth.logout(expired: true);
       await tester.pumpAndSettle();
       expect(find.textContaining('Tu sesión ya no es válida'), findsOneWidget);
-      expect(find.text('Demostración'), findsNothing);
+      expect(find.text('¿Dónde vas a estacionar?'), findsNothing);
     },
   );
   testWidgets(

@@ -7,6 +7,8 @@ import 'package:simertpi_citizen_app/core/network/api_client.dart';
 import 'package:simertpi_citizen_app/features/auth/data/auth_service.dart';
 import 'package:simertpi_citizen_app/features/auth/state/auth_controller.dart';
 
+import 'support/auth_test_support.dart';
+
 void main() {
   late HttpServer server;
   late ApiClient api;
@@ -16,42 +18,51 @@ void main() {
     api = ApiClient(
       baseUrl: Uri.parse('http://127.0.0.1:${server.port}/api/v1'),
       headersProvider: () => auth.headers(),
-      onUnauthorized: (value) => auth.expireIfMatches(value),
+      onUnauthorized: (value) => auth.recoverUnauthorized(value),
+      onSessionRejected: () => auth.logout(expired: true, remote: false),
     );
-    auth = AuthController(AuthService(api));
+    auth = AuthController(AuthService(api), store: MemorySessionStore());
   });
   tearDown(() async {
     api.close();
     auth.dispose();
     await server.close(force: true);
   });
-  test('Basic login uses real citizen-only read with correlation; later requests use same client', () async {
-    final paths = <String>[];
-    final headers = <String?>[];
-    server.listen((request) async {
-      paths.add(request.uri.path);
-      headers.add(request.headers.value('Authorization'));
-      expect(request.method, 'GET');
-      expect(
-        request.headers.value(correlationHeader),
-        matches(RegExp(r'^[A-Za-z0-9._:-]{1,128}$')),
-      );
-      request.response.write('[{"channel":"PUSH","enabled":false}]');
-      await request.response.close();
-    });
-    expect(await auth.login('fixture-citizen', 'fixture-password'), true);
-    await api.request(ApiMethod.get, 'notifications/preferences');
-    expect(paths, [
-      '/api/v1/notifications/preferences',
-      '/api/v1/notifications/preferences',
-    ]);
-    expect(headers.toSet(), {
-      basicAuthorization('fixture-citizen', 'fixture-password'),
-    });
-    auth.logout();
-    await api.request(ApiMethod.get, 'notifications/preferences');
-    expect(headers.last, isNull);
-  });
+  test(
+    'Login DTO is real and protected requests use Bearer and correlation',
+    () async {
+      final paths = <String>[];
+      final authorization = <String?>[];
+      server.listen((request) async {
+        paths.add(request.uri.path);
+        authorization.add(request.headers.value('Authorization'));
+        expect(
+          request.headers.value(correlationHeader),
+          matches(RegExp(r'^[A-Za-z0-9._:-]{1,128}$')),
+        );
+        if (request.uri.path.endsWith('/login')) {
+          expect(request.method, 'POST');
+          expect(jsonDecode(await utf8.decoder.bind(request).join()), {
+            'username': 'fixture-citizen',
+            'password': 'fixture-password',
+          });
+          request.response.write(jsonEncode(fixtureSession().toJson()));
+        } else {
+          request.response.write('[]');
+        }
+        await request.response.close();
+      });
+      expect(await auth.login('fixture-citizen', 'fixture-password'), true);
+      await api.request(ApiMethod.get, 'notifications/preferences');
+      expect(paths, [
+        '/api/v1/auth/login',
+        '/api/v1/notifications/preferences',
+      ]);
+      expect(authorization, [null, 'Bearer ${'A' * 43}']);
+      await auth.logout();
+      expect(auth.isAuthenticated, false);
+    },
+  );
   test('Registration matches CreateUserRequest, sends no auth and does not sign in', () async {
     Map<String, dynamic>? received;
     server.listen((request) async {
@@ -126,7 +137,9 @@ void main() {
     var status = 200;
     server.listen((request) async {
       request.response.statusCode = status;
-      request.response.write('[]');
+      request.response.write(
+        status == 200 ? jsonEncode(fixtureSession().toJson()) : '{}',
+      );
       await request.response.close();
     });
     expect(await auth.login('citizen', 'fixture-password'), true);
@@ -143,7 +156,7 @@ void main() {
     () async {
       final service = AuthService(null);
       await expectLater(
-        service.verifyCitizen('citizen', 'fixture-password'),
+        service.login('citizen', 'fixture-password'),
         throwsA(
           isA<AppFailure>().having(
             (e) => e.kind,
@@ -152,6 +165,70 @@ void main() {
           ),
         ),
       );
+    },
+  );
+  test(
+    'Concurrent HTTP 401 renew once and retry with the rotated Bearer',
+    () async {
+      var refreshes = 0;
+      final seen = <String>[];
+      server.listen((request) async {
+        if (request.uri.path.endsWith('/login')) {
+          request.response.write(jsonEncode(fixtureSession().toJson()));
+        } else if (request.uri.path.endsWith('/refresh')) {
+          refreshes++;
+          expect(request.headers.value('Authorization'), isNull);
+          expect(jsonDecode(await utf8.decoder.bind(request).join()), {
+            'refreshToken': 'R' * 43,
+          });
+          request.response.write(
+            jsonEncode(fixtureSession(access: 'C').toJson()),
+          );
+        } else {
+          final header = request.headers.value('Authorization')!;
+          seen.add(header);
+          request.response.statusCode = header == 'Bearer ${'C' * 43}'
+              ? 200
+              : 401;
+          request.response.write('[]');
+        }
+        await request.response.close();
+      });
+      await auth.login('citizen', 'fixture-password');
+      await Future.wait([
+        api.request(ApiMethod.get, 'notifications/preferences'),
+        api.request(ApiMethod.get, 'notifications/preferences'),
+      ]);
+      expect(refreshes, 1);
+      expect(seen.where((h) => h == 'Bearer ${'C' * 43}').length, 2);
+      expect(auth.isAuthenticated, true);
+    },
+  );
+  test(
+    'A second authenticated 401 closes session without a refresh loop',
+    () async {
+      var refreshes = 0;
+      server.listen((request) async {
+        if (request.uri.path.endsWith('/login')) {
+          request.response.write(jsonEncode(fixtureSession().toJson()));
+        } else if (request.uri.path.endsWith('/refresh')) {
+          refreshes++;
+          request.response.write(
+            jsonEncode(fixtureSession(access: 'C').toJson()),
+          );
+        } else {
+          request.response.statusCode = 401;
+        }
+        await request.response.close();
+      });
+      await auth.login('citizen', 'fixture-password');
+      await expectLater(
+        api.request(ApiMethod.get, 'notifications/preferences'),
+        throwsA(isA<AppFailure>()),
+      );
+      expect(refreshes, 1);
+      expect(auth.isAuthenticated, false);
+      expect(await auth.store.read(), isNull);
     },
   );
 }

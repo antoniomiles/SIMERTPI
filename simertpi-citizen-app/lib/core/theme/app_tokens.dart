@@ -8,6 +8,7 @@ abstract final class AppColors {
   static const surface = Colors.white;
   static const ink = Color(0xFF141F2E);
   static const muted = Color(0xFF616E7D);
+  static const parkingHint = Color(0xFFEBF5FF);
   static const input = Color(0xFFF5F7FA);
   static const outline = Color(0xFFCDD6DB);
   static const skeleton = Color(0xFFE5EBEE);
@@ -28,6 +29,7 @@ abstract final class AppSize {
   static const inputRadius = 10.0;
   static const buttonRadius = 12.0;
   static const brandHeader = 58.0;
+  static const qrCardMinHeight = 118.0;
   static const touchTarget = 48.0;
   static const contentWidth = 640.0;
 }

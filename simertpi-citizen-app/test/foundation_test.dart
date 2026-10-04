@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:simertpi_citizen_app/app/bootstrap/bootstrap.dart';
 import 'package:simertpi_citizen_app/app/router/app_router.dart';
@@ -15,6 +16,18 @@ import 'package:simertpi_citizen_app/core/widgets/app_skeleton.dart';
 import 'support/auth_test_support.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  const storageChannel = MethodChannel(
+    'plugins.it_nomads.com/flutter_secure_storage',
+  );
+  setUp(
+    () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(storageChannel, (_) async => null),
+  );
+  tearDown(
+    () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(storageChannel, null),
+  );
   test('Environment configuration fails closed without inventing URLs', () {
     expect(AppConfig.parse(environment: 'dev').apiBaseUrl, isNull);
     for (final environment in ['qa', 'uat', 'prod']) {
@@ -134,7 +147,7 @@ void main() {
   testWidgets('Central router opens gallery and returns to home', (
     tester,
   ) async {
-    await tester.pumpWidget(await citizenApp(route: AppRoute.home));
+    await tester.pumpWidget(await citizenApp(route: AppRoute.showcase));
     await tester.tap(find.text('Ver componentes'));
     await tester.pumpAndSettle();
     expect(find.text('Componentes'), findsOneWidget);

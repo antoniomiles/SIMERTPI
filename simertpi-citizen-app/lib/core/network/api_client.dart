@@ -26,6 +26,7 @@ class ApiClient {
     Duration connectTimeout = const Duration(seconds: 10),
     this.headersProvider,
     this.onUnauthorized,
+    this.onSessionRejected,
     this.log = const AppLog(),
   }) : _client = client ?? HttpClient() {
     _client.connectionTimeout = connectTimeout;
@@ -37,6 +38,7 @@ class ApiClient {
   final Future<Map<String, String>> Function()? headersProvider;
   final AppLog log;
   final VoidUnauthorized? onUnauthorized;
+  final Future<void> Function()? onSessionRejected;
 
   Future<ApiResponse> request(
     ApiMethod method,
@@ -46,6 +48,7 @@ class ApiClient {
     Map<String, String> headers = const {},
     Map<String, String> query = const {},
     String? correlationId,
+    bool retryUnauthorized = true,
   }) async {
     if (path.startsWith('/') ||
         path.contains('..') ||
@@ -95,8 +98,24 @@ class ApiClient {
           : id;
       if (response.statusCode < 200 || response.statusCode >= 300) {
         await response.drain<void>().timeout(readTimeout);
-        if (response.statusCode == 401 && authenticated) {
-          onUnauthorized?.call(extra['Authorization']);
+        if (response.statusCode == 401 && authenticated && retryUnauthorized) {
+          final recovered =
+              await onUnauthorized?.call(extra['Authorization']) ?? false;
+          if (recovered && retryUnauthorized) {
+            return await request(
+              method,
+              path,
+              body: body,
+              authenticated: authenticated,
+              headers: headers,
+              query: query,
+              correlationId: id,
+              retryUnauthorized: false,
+            );
+          }
+        }
+        if (response.statusCode == 401 && authenticated && !retryUnauthorized) {
+          await onSessionRejected?.call();
         }
         throw AppFailure(
           response.statusCode == 401
@@ -162,4 +181,4 @@ class ApiClient {
   void close() => _client.close(force: true);
 }
 
-typedef VoidUnauthorized = void Function(String? authorization);
+typedef VoidUnauthorized = Future<bool> Function(String? authorization);

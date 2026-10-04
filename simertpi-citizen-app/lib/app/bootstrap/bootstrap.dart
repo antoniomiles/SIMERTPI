@@ -8,6 +8,7 @@ import '../../core/widgets/app_layout.dart';
 import '../app.dart';
 import '../../features/auth/data/auth_service.dart';
 import '../../features/auth/state/auth_controller.dart';
+import '../../features/auth/data/session_store.dart';
 
 class AppScope extends InheritedWidget {
   const AppScope({
@@ -57,11 +58,17 @@ class _BootstrapState extends State<Bootstrap> {
         _api = ApiClient(
           baseUrl: _config!.apiBaseUrl!,
           headersProvider: () => _auth!.headers(),
+          onSessionRejected: () => _auth!.logout(expired: true, remote: false),
           onUnauthorized: (authorization) =>
-              _auth!.expireIfMatches(authorization),
+              _auth!.recoverUnauthorized(authorization),
         );
       }
-      _auth = AuthController(AuthService(_api));
+      _auth = AuthController(
+        AuthService(_api),
+        store: SecureSessionStore(
+          '${_config!.environment.name}:${_config!.apiBaseUrl}',
+        ),
+      );
     } on FormatException {
       /* Fail closed; never render raw configuration. */
     }

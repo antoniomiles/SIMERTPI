@@ -33,8 +33,8 @@ class _LoginPageState extends State<LoginPage> {
     FocusScope.of(context).unfocus();
     final success = await auth.login(_username.text, _password.text);
     if (!mounted) return;
+    _password.clear();
     if (success) {
-      _password.clear();
       Navigator.of(context)
           .pushNamedAndRemoveUntil(AppRoute.home.path, (_) => false);
     }
@@ -61,7 +61,7 @@ class _LoginPageState extends State<LoginPage> {
                 textInputAction: TextInputAction.next,
                 validator: (value) => value == null || value.trim().isEmpty
                     ? 'Ingresa tu nombre de usuario.'
-                    : value.contains(':') || value.contains(RegExp(r'[\r\n]'))
+                    : value.contains(RegExp(r'[\r\n]'))
                     ? 'Revisa tu nombre de usuario.'
                     : null,
               ),

@@ -95,7 +95,7 @@ class _RegisterPageState extends State<RegisterPage> {
                   textInputAction: TextInputAction.next,
                   validator: (v) =>
                       _required(v, 100) ??
-                      (v!.contains(':') || v.contains(RegExp(r'[\r\n]'))
+                      (v!.contains(RegExp(r'[\r\n]'))
                           ? 'Revisa tu nombre de usuario.'
                           : null),
                 ),

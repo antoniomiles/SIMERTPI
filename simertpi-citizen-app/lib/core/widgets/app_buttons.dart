@@ -14,12 +14,28 @@ class PrimaryButton extends StatelessWidget {
 }
 
 class SecondaryButton extends StatelessWidget {
-  const SecondaryButton({super.key, required this.label, this.onPressed});
+  const SecondaryButton({
+    super.key,
+    required this.label,
+    this.onPressed,
+    this.filled = false,
+  });
   final String label;
   final VoidCallback? onPressed;
+  final bool filled;
   @override
-  Widget build(BuildContext context) =>
-      OutlinedButton(onPressed: onPressed, child: Text(label));
+  Widget build(BuildContext context) => OutlinedButton(
+    style: filled
+        ? OutlinedButton.styleFrom(
+            backgroundColor: AppColors.input,
+            foregroundColor: AppColors.primary,
+            side: BorderSide.none,
+            minimumSize: const Size(AppSize.touchTarget, 54),
+          )
+        : null,
+    onPressed: onPressed,
+    child: Text(label),
+  );
 }
 
 class DestructiveButton extends StatelessWidget {

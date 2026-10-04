@@ -55,3 +55,6 @@ app.*.map.json
 *.log
 .vscode/
 *.bak
+
+# Kotlin compiler operational cache
+/android/.kotlin/

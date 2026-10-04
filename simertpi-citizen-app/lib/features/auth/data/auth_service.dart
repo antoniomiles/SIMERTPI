@@ -1,7 +1,6 @@
-import 'dart:convert';
-
 import '../../../core/errors/app_failure.dart';
 import '../../../core/network/api_client.dart';
+import 'session_store.dart';
 
 /// Values match CreateUserRequest. No role, owner or session token is accepted.
 class RegistrationRequest {
@@ -28,7 +27,9 @@ class RegistrationRequest {
 }
 
 abstract interface class AuthGateway {
-  Future<void> verifyCitizen(String username, String password);
+  Future<MobileSession> login(String username, String password);
+  Future<MobileSession> refresh(String refreshToken);
+  Future<void> logout(String refreshToken);
   Future<void> register(RegistrationRequest request);
 }
 
@@ -39,22 +40,38 @@ class AuthService implements AuthGateway {
       api ?? (throw const AppFailure(FailureKind.unavailable));
 
   @override
-  Future<void> verifyCitizen(String username, String password) async {
-    // There is no login/me endpoint. This existing read is CITIZEN-only,
-    // side-effect free, returns no identity details, and is NOT a login DTO.
-    final response = await _api.request(
-      ApiMethod.get,
-      'notifications/preferences',
+  Future<MobileSession> login(String username, String password) async =>
+      _session(
+        await _api.request(
+          ApiMethod.post,
+          'auth/login',
+          authenticated: false,
+          body: {'username': username, 'password': password},
+        ),
+      );
+  @override
+  Future<MobileSession> refresh(String refreshToken) async => _session(
+    await _api.request(
+      ApiMethod.post,
+      'auth/refresh',
       authenticated: false,
-      headers: {'Authorization': basicAuthorization(username, password)},
+      body: {'refreshToken': refreshToken},
+    ),
+  );
+  @override
+  Future<void> logout(String refreshToken) async {
+    await _api.request(
+      ApiMethod.post,
+      'auth/logout',
+      authenticated: false,
+      body: {'refreshToken': refreshToken},
     );
-    if (response.body is! List ||
-        (response.body as List).any(
-          (item) =>
-              item is! Map ||
-              item['channel'] is! String ||
-              item['enabled'] is! bool,
-        )) {
+  }
+
+  MobileSession _session(ApiResponse response) {
+    try {
+      return MobileSession.fromJson(response.body);
+    } catch (_) {
       throw const AppFailure(FailureKind.unknown);
     }
   }
@@ -78,6 +95,3 @@ class AuthService implements AuthGateway {
     }
   }
 }
-
-String basicAuthorization(String username, String password) =>
-    'Basic ${base64Encode(utf8.encode('$username:$password'))}';
