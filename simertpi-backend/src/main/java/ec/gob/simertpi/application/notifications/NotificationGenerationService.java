@@ -61,34 +61,18 @@ public class NotificationGenerationService {
         if (!rule.isEnabled() || !rule.getEventType().equals(eventType)
                 || rule.getValidFrom().isAfter(createdAt)
                 || (rule.getValidTo() != null && rule.getValidTo().isBefore(createdAt))) return 0;
+        Map<String, Object> templateValues = new java.util.HashMap<>();
+        if (values != null) templateValues.putAll(values);
+        templateValues.put("eventType", eventType);
         UUID notificationId = UUID.randomUUID();
         int inserted = notifications.insertIfAbsent(notificationId, recipient.getId(), eventType,
-                rule.getChannel(), render(rule.getTitleTemplate(), values, 200),
-                render(rule.getMessageTemplate(), values, 1000), referenceType, referenceId,
-                sourceEventId, outboxEventId, rule.getId(), destination(rule.getChannel(), recipient), createdAt);
+                rule.getChannel(), NotificationTemplateRenderer.render(rule.getTitleTemplate(), templateValues, 200),
+                NotificationTemplateRenderer.render(rule.getMessageTemplate(), templateValues, 1000), referenceType, referenceId,
+                sourceEventId, outboxEventId, rule.getId(), null, createdAt);
         if (inserted != 1) return 0;
         Notification notification = notifications.findById(notificationId).orElseThrow();
         delivery.deliver(notification);
         return 1;
     }
 
-    private String destination(String channel, User user) {
-        return switch (channel.toUpperCase()) {
-            case "EMAIL" -> user.getEmail();
-            case "WHATSAPP" -> user.getPhone();
-            case "PUSH" -> "user:" + user.getId();
-            default -> null;
-        };
-    }
-
-    private String render(String template, Map<String, ?> values, int limit) {
-        String rendered = template;
-        if (values != null) {
-            for (Map.Entry<String, ?> value : values.entrySet()) {
-                rendered = rendered.replace("{" + value.getKey() + "}",
-                        value.getValue() == null ? "" : value.getValue().toString());
-            }
-        }
-        return rendered.length() <= limit ? rendered : rendered.substring(0, limit);
-    }
 }

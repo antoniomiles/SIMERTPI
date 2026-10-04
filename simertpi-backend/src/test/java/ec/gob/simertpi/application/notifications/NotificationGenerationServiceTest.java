@@ -25,11 +25,7 @@ class NotificationGenerationServiceTest {
     private UserRepository users;
     private NotificationGenerationService generation;
     private final Map<UUID, Notification> inserted = new HashMap<>();
-    private final Map<String, FakeSender> senders = Map.of(
-            "PUSH", new FakeSender("PUSH"),
-            "WHATSAPP", new FakeSender("WHATSAPP"),
-            "EMAIL", new FakeSender("EMAIL"));
-
+    private NotificationDeliveryService delivery;
     @BeforeEach
     void setUp() {
         rules = mock(NotificationRuleRepository.class);
@@ -61,8 +57,7 @@ class NotificationGenerationServiceTest {
                 });
         when(notifications.findById(any())).thenAnswer(invocation -> Optional.ofNullable(inserted.get(invocation.getArgument(0))));
         when(notifications.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-        NotificationDeliveryService delivery = new NotificationDeliveryService(notifications, users,
-                List.copyOf(senders.values()), mock(AuditService.class));
+        delivery = mock(NotificationDeliveryService.class);
         generation = new NotificationGenerationService(rules, notifications, delivery, users);
     }
 
@@ -75,17 +70,14 @@ class NotificationGenerationServiceTest {
         assertEquals(3, generation.generate(userId, "PAYMENT_APPROVED", UUID.randomUUID(), UUID.randomUUID(),
                 "PAYMENT", UUID.randomUUID(), now, Map.of("amount", "1.25")));
 
-        assertEquals(1, senders.get("PUSH").requests.size());
-        assertEquals("user:" + userId, senders.get("PUSH").requests.getFirst().recipient());
-        assertEquals("+593999000111", senders.get("WHATSAPP").requests.getFirst().recipient());
-        assertEquals("user@example.test", senders.get("EMAIL").requests.getFirst().recipient());
-        assertTrue(inserted.values().stream().allMatch(n -> "SENT".equals(n.getStatus())));
+        verify(delivery, times(3)).deliver(any());
+        assertTrue(inserted.values().stream().allMatch(n -> n.getRecipient() == null && "PENDING".equals(n.getStatus())));
     }
 
     @Test
-    void failedWhatsAppDoesNotPreventPushAndEmailFromSending() {
+    void queuesAllChannelsWithoutCallingExternalProviders() {
         OffsetDateTime now = OffsetDateTime.now();
-        senders.get("WHATSAPP").fail = true;
+
         when(rules.findActiveForEventAt("PERMIT_CREATED", now)).thenReturn(List.of(
                 rule("PERMIT_CREATED", "PUSH", now), rule("PERMIT_CREATED", "WHATSAPP", now),
                 rule("PERMIT_CREATED", "EMAIL", now)));
@@ -93,11 +85,8 @@ class NotificationGenerationServiceTest {
         assertEquals(3, generation.generate(userId, "PERMIT_CREATED", UUID.randomUUID(), null,
                 "PERMIT", UUID.randomUUID(), now, Map.of()));
 
-        assertEquals("SENT", status("PUSH"));
-        assertEquals("FAILED", status("WHATSAPP"));
-        assertEquals("SENT", status("EMAIL"));
-        assertNotNull(inserted.values().stream().filter(n -> "WHATSAPP".equals(n.getChannel()))
-                .findFirst().orElseThrow().getNextAttemptAt());
+        verify(delivery, times(3)).deliver(any());
+        assertEquals(3, inserted.size());
     }
 
     @Test
@@ -117,22 +106,17 @@ class NotificationGenerationServiceTest {
     }
 
     @Test
-    void duplicateEventRuleChannelIsIgnoredAndRetryCanSucceed() {
+    void queuesDurableDeliveryForExpiredPermit() {
         OffsetDateTime now = OffsetDateTime.now();
         NotificationRule whatsapp = rule("PERMIT_EXPIRED", "WHATSAPP", now);
-        senders.get("WHATSAPP").fail = true;
+
         when(rules.findActiveForEventAt("PERMIT_EXPIRED", now)).thenReturn(List.of(whatsapp));
         UUID eventId = UUID.randomUUID();
         assertEquals(1, generation.generate(userId, "PERMIT_EXPIRED", eventId, null,
                 "PERMIT", UUID.randomUUID(), now, Map.of()));
 
-        senders.get("WHATSAPP").fail = false;
-        when(notifications.lockDueRetries(any())).thenReturn(List.copyOf(inserted.values()));
-        NotificationDeliveryService delivery = new NotificationDeliveryService(notifications, users,
-                List.copyOf(senders.values()), mock(AuditService.class));
-        delivery.retryDue(OffsetDateTime.now().plusMinutes(5));
-        assertTrue(inserted.values().stream().allMatch(n -> "SENT".equals(n.getStatus())));
-        verify(notifications).lockDueRetries(any());
+        verify(delivery).deliver(any());
+        assertEquals(1, inserted.size());
     }
 
     @Test
@@ -146,8 +130,8 @@ class NotificationGenerationServiceTest {
                 .thenReturn(0);
 
         assertEquals(0, generation.generate(userId, "PAYMENT_APPROVED", eventId, null,
-                "PAYMENT", UUID.randomUUID(), now, Map.of()));
-        assertTrue(senders.get("PUSH").requests.isEmpty());
+                "PAYMENT", UUID.randomUUID(), now, Map.of("amount","1.25")));
+        verify(delivery, never()).deliver(any());
     }
 
     @Test
@@ -173,22 +157,9 @@ class NotificationGenerationServiceTest {
         NotificationRule rule = new NotificationRule();
         rule.setId(UUID.randomUUID()); rule.setCode("RULE-" + UUID.randomUUID());
         rule.setEventType(eventType); rule.setChannel(channel); rule.setMinutesBefore(0);
-        rule.setEnabled(true); rule.setTitleTemplate("Event {amount}"); rule.setMessageTemplate("Details {amount}");
+        rule.setEnabled(true); rule.setTitleTemplate("Event {eventType}"); rule.setMessageTemplate("Details {eventType}");
         rule.setValidFrom(from); rule.setCreatedAt(from); rule.setUpdatedAt(from);
         return rule;
     }
 
-    private static final class FakeSender implements NotificationChannelSender {
-        private final String channel;
-        private final List<NotificationSendRequest> requests = new ArrayList<>();
-        private boolean fail;
-        private FakeSender(String channel) { this.channel = channel; }
-        @Override public String channel() { return channel; }
-        @Override public boolean isConfigured() { return true; }
-        @Override public NotificationSendResult send(NotificationSendRequest request) {
-            requests.add(request);
-            if (fail) throw new IllegalStateException("controlled fake failure");
-            return new NotificationSendResult("test-provider-ref");
-        }
-    }
 }

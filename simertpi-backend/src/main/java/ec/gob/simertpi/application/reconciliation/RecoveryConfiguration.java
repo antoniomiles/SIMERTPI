@@ -18,7 +18,8 @@ public class RecoveryConfiguration {
             positive("simertpi.payments.pending-timeout.minutes");
         }
         if (enabled("simertpi.notifications.outbox.enabled")
-                || enabled("simertpi.reconciliation.outbox.enabled")) {
+                || enabled("simertpi.reconciliation.outbox.enabled")
+                || enabled("simertpi.notifications.dispatcher.enabled")) {
             positive("simertpi.outbox.max-attempts");
             positive("simertpi.outbox.backoff-seconds");
             positive("simertpi.outbox.processing-timeout-seconds");

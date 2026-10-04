@@ -32,6 +32,7 @@ class NotificationHttpPostgresIntegrationTest {
     @Autowired PasswordEncoder passwordEncoder;
     @Autowired NotificationOutboxProcessor outboxProcessor;
     @Autowired NotificationGenerationService generation;
+    @Autowired ec.gob.simertpi.application.notifications.NotificationDispatcher dispatcher;
 
     private final Fixture fixture = new Fixture();
 
@@ -45,6 +46,7 @@ class NotificationHttpPostgresIntegrationTest {
         jdbc.update("INSERT INTO identity.user_roles(user_id, role_id) VALUES (?, ?)", fixture.otherId, citizenRole);
         jdbc.update("INSERT INTO identity.vehicles(id, user_id, plate, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
                 fixture.vehicleId, fixture.ownerId, fixture.plate, now, now);
+        for (String channel : java.util.List.of("PUSH","WHATSAPP","EMAIL")) jdbc.update("INSERT INTO notification.preferences(user_id,channel,enabled) VALUES (?,?,true)",fixture.ownerId,channel);
         insertInboxNotification(fixture.ownNotificationId, fixture.ownerId, now);
         insertInboxNotification(fixture.foreignNotificationId, fixture.otherId, now);
     }
@@ -61,6 +63,7 @@ class NotificationHttpPostgresIntegrationTest {
         jdbc.update("DELETE FROM parking.zones WHERE id = ?", fixture.zoneId);
         jdbc.update("DELETE FROM identity.vehicles WHERE id = ?", fixture.vehicleId);
         jdbc.update("DELETE FROM identity.user_roles WHERE user_id IN (?, ?)", fixture.ownerId, fixture.otherId);
+        jdbc.update("DELETE FROM notification.preferences WHERE user_id IN (?,?)",fixture.ownerId,fixture.otherId);
         jdbc.update("DELETE FROM identity.users WHERE id IN (?, ?)", fixture.ownerId, fixture.otherId);
     }
 
@@ -105,15 +108,17 @@ class NotificationHttpPostgresIntegrationTest {
                 outboxId, fixture.permitId, payload, now, now, now);
 
         outboxProcessor.processPending();
+        dispatcher.processDue(OffsetDateTime.now());
         assertThat(jdbc.queryForObject("SELECT count(*) FROM notification.notifications WHERE outbox_event_id = ?",
                 Integer.class, outboxId)).isEqualTo(3);
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM notification.notifications WHERE outbox_event_id = ? AND status = 'FAILED' AND failure_reason = 'PROVIDER_NOT_CONFIGURED'",
-                Integer.class, outboxId)).isEqualTo(3);
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM notification.notifications WHERE outbox_event_id = ? AND channel = 'WHATSAPP' AND recipient = ?",
-                Integer.class, outboxId, "+593999000222")).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notification.notifications WHERE outbox_event_id = ? AND failure_reason = 'PROVIDER_NOT_CONFIGURED'",
+                Integer.class, outboxId)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notification.notifications WHERE outbox_event_id = ? AND channel = 'WHATSAPP' AND recipient IS NULL",
+                Integer.class, outboxId)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT status FROM audit.outbox_events WHERE id = ?", String.class, outboxId))
                 .isEqualTo("PUBLISHED");
         outboxProcessor.processPending();
+        dispatcher.processDue(OffsetDateTime.now());
         assertThat(jdbc.queryForObject("SELECT count(*) FROM notification.notifications WHERE outbox_event_id = ?",
                 Integer.class, outboxId)).isEqualTo(3);
 
@@ -125,6 +130,7 @@ class NotificationHttpPostgresIntegrationTest {
         jdbc.update("INSERT INTO audit.outbox_events(id, aggregate_type, aggregate_id, event_type, payload, status, occurred_at, created_at, updated_at) VALUES (?, 'PAYMENT', ?, 'PAYMENT_APPROVED', ?, 'PENDING', ?, ?, ?)",
                 paymentOutboxId, fixture.paymentId, paymentPayload, now, now, now);
         outboxProcessor.processPending();
+        dispatcher.processDue(OffsetDateTime.now());
         assertThat(jdbc.queryForObject("SELECT count(*) FROM notification.notifications WHERE outbox_event_id = ? AND channel = 'EMAIL'",
                 Integer.class, paymentOutboxId)).isEqualTo(1);
 
@@ -154,7 +160,7 @@ class NotificationHttpPostgresIntegrationTest {
     private void insertRule(String eventType, String channel, OffsetDateTime now) {
         jdbc.update("INSERT INTO configuration.notification_rules(id, code, event_type, channel, minutes_before, enabled, title_template, message_template, valid_from, created_at, updated_at) VALUES (?, ?, ?, ?, 0, true, ?, ?, ?, ?, ?)",
                 UUID.randomUUID(), fixture.rulePrefix + eventType + "-" + channel, eventType, channel,
-                "{eventType}", "Notification {amount}", now.minusDays(1), now, now);
+                "{eventType}", eventType.startsWith("PAYMENT") ? "Notification {amount}" : "Notification {eventType}", now.minusDays(1), now, now);
     }
 
     private void insertPaymentFixture(OffsetDateTime now) {

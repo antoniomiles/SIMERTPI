@@ -24,6 +24,11 @@ import java.util.UUID;
 @NoArgsConstructor
 public class NotificationRule {
 
+    @Column(nullable = false, length = 20)
+    private String classification = "INFORMATIONAL";
+    @Column(nullable = false)
+    private boolean mandatory;
+
     @Id
     private UUID id;
 

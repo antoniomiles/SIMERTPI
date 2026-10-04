@@ -74,6 +74,10 @@ public class SecurityConfig {
                     .hasAuthority("CITIZEN")
                 .requestMatchers(HttpMethod.PATCH, "/api/v1/notifications/*/read")
                     .hasAuthority("CITIZEN")
+                .requestMatchers(HttpMethod.GET, "/api/v1/notifications/devices", "/api/v1/notifications/preferences").hasAuthority("CITIZEN")
+                .requestMatchers(HttpMethod.POST, "/api/v1/notifications/devices").hasAuthority("CITIZEN")
+                .requestMatchers(HttpMethod.DELETE, "/api/v1/notifications/devices/{id}").hasAuthority("CITIZEN")
+                .requestMatchers(HttpMethod.PUT, "/api/v1/notifications/preferences").hasAuthority("CITIZEN")
                 .requestMatchers("/api/v1/notifications/**").denyAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/admin/reconciliation/payments",
                         "/api/v1/admin/reconciliation/evidence", "/api/v1/admin/reconciliation/outbox")

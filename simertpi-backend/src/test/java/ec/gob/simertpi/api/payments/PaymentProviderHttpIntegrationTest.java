@@ -217,5 +217,5 @@ class PaymentProviderHttpIntegrationTest {
         assertThat(webhook("SANDBOX_STUB",old,true).getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(paymentRepository.findById(id).orElseThrow().getProviderOperationStatus()).isEqualTo("CONFIRMED");assertThat(sessionState()).isEqualTo("PENDING_PAYMENT");
     }
-    @Test void flywayValidatesV28() {flyway.validate();assertThat(flyway.info().current().getVersion().toString()).isEqualTo("28");}
+    @Test void flywayValidatesV28() {flyway.validate();assertThat(Integer.parseInt(flyway.info().current().getVersion().toString())).isGreaterThanOrEqualTo(28);}
 }

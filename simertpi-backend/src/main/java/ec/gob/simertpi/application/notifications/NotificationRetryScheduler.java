@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import java.time.OffsetDateTime;
 
 @Component
+@org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(name="simertpi.notifications.dispatcher.enabled", havingValue="true")
 public class NotificationRetryScheduler {
     private final NotificationDeliveryService delivery;
 
@@ -13,6 +14,6 @@ public class NotificationRetryScheduler {
 
     @Scheduled(fixedDelayString = "${simertpi.notifications.retry.fixed-delay-ms:60000}")
     public void retryFailedChannels() {
-        delivery.retryDue(OffsetDateTime.now());
+        ec.gob.simertpi.application.reconciliation.ReconciliationSchedulers.runCorrelated(() -> delivery.retryDue(OffsetDateTime.now()));
     }
 }

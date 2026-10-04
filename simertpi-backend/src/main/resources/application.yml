@@ -69,6 +69,14 @@ simertpi:
       enabled: ${SIMERTPI_OUTBOX_RECOVERY_ENABLED:false}
       fixed-delay-ms: ${SIMERTPI_OUTBOX_RECOVERY_DELAY_MS:60000}
   notifications:
+    providers:
+      push: ${SIMERTPI_NOTIFICATION_PUSH_PROVIDER:UNCONFIGURED}
+      whatsapp: ${SIMERTPI_NOTIFICATION_WHATSAPP_PROVIDER:UNCONFIGURED}
+      email: ${SIMERTPI_NOTIFICATION_EMAIL_PROVIDER:UNCONFIGURED}
+    sandbox:
+      enabled: ${SIMERTPI_NOTIFICATION_SANDBOX_ENABLED:false}
+    dispatcher:
+      enabled: ${SIMERTPI_NOTIFICATION_DISPATCHER_ENABLED:true}
     outbox:
       enabled: ${SIMERTPI_OUTBOX_ENABLED:true}
       fixed-delay-ms: 5000
