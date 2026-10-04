@@ -154,7 +154,10 @@ public class CreatePaymentService {
             payment.setCreatedAt(now);
             payment.setCurrency(tariff.getCurrency() == null ? "USD" : tariff.getCurrency());
         }
-        payment.setProvider(NOT_CONFIGURED_PROVIDER);
+        if(newPayment) payment.setProvider(NOT_CONFIGURED_PROVIDER);
+        payment.setProviderPaymentId(null);
+        payment.setProviderOperationKey(null);
+        payment.setProviderOperationStatus("NOT_STARTED");
         payment.setIdempotencyKey(key);
         payment.setAmount(amount);
         payment.setStatus("PENDING");

@@ -14,7 +14,7 @@ public enum PaymentStatus {
     public boolean canTransitionTo(PaymentStatus next) {
         return switch (this) {
             case PENDING -> EnumSet.of(PROCESSING, APPROVED, DECLINED, FAILED, CANCELLED).contains(next);
-            case PROCESSING -> EnumSet.of(APPROVED, DECLINED, FAILED, CANCELLED).contains(next);
+            case PROCESSING -> EnumSet.of(PENDING, APPROVED, DECLINED, FAILED, CANCELLED).contains(next);
             case APPROVED -> next == REFUNDED;
             case DECLINED, FAILED, REFUNDED, CANCELLED -> false;
         };

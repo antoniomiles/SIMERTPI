@@ -1,7 +1,6 @@
 package ec.gob.simertpi.application.payments.webhook;
-
+import java.util.*;
 public interface PaymentWebhookVerifier {
-
-    boolean verify(String provider, String eventId, String timestamp,
-                   String signature, String payload);
+ boolean supports(String provider);
+ Optional<VerifiedPaymentEvent> verify(String provider, Map<String,List<String>> headers, byte[] rawBody);
 }

@@ -53,6 +53,8 @@ public class PaymentReconciliationService {
  private List<Map<String,Object>> paymentsForUpdate(UUID id) {
   return jdbc.queryForList("""
    SELECT p.*,
+     EXISTS(SELECT 1 FROM payments.payment_attempts a WHERE a.payment_id=p.id AND a.response_code='LATE_APPROVAL') AS late_approval,
+     EXISTS(SELECT 1 FROM payments.payment_attempts a WHERE a.payment_id=p.id AND a.response_code='STATE_CONFLICT') AS provider_conflict,
      EXISTS(SELECT 1 FROM parking.session_extensions e WHERE e.payment_id=p.id) AS extension_payment,
      GREATEST(p.created_at, COALESCE((SELECT MAX(a.created_at) FROM payments.payment_attempts a
        WHERE a.payment_id=p.id), p.created_at)) AS last_activity_at
@@ -66,7 +68,10 @@ public class PaymentReconciliationService {
   var payments=paymentsForUpdate(id);
   var approved=payments.stream().filter(p -> "APPROVED".equals(p.get("status")) && !Boolean.TRUE.equals(p.get("extension_payment"))).toList();
   String issue="CONSISTENT",status="CONSISTENT",action="NONE";
-  if(approved.size()>1) issue="MULTIPLE_APPROVED_PAYMENTS";
+  if(payments.stream().anyMatch(p -> Boolean.TRUE.equals(p.get("late_approval")))) issue="PAYMENT_LATE_APPROVAL_REVIEW_REQUIRED";
+  else if(payments.stream().anyMatch(p -> Boolean.TRUE.equals(p.get("provider_conflict")))) issue="PAYMENT_PROVIDER_STATE_CONFLICT";
+  else if(payments.stream().anyMatch(p -> "UNKNOWN".equals(p.get("provider_operation_status")))) issue="PAYMENT_PROVIDER_RESULT_UNKNOWN";
+  else if(approved.size()>1) issue="MULTIPLE_APPROVED_PAYMENTS";
   else if(approved.size()==1 && "CANCELLED".equals(state)) issue="PAYMENT_APPROVED_SESSION_CANCELLED";
   else if(approved.size()==1 && "PENDING_PAYMENT".equals(state)) {
    var payment=approved.getFirst();

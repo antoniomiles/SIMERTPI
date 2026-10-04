@@ -47,6 +47,10 @@ simertpi:
       enabled: true
       fixed-delay-ms: 60000
   payments:
+    provider: ${SIMERTPI_PAYMENT_PROVIDER:UNCONFIGURED}
+    sandbox:
+      enabled: ${SIMERTPI_PAYMENT_SANDBOX_ENABLED:false}
+    # Future HTTP adapters must require explicit connect/read timeouts.
     pending-timeout:
       enabled: ${SIMERTPI_PENDING_TIMEOUT_ENABLED:false}
       # minutes must be supplied explicitly when enabled.

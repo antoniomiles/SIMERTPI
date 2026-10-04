@@ -32,6 +32,13 @@ public class Payment {
     @Column(name = "provider_transaction_id", length = 150)
     private String providerTransactionId;
 
+    @Column(name="provider_payment_id", length=150)
+    private String providerPaymentId;
+    @Column(name="provider_operation_key")
+    private java.util.UUID providerOperationKey;
+    @Column(name="provider_operation_status", length=20)
+    private String providerOperationStatus;
+
     @Column(name = "idempotency_key", nullable = false, length = 150)
     private String idempotencyKey;
 

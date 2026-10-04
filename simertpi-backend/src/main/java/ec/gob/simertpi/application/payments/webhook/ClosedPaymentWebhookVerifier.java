@@ -1,13 +1,8 @@
 package ec.gob.simertpi.application.payments.webhook;
-
 import org.springframework.stereotype.Component;
-
+import java.util.*;
 @Component
 public class ClosedPaymentWebhookVerifier implements PaymentWebhookVerifier {
-
-    @Override
-    public boolean verify(String provider, String eventId, String timestamp,
-                          String signature, String payload) {
-        return false;
-    }
+ public boolean supports(String provider) {return false;}
+ public Optional<VerifiedPaymentEvent> verify(String provider,Map<String,List<String>> headers,byte[] rawBody) {return Optional.empty();}
 }

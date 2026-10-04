@@ -273,5 +273,5 @@ class OperationalRecoveryPostgresIntegrationTest {
     @Test void citizenCannotTriggerReconciliation() {assertThat(adminPost(username,"payments").getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);}
     @Test void inspectorCannotTriggerReconciliation() {role("INSPECTOR");assertThat(adminPost(username,"evidence").getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);}
     @Test void anonymousCannotTriggerReconciliation() {assertThat(restTemplate.postForEntity("http://localhost:"+port+"/api/v1/admin/reconciliation/outbox",null,String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);}
-    @Test void flywayValidatesIncludingV27() {flyway.validate();assertThat(flyway.info().current().getVersion().toString()).isEqualTo("27");}
+    @Test void flywayValidatesIncludingV27() {flyway.validate();assertThat(Integer.parseInt(flyway.info().current().getVersion().toString())).isGreaterThanOrEqualTo(27);}
 }

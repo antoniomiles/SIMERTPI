@@ -12,6 +12,7 @@ class PaymentStatusTest {
     void onlyAllowsDeclaredPaymentStateTransitions() {
         assertTrue(PaymentStatus.PENDING.canTransitionTo(PaymentStatus.PROCESSING));
         assertTrue(PaymentStatus.PROCESSING.canTransitionTo(PaymentStatus.APPROVED));
+        assertTrue(PaymentStatus.PROCESSING.canTransitionTo(PaymentStatus.PENDING));
         assertTrue(PaymentStatus.PROCESSING.canTransitionTo(PaymentStatus.DECLINED));
         assertTrue(PaymentStatus.PENDING.canTransitionTo(PaymentStatus.CANCELLED));
         assertTrue(PaymentStatus.APPROVED.canTransitionTo(PaymentStatus.REFUNDED));

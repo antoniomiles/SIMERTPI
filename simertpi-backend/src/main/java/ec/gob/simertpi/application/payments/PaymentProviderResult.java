@@ -1,9 +1,3 @@
 package ec.gob.simertpi.application.payments;
-
-public record PaymentProviderResult(
-        String status,
-        String providerTransactionId,
-        String responseCode,
-        String responseMessage
-) {
-}
+/** No raw responses or provider-specific transport data cross this boundary. */
+public record PaymentProviderResult(ProviderPaymentStatus status, String providerPaymentId, String reference) { }
