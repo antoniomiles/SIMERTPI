@@ -1,5 +1,5 @@
 name: simertpi_citizen_app
-description: Foundation ciudadana SIMERTPI. Sin funcionalidades de negocio.
+description: Aplicación ciudadana SIMERTPI. Foundation y autenticación HTTP Basic.
 publish_to: none
 version: 0.1.0+1
 environment:

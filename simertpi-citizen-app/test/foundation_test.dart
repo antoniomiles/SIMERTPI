@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:simertpi_citizen_app/app/app.dart';
 import 'package:simertpi_citizen_app/app/bootstrap/bootstrap.dart';
 import 'package:simertpi_citizen_app/app/router/app_router.dart';
 import 'package:simertpi_citizen_app/core/config/app_config.dart';
@@ -12,6 +11,8 @@ import 'package:simertpi_citizen_app/core/theme/app_tokens.dart';
 import 'package:simertpi_citizen_app/core/widgets/app_buttons.dart';
 import 'package:simertpi_citizen_app/core/widgets/app_feedback.dart';
 import 'package:simertpi_citizen_app/core/widgets/app_skeleton.dart';
+
+import 'support/auth_test_support.dart';
 
 void main() {
   test('Environment configuration fails closed without inventing URLs', () {
@@ -118,13 +119,13 @@ void main() {
   });
 
   testWidgets(
-    'Bootstrap, splash and provisional theme load without backend calls',
+    'Bootstrap, splash and theme load signed out without backend calls',
     (tester) async {
       await tester.pumpWidget(const Bootstrap());
       await tester.pumpAndSettle();
       expect(find.text('SIMERTPI'), findsOneWidget);
-      expect(find.text('Demostración'), findsOneWidget);
-      final context = tester.element(find.text('Demostración'));
+      expect(find.text('Inicia sesión'), findsOneWidget);
+      final context = tester.element(find.text('Inicia sesión'));
       expect(Theme.of(context).colorScheme.primary, AppColors.primary);
       expect(AppScope.of(context).config.environment, AppEnvironment.dev);
     },
@@ -133,7 +134,7 @@ void main() {
   testWidgets('Central router opens gallery and returns to home', (
     tester,
   ) async {
-    await tester.pumpWidget(SimertpiApp(initialRoute: AppRoute.home.path));
+    await tester.pumpWidget(await citizenApp(route: AppRoute.home));
     await tester.tap(find.text('Ver componentes'));
     await tester.pumpAndSettle();
     expect(find.text('Componentes'), findsOneWidget);
@@ -150,7 +151,7 @@ void main() {
   testWidgets(
     'Skeleton, empty and error states remain distinct and retry provides feedback',
     (tester) async {
-      await tester.pumpWidget(SimertpiApp(initialRoute: AppRoute.states.path));
+      await tester.pumpWidget(await citizenApp(route: AppRoute.states));
       await tester.tap(find.text('Cargando'));
       await tester.pump();
       expect(find.byType(SkeletonCard), findsNWidgets(2));
@@ -256,7 +257,7 @@ void main() {
         AppRoute.states,
       ]) {
         await tester.pumpWidget(
-          SimertpiApp(key: ValueKey(route), initialRoute: route.path),
+          await citizenApp(key: ValueKey(route), route: route),
         );
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);

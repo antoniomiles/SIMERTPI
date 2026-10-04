@@ -6,21 +6,27 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_feedback.dart';
 import '../../core/widgets/app_layout.dart';
 import '../app.dart';
+import '../../features/auth/data/auth_service.dart';
+import '../../features/auth/state/auth_controller.dart';
 
 class AppScope extends InheritedWidget {
   const AppScope({
     super.key,
     required this.config,
     this.api,
+    required this.auth,
     required super.child,
   });
   final AppConfig config;
   final ApiClient? api;
+  final AuthController auth;
   static AppScope of(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<AppScope>()!;
   @override
   bool updateShouldNotify(AppScope oldWidget) =>
-      config != oldWidget.config || api != oldWidget.api;
+      config != oldWidget.config ||
+      api != oldWidget.api ||
+      auth != oldWidget.auth;
 }
 
 class Bootstrap extends StatefulWidget {
@@ -32,6 +38,7 @@ class Bootstrap extends StatefulWidget {
 class _BootstrapState extends State<Bootstrap> {
   ApiClient? _api;
   AppConfig? _config;
+  AuthController? _auth;
   @override
   void initState() {
     super.initState();
@@ -40,13 +47,21 @@ class _BootstrapState extends State<Bootstrap> {
 
   void _configure() {
     _api?.close();
+    _auth?.dispose();
+    _auth = null;
     _api = null;
     _config = null;
     try {
       _config = AppConfig.fromDefines();
       if (_config!.apiBaseUrl != null) {
-        _api = ApiClient(baseUrl: _config!.apiBaseUrl!);
+        _api = ApiClient(
+          baseUrl: _config!.apiBaseUrl!,
+          headersProvider: () => _auth!.headers(),
+          onUnauthorized: (authorization) =>
+              _auth!.expireIfMatches(authorization),
+        );
       }
+      _auth = AuthController(AuthService(_api));
     } on FormatException {
       /* Fail closed; never render raw configuration. */
     }
@@ -55,12 +70,18 @@ class _BootstrapState extends State<Bootstrap> {
   @override
   void dispose() {
     _api?.close();
+    _auth?.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) => _config != null
-      ? AppScope(config: _config!, api: _api, child: const SimertpiApp())
+      ? AppScope(
+          config: _config!,
+          api: _api,
+          auth: _auth!,
+          child: SimertpiApp(auth: _auth!),
+        )
       : MaterialApp(
           theme: AppTheme.light,
           home: AppPage(

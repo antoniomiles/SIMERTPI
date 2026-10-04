@@ -25,6 +25,7 @@ class ApiClient {
     this.readTimeout = const Duration(seconds: 15),
     Duration connectTimeout = const Duration(seconds: 10),
     this.headersProvider,
+    this.onUnauthorized,
     this.log = const AppLog(),
   }) : _client = client ?? HttpClient() {
     _client.connectionTimeout = connectTimeout;
@@ -32,14 +33,17 @@ class ApiClient {
   final Uri baseUrl;
   final HttpClient _client;
   final Duration readTimeout;
-  // Future authentication supplies headers here; CP17 stores no session/token.
+  // Authentication is supplied in memory; this client never persists credentials.
   final Future<Map<String, String>> Function()? headersProvider;
   final AppLog log;
+  final VoidUnauthorized? onUnauthorized;
 
   Future<ApiResponse> request(
     ApiMethod method,
     String path, {
     Object? body,
+    bool authenticated = true,
+    Map<String, String> headers = const {},
     Map<String, String> query = const {},
     String? correlationId,
   }) async {
@@ -60,7 +64,11 @@ class ApiClient {
     final write = method != ApiMethod.get;
     HttpClientRequest? pending;
     try {
-      final extra = await headersProvider?.call() ?? <String, String>{};
+      final extra = <String, String>{
+        if (authenticated)
+          ...await headersProvider?.call() ?? <String, String>{},
+        ...headers,
+      };
       pending = await _client
           .openUrl(method.name.toUpperCase(), uri)
           .timeout(readTimeout);
@@ -87,9 +95,18 @@ class ApiClient {
           : id;
       if (response.statusCode < 200 || response.statusCode >= 300) {
         await response.drain<void>().timeout(readTimeout);
+        if (response.statusCode == 401 && authenticated) {
+          onUnauthorized?.call(extra['Authorization']);
+        }
         throw AppFailure(
           response.statusCode == 401
               ? FailureKind.unauthorized
+              : response.statusCode == 403
+              ? FailureKind.forbidden
+              : response.statusCode == 409
+              ? FailureKind.conflict
+              : response.statusCode == 400
+              ? FailureKind.invalidRequest
               : response.statusCode >= 500
               ? FailureKind.unavailable
               : FailureKind.rejected,
@@ -144,3 +161,5 @@ class ApiClient {
 
   void close() => _client.close(force: true);
 }
+
+typedef VoidUnauthorized = void Function(String? authorization);

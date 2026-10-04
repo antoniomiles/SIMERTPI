@@ -4,6 +4,9 @@ enum FailureKind {
   unavailable,
   unauthorized,
   rejected,
+  forbidden,
+  conflict,
+  invalidRequest,
   unknown,
 }
 
@@ -26,6 +29,9 @@ class AppFailure implements Exception {
     FailureKind.unavailable =>
       'El servicio no está disponible en este momento.',
     FailureKind.unauthorized => 'Necesitas iniciar sesión para continuar.',
+    FailureKind.forbidden => 'No tienes acceso a esta operación.',
+    FailureKind.conflict => 'La información ya está registrada.',
+    FailureKind.invalidRequest => 'Revisa los datos ingresados.',
     FailureKind.rejected => 'No fue posible completar la operación.',
     FailureKind.unknown when outcomeUnknown =>
       'No pudimos confirmar el resultado. Consulta el estado antes de repetir.',

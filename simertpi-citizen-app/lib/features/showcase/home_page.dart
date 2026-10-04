@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../app/router/app_router.dart';
+import '../../app/bootstrap/bootstrap.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../core/widgets/app_buttons.dart';
 import '../../core/widgets/app_layout.dart';
@@ -64,9 +65,11 @@ class HomePage extends StatelessWidget {
           ),
         ),
         const SizedBox(height: AppSpace.lg),
-        const Text(
-          'Diseño provisional · pendiente de validación visual Figma.',
+        TextButton(
+          onPressed: () => AppScope.of(context).auth.logout(),
+          child: const Text('Cerrar sesión'),
         ),
+        const Text('Base visual de CP17 · autenticación ciudadana habilitada.'),
       ],
     ),
   );

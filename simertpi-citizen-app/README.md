@@ -1,17 +1,23 @@
 # SIMERTPI Ciudadano
 
-Foundation Flutter Android/iOS. El showcase es demostración, no funcionalidades de negocio.
+Flutter Android/iOS. CP18 incorpora autenticación HTTP Basic y registro reales;
+el Home sigue siendo el showcase CP17, sin operaciones de estacionamiento.
 
-Requisitos: Flutter 3.47.6 / Dart 3.13.5, Android SDK para Android; macOS/Xcode para iOS.
+Requisitos: Flutter 3.47.6 / Dart 3.13.5, Android SDK; macOS/Xcode para iOS.
 
 ```sh
 flutter pub get
-flutter run --dart-define=ENVIRONMENT=dev
+flutter run --dart-define=ENVIRONMENT=dev --dart-define=API_BASE_URL=<base-del-backend-terminada-en-/api/v1>
 flutter analyze
 flutter test
 flutter build apk --debug
 ```
 
-Ver [Checkpoint 17](docs/checkpoint-17.md) para arquitectura, ambientes, límites y validación.
+`ENVIRONMENT` admite dev/qa/uat/prod; HTTPS obligatorio fuera de DEV. La URL
+proviene del despliegue real, nunca de un dominio inventado. Sin URL, DEV
+muestra login pero las operaciones fallan de forma controlada.
 
-**PENDIENTE VALIDACIÓN VISUAL FIGMA.** Sin proveedores externos ni secretos.
+Ver [CP17](docs/checkpoint-17.md) y [CP18](docs/checkpoint-18.md).
+La sesión Basic vive solo en memoria: reiniciar requiere ingresar nuevamente.
+No se persisten contraseñas. Recuperación, refresh y tokens no están soportados
+por el backend actual. Sin secretos ni proveedores externos.

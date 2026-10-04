@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../app/router/app_router.dart';
+import '../../app/bootstrap/bootstrap.dart';
 import '../../core/theme/app_tokens.dart';
 
 class SplashPage extends StatefulWidget {
@@ -13,9 +14,15 @@ class _SplashPageState extends State<SplashPage> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final auth = AppScope.of(context).auth;
+      await auth.restore();
       if (mounted) {
-        Navigator.of(context).pushReplacementNamed(AppRoute.home.path);
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          auth.isAuthenticated ? AppRoute.home.path : AppRoute.login.path,
+          (_) => false,
+        );
       }
     });
   }

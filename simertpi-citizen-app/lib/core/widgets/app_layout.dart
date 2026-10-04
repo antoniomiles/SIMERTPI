@@ -49,17 +49,49 @@ class AppTextField extends StatelessWidget {
     this.errorText,
     this.keyboardType = TextInputType.text,
     this.obscureText = false,
+    this.validator,
+    this.suffixIcon,
+    this.autofillHints,
+    this.textInputAction,
+    this.enabled = true,
   });
   final String label;
   final TextEditingController? controller;
   final String? errorText;
   final TextInputType keyboardType;
   final bool obscureText;
+  final String? Function(String?)? validator;
+  final Widget? suffixIcon;
+  final Iterable<String>? autofillHints;
+  final TextInputAction? textInputAction;
+  final bool enabled;
   @override
-  Widget build(BuildContext context) => TextField(
-    controller: controller,
-    keyboardType: keyboardType,
-    obscureText: obscureText,
-    decoration: InputDecoration(labelText: label, errorText: errorText),
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      ExcludeSemantics(
+        child: Text(label, style: Theme.of(context).textTheme.labelMedium),
+      ),
+      const SizedBox(height: AppSpace.sm),
+      Semantics(
+        label: label,
+        child: TextFormField(
+          controller: controller,
+          keyboardType: keyboardType,
+          obscureText: obscureText,
+          validator: validator,
+          enabled: enabled,
+          autofillHints: autofillHints,
+          textInputAction: textInputAction,
+          autocorrect: !obscureText && autofillHints == null,
+          enableSuggestions: !obscureText && autofillHints == null,
+          autovalidateMode: AutovalidateMode.onUserInteraction,
+          decoration: InputDecoration(
+            errorText: errorText,
+            suffixIcon: suffixIcon,
+          ),
+        ),
+      ),
+    ],
   );
 }

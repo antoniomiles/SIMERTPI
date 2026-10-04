@@ -18,7 +18,7 @@ abstract final class AppTheme {
       visualDensity: VisualDensity.standard,
       textTheme: const TextTheme(
         headlineMedium: TextStyle(
-          fontSize: 28,
+          fontSize: 25,
           height: 1.2,
           fontWeight: FontWeight.w700,
           color: AppColors.ink,
@@ -50,15 +50,20 @@ abstract final class AppTheme {
         elevation: 0,
         scrolledUnderElevation: 0,
       ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+      ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          minimumSize: const Size(AppSize.touchTarget, AppSize.touchTarget),
+          backgroundColor: AppColors.accent,
+          foregroundColor: AppColors.ink, // White/cyan fails contrast in Figma.
+          minimumSize: const Size(AppSize.touchTarget, 54),
           padding: const EdgeInsets.symmetric(
             horizontal: AppSpace.lg,
             vertical: AppSpace.md,
           ),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppSize.inputRadius),
+            borderRadius: BorderRadius.circular(AppSize.buttonRadius),
           ),
         ),
       ),
@@ -70,20 +75,20 @@ abstract final class AppTheme {
             vertical: AppSpace.md,
           ),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppSize.inputRadius),
+            borderRadius: BorderRadius.circular(AppSize.buttonRadius),
           ),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: AppColors.surface,
+        fillColor: AppColors.input,
         contentPadding: const EdgeInsets.all(AppSpace.md),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppSize.inputRadius),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppSize.inputRadius),
-          borderSide: const BorderSide(color: AppColors.outline),
+          borderSide: BorderSide.none,
         ),
       ),
       snackBarTheme: const SnackBarThemeData(

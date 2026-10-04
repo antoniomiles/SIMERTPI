@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../features/auth/state/auth_controller.dart';
+import '../../features/auth/presentation/login_page.dart';
+import '../../features/auth/presentation/register_page.dart';
 import '../../features/splash/splash_page.dart';
 import '../../features/showcase/home_page.dart';
 import '../../features/showcase/components_page.dart';
@@ -7,27 +10,44 @@ import '../../features/showcase/states_page.dart';
 
 enum AppRoute {
   splash('/'),
+  login('/login'),
+  register('/register'),
   home('/home'),
   components('/components'),
   states('/states');
 
   const AppRoute(this.path);
   final String path;
+  bool get isPublic => this == splash || this == login || this == register;
 }
 
 abstract final class AppRouter {
-  // Add public/protected route policy here in CP18, after session contract exists.
-  static Route<void> generate(RouteSettings settings) {
-    final routes = <String, WidgetBuilder>{
-      AppRoute.splash.path: (_) => const SplashPage(),
-      AppRoute.home.path: (_) => const HomePage(),
-      AppRoute.components.path: (_) => const ComponentsPage(),
-      AppRoute.states.path: (_) => const StatesPage(),
-    };
-    final page = routes[settings.name]?.call;
+  static Route<void> generate(RouteSettings settings, AuthController auth) {
+    final selected =
+        AppRoute.values.where((r) => r.path == settings.name).firstOrNull ??
+        AppRoute.home;
     return MaterialPageRoute<void>(
       settings: settings,
-      builder: (context) => page?.call(context) ?? const HomePage(),
+      builder: (context) => ListenableBuilder(
+        listenable: auth,
+        builder: (context, _) {
+          if (!selected.isPublic && !auth.isAuthenticated) {
+            return const LoginPage();
+          }
+          if ((selected == AppRoute.login || selected == AppRoute.register) &&
+              auth.isAuthenticated) {
+            return const HomePage();
+          }
+          return switch (selected) {
+            AppRoute.splash => const SplashPage(),
+            AppRoute.login => const LoginPage(),
+            AppRoute.register => const RegisterPage(),
+            AppRoute.home => const HomePage(),
+            AppRoute.components => const ComponentsPage(),
+            AppRoute.states => const StatesPage(),
+          };
+        },
+      ),
     );
   }
 }

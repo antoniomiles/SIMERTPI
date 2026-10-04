@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 
-// PENDIENTE VALIDACIÓN VISUAL FIGMA. Provisional, replace centrally.
+// Verified citizen auth Figma nodes 5:591 and 5:607; tokens shared centrally.
 abstract final class AppColors {
-  static const primary = Color(0xFF24465B);
-  static const accent = Color(0xFF226B62);
-  static const canvas = Color(0xFFF7F9FA);
+  static const primary = Color(0xFF05306B);
+  static const accent = Color(0xFF05A1D1);
+  static const canvas = Color(0xFFFFFFFF);
   static const surface = Colors.white;
-  static const ink = Color(0xFF182C38);
-  static const muted = Color(0xFF52636D);
+  static const ink = Color(0xFF141F2E);
+  static const muted = Color(0xFF616E7D);
+  static const input = Color(0xFFF5F7FA);
   static const outline = Color(0xFFCDD6DB);
   static const skeleton = Color(0xFFE5EBEE);
   static const danger = Color(0xFFA32835);
@@ -24,7 +25,9 @@ abstract final class AppSpace {
 
 abstract final class AppSize {
   static const radius = 16.0;
-  static const inputRadius = 12.0;
+  static const inputRadius = 10.0;
+  static const buttonRadius = 12.0;
+  static const brandHeader = 58.0;
   static const touchTarget = 48.0;
   static const contentWidth = 640.0;
 }
