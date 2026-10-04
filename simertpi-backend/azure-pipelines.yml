@@ -3,6 +3,8 @@ trigger:
     include:
       - develop
       - main
+      - release/*
+      - hotfix/*
 
 pr:
   branches:
@@ -53,3 +55,39 @@ steps:
     inputs:
       targetPath: $(Build.SourcesDirectory)/simertpi-backend/target/surefire-reports
       artifact: backend-surefire
+
+  # Default succeeded() conditions keep all packaging/build steps behind CP15 tests.
+  - bash: mvn --batch-mode --no-transfer-progress jar:jar spring-boot:repackage
+    displayName: Package tested classes without repeating tests
+    workingDirectory: $(Build.SourcesDirectory)/simertpi-backend
+
+  - bash: |
+      set -euo pipefail
+      epoch=$(git log -1 --format=%ct)
+      docker build --build-arg VCS_REF="$BUILD_SOURCEVERSION" --build-arg SOURCE_DATE_EPOCH="$epoch" --tag "simertpi-backend:sha-$BUILD_SOURCEVERSION" .
+      test "$(docker image inspect --format '{{.Config.User}}' "simertpi-backend:sha-$BUILD_SOURCEVERSION")" = '10001:10001'
+      docker compose --file compose.dev.yml config --quiet
+    displayName: Build image and validate non-root runtime/Compose
+    workingDirectory: $(Build.SourcesDirectory)/simertpi-backend
+    env:
+      DB_USERNAME: config-validation-only
+      DB_PASSWORD: config-validation-only
+
+  - bash: |
+      set -euo pipefail
+      mkdir -p "$BUILD_ARTIFACTSTAGINGDIRECTORY/container"
+      docker image save "simertpi-backend:sha-$BUILD_SOURCEVERSION" | gzip > "$BUILD_ARTIFACTSTAGINGDIRECTORY/container/simertpi-backend.tar.gz"
+      docker image inspect --format '{"imageId":"{{.Id}}","revision":"{{index .Config.Labels "org.opencontainers.image.revision"}}","user":"{{.Config.User}}"}' "simertpi-backend:sha-$BUILD_SOURCEVERSION" > "$BUILD_ARTIFACTSTAGINGDIRECTORY/container/image.json"
+      cd "$BUILD_ARTIFACTSTAGINGDIRECTORY/container"
+      sha256sum simertpi-backend.tar.gz > SHA256SUMS
+    displayName: Prepare versioned image artifact
+
+  - task: PublishPipelineArtifact@1
+    displayName: Publish versioned image archive
+    inputs:
+      targetPath: $(Build.ArtifactStagingDirectory)/container
+      artifact: backend-container
+
+  # CD is deliberately not executed: registry/service connections/environments are undefined.
+  # Follow docs/checkpoint-16.md for registry publication, DEV and QA/UAT/PROD promotion.
+  # Selected SAST/SCA/secret/image scanners must become blocking gates before deployment.

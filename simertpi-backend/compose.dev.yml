@@ -1,0 +1,48 @@
+name: simertpi-dev
+services:
+  postgres:
+    image: postgres:16.15
+    environment:
+      POSTGRES_DB: ${DB_NAME:-simertpi}
+      POSTGRES_USER: ${DB_USERNAME:?Supply DB_USERNAME externally}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Supply DB_PASSWORD externally}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    image: ${SIMERTPI_BACKEND_IMAGE:-simertpi-backend:dev-local}
+    build:
+      context: .
+      args:
+        VCS_REF: ${VCS_REF:-unversioned}
+        SOURCE_DATE_EPOCH: ${SOURCE_DATE_EPOCH:-315532800}
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-simertpi}
+      DB_USERNAME: ${DB_USERNAME:?Supply DB_USERNAME externally}
+      DB_PASSWORD: ${DB_PASSWORD:?Supply DB_PASSWORD externally}
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      SERVER_PORT: ${SERVER_PORT:-8080}
+      SIMERTPI_EVIDENCE_STORAGE_BASE_PATH: /var/lib/simertpi/evidence
+      SIMERTPI_PAYMENT_PROVIDER: ${SIMERTPI_PAYMENT_PROVIDER:-UNCONFIGURED}
+      SIMERTPI_PAYMENT_SANDBOX_ENABLED: ${SIMERTPI_PAYMENT_SANDBOX_ENABLED:-false}
+      SIMERTPI_NOTIFICATION_PUSH_PROVIDER: ${SIMERTPI_NOTIFICATION_PUSH_PROVIDER:-UNCONFIGURED}
+      SIMERTPI_NOTIFICATION_WHATSAPP_PROVIDER: ${SIMERTPI_NOTIFICATION_WHATSAPP_PROVIDER:-UNCONFIGURED}
+      SIMERTPI_NOTIFICATION_EMAIL_PROVIDER: ${SIMERTPI_NOTIFICATION_EMAIL_PROVIDER:-UNCONFIGURED}
+      SIMERTPI_NOTIFICATION_SANDBOX_ENABLED: ${SIMERTPI_NOTIFICATION_SANDBOX_ENABLED:-false}
+    ports:
+      - "127.0.0.1:${DEV_HTTP_PORT:-8080}:${SERVER_PORT:-8080}"
+    volumes:
+      - evidence_data:/var/lib/simertpi/evidence
+    depends_on:
+      postgres:
+        condition: service_healthy
+    stop_grace_period: 35s
+
+volumes:
+  postgres_data:
+  evidence_data:

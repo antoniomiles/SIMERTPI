@@ -1,0 +1,12 @@
+# Existing sandbox contracts accept exclusively dev/test; production stays fail-closed.
+simertpi:
+  payments:
+    sandbox:
+      enabled: false
+  notifications:
+    sandbox:
+      enabled: false
+  evidence:
+    storage:
+      # The deployment must mount durable storage at this externally supplied location.
+      base-path: ${SIMERTPI_EVIDENCE_STORAGE_BASE_PATH}

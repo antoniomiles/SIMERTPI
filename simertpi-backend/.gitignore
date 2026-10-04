@@ -44,3 +44,11 @@ build/
 *.rej
 *~
 Thumbs.db
+
+# External deployment configuration and secrets
+.env
+.env.*
+!.env.example
+.secrets/
+*.tar
+*.tar.gz
