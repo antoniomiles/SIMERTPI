@@ -117,12 +117,17 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
                 const SizedBox(height: AppSpace.lg),
-                PrimaryButton(label: 'ESCANEAR QR', onPressed: _future),
+                PrimaryButton(
+                  label: 'ESCANEAR QR',
+                  onPressed: () =>
+                      Navigator.pushNamed(context, AppRoute.qr.path),
+                ),
                 const SizedBox(height: AppSpace.md),
                 SecondaryButton(
-                  label: 'INGRESAR ESPACIO MANUALMENTE',
+                  label: 'BUSCAR ESTACIONAMIENTO',
                   filled: true,
-                  onPressed: _future,
+                  onPressed: () =>
+                      Navigator.pushNamed(context, AppRoute.discovery.path),
                 ),
                 const SizedBox(height: AppSpace.xl),
                 TextButton(

@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../../features/auth/state/auth_controller.dart';
+import '../../features/discovery/data/parking_catalog.dart';
+import '../../features/discovery/presentation/discovery_page.dart';
+import '../../features/discovery/presentation/qr_scan_page.dart';
+import '../../features/discovery/presentation/space_selection_page.dart';
 import '../../features/auth/presentation/login_page.dart';
 import '../../features/auth/presentation/register_page.dart';
 import '../../features/splash/splash_page.dart';
@@ -16,6 +20,9 @@ enum AppRoute {
   register('/register'),
   home('/home'),
   vehicles('/vehicles'),
+  discovery('/discovery'),
+  qr('/qr'),
+  space('/space'),
   showcase('/showcase'),
   components('/components'),
   states('/states');
@@ -48,6 +55,14 @@ abstract final class AppRouter {
             AppRoute.register => const RegisterPage(),
             AppRoute.home => const HomePage(),
             AppRoute.vehicles => const VehiclesPage(),
+            AppRoute.discovery => const DiscoveryPage(),
+            AppRoute.qr => const QrScanPage(),
+            AppRoute.space =>
+              settings.arguments is IdentifiedSpace
+                  ? SpaceSelectionPage(
+                      result: settings.arguments! as IdentifiedSpace,
+                    )
+                  : const DiscoveryPage(),
             AppRoute.showcase => const showcase.HomePage(),
             AppRoute.components => const ComponentsPage(),
             AppRoute.states => const StatesPage(),

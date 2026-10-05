@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:simertpi_citizen_app/app/app.dart';
@@ -21,6 +22,19 @@ void main() {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       const userId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
       var remoteLogouts = 0;
+      const zoneId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+      const streetId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+      const realMapSmoke = bool.fromEnvironment('MAP_SMOKE_REAL_TILES');
+      final space = {
+        'id': 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        'streetId': streetId,
+        'code': 'SMOKE-SPACE',
+        'qrCode': 'SMOKE-QR',
+        'spaceNumber': '1',
+        'active': true,
+        'latitude': realMapSmoke ? 51.5074 : null,
+        'longitude': realMapSmoke ? -0.1278 : null,
+      };
       server.listen((request) async {
         expectSync(
           request.headers.value(correlationHeader),
@@ -53,6 +67,33 @@ void main() {
             'Bearer ${'A' * 43}',
           );
           request.response.write('[]');
+        } else if (request.uri.path == '/api/v1/zones') {
+          request.response.write(
+            jsonEncode([
+              {
+                'id': zoneId,
+                'code': 'SMOKE-ZONE',
+                'name': 'Zona fixture smoke',
+                'active': true,
+              },
+            ]),
+          );
+        } else if (request.uri.path == '/api/v1/streets') {
+          request.response.write(
+            jsonEncode([
+              {
+                'id': streetId,
+                'zoneId': zoneId,
+                'name': 'Calle fixture smoke',
+                'active': true,
+              },
+            ]),
+          );
+        } else if (request.uri.path == '/api/v1/parking-spaces') {
+          request.response.write(jsonEncode([space]));
+        } else if (request.uri.path ==
+            '/api/v1/parking-spaces/code/SMOKE-SPACE') {
+          request.response.write(jsonEncode(space));
         } else if (request.uri.path == '/api/v1/auth/logout') {
           remoteLogouts++;
           request.response.statusCode = 204;
@@ -114,6 +155,50 @@ void main() {
         await auth.restore();
         expectSync(auth.isAuthenticated, true);
         await tester.pumpWidget(app('restored'));
+        await visible(find.text('¿Dónde vas a estacionar?'));
+        await tester.ensureVisible(find.text('BUSCAR ESTACIONAMIENTO'));
+        await tester.tap(find.text('BUSCAR ESTACIONAMIENTO'));
+        await visible(find.text('Zona fixture smoke'));
+        if (realMapSmoke) {
+          await tester.ensureVisible(find.byType(FlutterMap));
+          final deadline = DateTime.now().add(const Duration(seconds: 30));
+          final rendered = find.descendant(
+            of: find.byType(FlutterMap),
+            matching: find.byWidgetPredicate(
+              (w) => w is RawImage && w.image != null,
+            ),
+          );
+          while (rendered.evaluate().isEmpty &&
+              DateTime.now().isBefore(deadline)) {
+            await tester.pump(const Duration(milliseconds: 100));
+          }
+          expectSync(rendered, findsWidgets);
+          expectSync(
+            find.textContaining('© OpenStreetMap contributors'),
+            findsOneWidget,
+          );
+          expectSync(
+            find.textContaining('No pudimos cargar la cartografía'),
+            findsNothing,
+          );
+          await tester.tap(find.byTooltip('Espacio 1'));
+        } else {
+          await tester.ensureVisible(find.text('Ver espacio 1'));
+          await tester.tap(find.text('Ver espacio 1'));
+        }
+        await visible(find.text('Detalle del espacio'));
+        await tester.ensureVisible(find.text('Seleccionar espacio'));
+        await tester.tap(find.text('Seleccionar espacio'));
+        await visible(find.text('Espacio seleccionado'));
+        await tester.binding.handlePopRoute();
+        await visible(find.text('Buscar estacionamiento'));
+        await tester.binding.handlePopRoute();
+        await visible(find.text('¿Dónde vas a estacionar?'));
+        await tester.ensureVisible(find.text('ESCANEAR QR'));
+        await tester.tap(find.text('ESCANEAR QR'));
+        await visible(find.text('Escanear QR'));
+        expectSync(find.bySemanticsLabel('Área de escaneo QR'), findsOneWidget);
+        await tester.binding.handlePopRoute();
         await visible(find.text('¿Dónde vas a estacionar?'));
         await tester.ensureVisible(find.text('Mis vehículos'));
         await tester.tap(find.text('Mis vehículos'));

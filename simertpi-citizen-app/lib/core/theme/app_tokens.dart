@@ -32,4 +32,5 @@ abstract final class AppSize {
   static const qrCardMinHeight = 118.0;
   static const touchTarget = 48.0;
   static const contentWidth = 640.0;
+  static const mapViewport = 320.0;
 }
