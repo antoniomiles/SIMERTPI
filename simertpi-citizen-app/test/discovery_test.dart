@@ -388,6 +388,7 @@ void main() {
   ) async {
     await tester.pumpWidget(await citizenApp());
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('BUSCAR ESTACIONAMIENTO'));
     await tester.tap(find.text('BUSCAR ESTACIONAMIENTO'));
     await tester.pumpAndSettle();
     expect(find.text('Buscar estacionamiento'), findsOneWidget);

@@ -1,3 +1,5 @@
+import '../../features/active_parking/presentation/active_parking_panel.dart';
+import '../../features/active_parking/state/active_parking_controller.dart';
 import '../../features/payments/presentation/payments_page.dart';
 
 import 'package:flutter/material.dart';
@@ -28,6 +30,7 @@ enum AppRoute {
   space('/space'),
   parking('/parking'),
   payments('/payments'),
+  activeParking('/active-parking'),
   showcase('/showcase'),
   components('/components'),
   states('/states');
@@ -58,6 +61,12 @@ abstract final class AppRouter {
             AppRoute.splash => const SplashPage(),
             AppRoute.login => const LoginPage(),
             AppRoute.register => const RegisterPage(),
+            AppRoute.activeParking =>
+              settings.arguments is ActiveParkingController
+                  ? ExtensionPage(
+                      controller: settings.arguments as ActiveParkingController,
+                    )
+                  : const HomePage(),
             AppRoute.home => const HomePage(),
             AppRoute.vehicles => const VehiclesPage(),
             AppRoute.discovery => const DiscoveryPage(),

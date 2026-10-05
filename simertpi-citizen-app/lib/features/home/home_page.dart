@@ -1,3 +1,10 @@
+import '../../core/config/app_config.dart';
+import '../active_parking/data/active_parking_service.dart';
+import '../active_parking/state/active_parking_controller.dart';
+import '../active_parking/presentation/active_parking_panel.dart';
+import '../payments/data/payment_contract.dart';
+import '../discovery/data/parking_catalog.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../app/bootstrap/bootstrap.dart';
@@ -13,14 +20,16 @@ import '../vehicles/presentation/vehicle_list.dart';
 import '../vehicles/presentation/vehicle_form_page.dart';
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key, this.controller});
+  const HomePage({super.key, this.controller, this.activeController});
   final VehiclesController? controller;
+  final ActiveParkingController? activeController;
   @override
   State<HomePage> createState() => _HomePageState();
 }
 
 class _HomePageState extends State<HomePage> {
   VehiclesController? _vehicles;
+  ActiveParkingController? _active;
   bool _openingVehicles = false;
   @override
   void didChangeDependencies() {
@@ -31,11 +40,27 @@ class _HomePageState extends State<HomePage> {
         widget.controller ??
         VehiclesController(VehicleService(scope.api, scope.auth.userId));
     _vehicles!.load();
+    final owner = scope.auth.userId ?? '';
+    _active =
+        widget.activeController ??
+        ActiveParkingController(
+          owner: owner,
+          gateway: ActiveParkingService(scope.api),
+          payments: PaymentService(scope.api),
+          store: SecureExtensionStore(
+            '${scope.config.environment.name}:${scope.config.apiBaseUrl}:$owner',
+          ),
+          catalog: ParkingCatalogService(scope.api),
+          vehicles: VehicleService(scope.api, owner),
+          dev: scope.config.environment == AppEnvironment.dev,
+        );
+    _active!.load();
   }
 
   @override
   void dispose() {
     if (widget.controller == null) _vehicles?.dispose();
+    if (widget.activeController == null) _active?.dispose();
     super.dispose();
   }
 
@@ -87,6 +112,7 @@ class _HomePageState extends State<HomePage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                ActiveParkingPanel(controller: _active!),
                 Text(
                   '¿Dónde vas a estacionar?',
                   style: Theme.of(context).textTheme.headlineMedium,
@@ -129,14 +155,21 @@ class _HomePageState extends State<HomePage> {
                 PrimaryButton(
                   label: 'ESCANEAR QR',
                   onPressed: () =>
-                      Navigator.pushNamed(context, AppRoute.qr.path),
+                      Navigator.pushNamed(context, AppRoute.qr.path).then((_) {
+                        if (mounted) _active!.load();
+                      }),
                 ),
                 const SizedBox(height: AppSpace.md),
                 SecondaryButton(
                   label: 'BUSCAR ESTACIONAMIENTO',
                   filled: true,
                   onPressed: () =>
-                      Navigator.pushNamed(context, AppRoute.discovery.path),
+                      Navigator.pushNamed(
+                        context,
+                        AppRoute.discovery.path,
+                      ).then((_) {
+                        if (mounted) _active!.load();
+                      }),
                 ),
                 const SizedBox(height: AppSpace.xl),
                 VehicleList(controller: _vehicles!, onAdd: _addVehicle),
@@ -144,7 +177,11 @@ class _HomePageState extends State<HomePage> {
                 SecondaryButton(
                   label: 'CONSULTAR PAGO PENDIENTE',
                   onPressed: () =>
-                      Navigator.pushNamed(context, AppRoute.payments.path),
+                      Navigator.pushNamed(context, AppRoute.payments.path).then(
+                        (_) {
+                          if (mounted) _active!.load();
+                        },
+                      ),
                 ),
                 const SizedBox(height: AppSpace.md),
                 TextButton(

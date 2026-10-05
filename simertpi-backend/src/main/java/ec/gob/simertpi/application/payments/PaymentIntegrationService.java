@@ -26,6 +26,14 @@ public class PaymentIntegrationService {
  public Payment create(String username,String key,UUID sessionId,String method) {
   PaymentProvider provider=registry.selected();
   Payment payment=creation.create(username,key,sessionId,method);
+  return dispatch(payment,provider);
+ }
+ @org.springframework.transaction.annotation.Transactional(propagation=org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
+ public Payment dispatchOwned(String username,UUID id) {
+  Payment payment=owned(username,id);
+  return dispatch(payment,registry.resolve(payment.getProvider()));
+ }
+ private Payment dispatch(Payment payment,PaymentProvider provider) {
   PaymentProviderRequest request=tx.execute(s -> {
    lock(payment.getId());
    var current=payments.findById(payment.getId());
@@ -118,6 +126,7 @@ public class PaymentIntegrationService {
    } else if("DECLINED".equals(target))payments.decline(id,"Provider declined payment");
    else if("FAILED".equals(target))payments.fail(id,"Provider failed payment");
    else if("CANCELLED".equals(target)) {
+    jdbc.update("UPDATE parking.session_extensions SET status='CANCELLED',updated_at=CURRENT_TIMESTAMP WHERE payment_id=? AND status='PENDING_PAYMENT'",id);
     jdbc.update("UPDATE payments.payments SET status='CANCELLED',updated_at=CURRENT_TIMESTAMP WHERE id=?",id);
     jdbc.update("UPDATE parking.parking_sessions SET status='CANCELLED',ended_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='PENDING_PAYMENT'",payment.getParkingSessionId());
     jdbc.update("UPDATE payments.payment_attempts SET status='CANCELLED',response_code='PROVIDER_CANCELLED' WHERE id=(SELECT id FROM payments.payment_attempts WHERE payment_id=? ORDER BY attempt_number DESC LIMIT 1)",id);

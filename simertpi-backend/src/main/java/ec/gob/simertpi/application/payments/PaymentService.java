@@ -106,6 +106,7 @@ public class PaymentService {
         payment.setUpdatedAt(now);
         Payment saved = paymentRepository.save(payment);
         updateLatestAttempt(payment, "DECLINED", null, failureReason);
+        finishRejectedExtension(paymentId, "DECLINED", now);
         eventPublisher.publish(payment, "PAYMENT_DECLINED");
         return saved;
     }
@@ -132,6 +133,7 @@ public class PaymentService {
 
         Payment saved = paymentRepository.save(payment);
         updateLatestAttempt(payment, "FAILED", null, failureReason);
+        finishRejectedExtension(paymentId, "FAILED", now);
         eventPublisher.publish(payment, "PAYMENT_FAILED");
         return saved;
     }
@@ -321,6 +323,7 @@ public class PaymentService {
         payment.setId(UUID.randomUUID());
         payment.setParkingSessionId(session.getId());
         payment.setProvider(provider);
+        payment.setProviderOperationStatus("NOT_STARTED");
         payment.setProviderTransactionId(null);
         payment.setIdempotencyKey(idempotencyKey);
         payment.setAmount(amount);
@@ -346,9 +349,20 @@ public class PaymentService {
         return payment;
     }
     private void lockAndRefresh(Payment payment) {
+        // Session first, same lock order as close/extension/reconciliation.
         parkingSessionRepository.findByIdForUpdate(payment.getParkingSessionId())
             .orElseThrow(() -> new ResourceNotFoundException("Parking session not found"));
         if (entityManager != null) entityManager.refresh(payment);
+    }
+
+    private void finishRejectedExtension(UUID paymentId, String status, OffsetDateTime now) {
+        sessionExtensionRepository.findByPaymentId(paymentId).ifPresent(extension -> {
+            if ("PENDING_PAYMENT".equals(extension.getStatus())) {
+                extension.setStatus(status);
+                extension.setUpdatedAt(now);
+                sessionExtensionRepository.save(extension);
+            }
+        });
     }
 
     private void transition(Payment payment, PaymentStatus target) {

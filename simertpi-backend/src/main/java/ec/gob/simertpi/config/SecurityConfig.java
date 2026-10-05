@@ -99,6 +99,8 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/v1/zones", "/api/v1/streets",
                         "/api/v1/parking-spaces", "/api/v1/tariffs")
                     .hasAuthority("SIMERTPI_ADMIN")
+                .requestMatchers(HttpMethod.POST, "/api/v1/parking-sessions/*/extensions/mobile").hasAuthority("CITIZEN")
+                .requestMatchers(HttpMethod.GET, "/api/v1/parking-sessions/*/extensions/quote").hasAuthority("CITIZEN")
                 .requestMatchers("/api/v1/parking-sessions/**").authenticated()
                 .requestMatchers("/api/v1/**").authenticated()
                 .anyRequest().denyAll()

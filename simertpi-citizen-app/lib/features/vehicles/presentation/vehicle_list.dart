@@ -75,32 +75,10 @@ class VehicleList extends StatelessWidget {
     listenable: controller,
     builder: (context, _) {
       final state = controller.phase;
-      final add = TextButton.icon(
-        key: const ValueKey('vehicles-add-header'),
-        onPressed: controller.processing ? null : onAdd,
-        style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
-        icon: const Icon(Icons.add),
-        label: const Text('Agregar vehículo'),
-      );
-      final title = Text('Mis vehículos', style: AppTypography.section);
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (MediaQuery.textScalerOf(context).scale(16) > 24)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                title,
-                Align(alignment: Alignment.centerRight, child: add),
-              ],
-            )
-          else
-            Row(
-              children: [
-                Expanded(child: title),
-                Flexible(child: add),
-              ],
-            ),
+          Text('Mis vehículos', style: AppTypography.section),
           const SizedBox(height: AppSpace.md),
           if (state == VehiclesPhase.initial || state == VehiclesPhase.loading)
             const SkeletonList(count: 2)

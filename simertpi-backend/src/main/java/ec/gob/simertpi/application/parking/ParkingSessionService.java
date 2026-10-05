@@ -46,6 +46,7 @@ public class ParkingSessionService {
     private final StreetRepository streetRepository;
     private final ec.gob.simertpi.application.parking.rules.ParkingRulesService rules;
     private final ZoneRepository zoneRepository;
+    private final ec.gob.simertpi.domain.parking.extension.repository.SessionExtensionRepository extensions;
 
     public ParkingSessionService(
             ParkingSessionRepository parkingSessionRepository,
@@ -54,7 +55,8 @@ public class ParkingSessionService {
             ParkingSpaceRepository parkingSpaceRepository,
             StreetRepository streetRepository,
             ec.gob.simertpi.application.parking.rules.ParkingRulesService rules,
-            ZoneRepository zoneRepository
+            ZoneRepository zoneRepository,
+            ec.gob.simertpi.domain.parking.extension.repository.SessionExtensionRepository extensions
     ) {
         this.parkingSessionRepository = parkingSessionRepository;
         this.userRepository = userRepository;
@@ -63,6 +65,7 @@ public class ParkingSessionService {
         this.streetRepository = streetRepository;
         this.rules = rules;
         this.zoneRepository = zoneRepository;
+        this.extensions = extensions;
     }
 
     @Transactional(readOnly = true)
@@ -124,9 +127,13 @@ public class ParkingSessionService {
 
     @Transactional
     public ParkingSession close(UUID sessionId) {
-        ParkingSession session = parkingSessionRepository.findById(sessionId)
+        ParkingSession session = parkingSessionRepository.findByIdForUpdate(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Parking session not found"));
 
+        if ("COMPLETED".equals(session.getStatus())) return session;
+        if (extensions.findPendingByParkingSessionId(sessionId).isPresent()) {
+            throw new IllegalArgumentException("Resolve the pending extension payment before closing this session");
+        }
         if (!"ACTIVE".equals(session.getStatus())
                 && !"EXTENDED".equals(session.getStatus())
                 && !"EXPIRED".equals(session.getStatus())

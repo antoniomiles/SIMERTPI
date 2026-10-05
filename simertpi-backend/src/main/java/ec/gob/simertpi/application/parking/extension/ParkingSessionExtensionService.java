@@ -76,6 +76,18 @@ public class ParkingSessionExtensionService {
                         new ResourceNotFoundException("Parking session not found")
                 );
 
+        for (SessionExtension previous : sessionExtensionRepository.findByParkingSessionId(parkingSessionId)) {
+            Payment previousPayment = paymentService.findById(previous.getPaymentId());
+            if (idempotencyKey.equals(previousPayment.getIdempotencyKey())) {
+                if (!additionalMinutes.equals(previous.getAdditionalMinutes())
+                        || !provider.equals(previousPayment.getProvider())
+                        || !paymentMethod.equals(previousPayment.getPaymentMethod())) {
+                    throw new ec.gob.simertpi.api.IdempotencyConflictException();
+                }
+                return previous;
+            }
+        }
+
         if (STATUS_MAX_TIME_REACHED.equals(session.getStatus())) {
             throw new IllegalArgumentException(
                     "Parking session has reached maximum continuous parking time"

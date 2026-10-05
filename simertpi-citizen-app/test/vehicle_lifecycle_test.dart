@@ -78,7 +78,7 @@ void main() {
   });
   for (final count in [0, 1, 2, 3, 6]) {
     testWidgets(
-      'Both add controls exist and open the same form with $count vehicles',
+      'Only the footer add control opens the existing form with $count vehicles',
       (tester) async {
         final fake = LifecycleVehicles()..items = List.generate(count, sample);
         final controller = VehiclesController(fake);
@@ -86,15 +86,12 @@ void main() {
           await screen(VehiclesPage(controller: controller)),
         );
         await tester.pumpAndSettle();
-        expect(
-          find.byKey(const ValueKey('vehicles-add-header')),
-          findsOneWidget,
-        );
+        expect(find.byKey(const ValueKey('vehicles-add-header')), findsNothing);
         expect(
           find.byKey(const ValueKey('vehicles-add-footer')),
           findsOneWidget,
         );
-        for (final key in ['vehicles-add-header', 'vehicles-add-footer']) {
+        for (final key in ['vehicles-add-footer']) {
           final control = find.byKey(ValueKey(key));
           await tester.ensureVisible(control);
           await tester.tap(control);
