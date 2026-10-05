@@ -62,6 +62,8 @@ info:
     name: simertpi-backend
 
 simertpi:
+  dev-seed:
+    enabled: ${SIMERTPI_DEV_SEED_ENABLED:false}
   auth:
     access-ttl: ${SIMERTPI_AUTH_ACCESS_TTL:15m}
     refresh-ttl: ${SIMERTPI_AUTH_REFRESH_TTL:30d}

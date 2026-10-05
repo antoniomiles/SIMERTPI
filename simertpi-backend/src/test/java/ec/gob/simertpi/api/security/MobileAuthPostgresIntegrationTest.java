@@ -82,4 +82,40 @@ class MobileAuthPostgresIntegrationTest extends AbstractPostgresIntegrationTest 
  }
  @Test void refreshTokenCannotBeUsedAsAccess()throws Exception{var s=login();assertThat(read(s.get("refreshToken").asText(),"/api/v1/notifications/preferences").getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);}
  @Test void authRoutesDoNotOpenOtherMethods(){assertThat(http.getForEntity("/api/v1/auth/login",String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);}
+ @Test void originPathsRejectRegistrationBeforePersistence() {
+  String registrationName="registration-"+UUID.randomUUID();
+  var request=Map.of("username",registrationName,"email",registrationName+"@example.invalid",
+    "password",PASSWORD,"firstName","Registration","lastName","Fixture");
+  assertThat(http.postForEntity("/users",request,String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+  assertThat(http.postForEntity("/auth/login",Map.of("username",registrationName,"password",PASSWORD),String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+  assertThat(jdbc.queryForObject("SELECT count(*) FROM identity.users WHERE username=?",Long.class,registrationName)).isZero();
+ }
+ @Test void publicRegistrationCreatesCitizenThatCanLoginRefreshAndUseBearer()throws Exception {
+  String registrationName="registration-"+UUID.randomUUID();
+  HttpHeaders headers=new HttpHeaders();headers.set("X-Correlation-ID","cp21-5-registration");
+  var request=Map.of("username",registrationName,"email",registrationName+"@example.invalid",
+    "password",PASSWORD,"firstName","Registration","lastName","Fixture");
+  var registered=http.exchange("/api/v1/users",HttpMethod.POST,new HttpEntity<>(request,headers),String.class);
+  assertThat(registered.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+  assertThat(registered.getHeaders().getFirst("X-Correlation-ID")).isEqualTo("cp21-5-registration");
+  var citizen=json.readTree(registered.getBody());UUID citizenId=UUID.fromString(citizen.get("id").asText());
+  assertThat(citizen.get("username").asText()).isEqualTo(registrationName);
+  assertThat(citizen.get("enabled").asBoolean()).isTrue();
+  assertThat(registered.getBody()).doesNotContain(PASSWORD,"passwordHash","password_hash","accessToken","refreshToken");
+  String encoded=jdbc.queryForObject("SELECT password_hash FROM identity.users WHERE id=?",String.class,citizenId);
+  assertThat(encoded).isNotEqualTo(PASSWORD);assertThat(encoder.matches(PASSWORD,encoded)).isTrue();
+  assertThat(jdbc.queryForList("SELECT r.code FROM identity.roles r JOIN identity.user_roles ur ON ur.role_id=r.id WHERE ur.user_id=?",String.class,citizenId)).containsExactly("CITIZEN");
+  var loggedIn=post("login",Map.of("username",registrationName,"password",PASSWORD));
+  assertThat(loggedIn.getStatusCode()).isEqualTo(HttpStatus.OK);var initial=json.readTree(loggedIn.getBody());
+  assertThat(initial.get("userId").asText()).isEqualTo(citizenId.toString());
+  assertThat(initial.get("tokenType").asText()).isEqualTo("Bearer");
+  assertThat(initial.get("accessToken").asText()).matches("[A-Za-z0-9_-]{43}");
+  assertThat(initial.get("refreshToken").asText()).matches("[A-Za-z0-9_-]{43}");
+  assertThat(read(initial.get("accessToken").asText(),"/api/v1/notifications/preferences").getStatusCode()).isEqualTo(HttpStatus.OK);
+  var refreshed=post("refresh",Map.of("refreshToken",initial.get("refreshToken").asText()));
+  assertThat(refreshed.getStatusCode()).isEqualTo(HttpStatus.OK);var rotated=json.readTree(refreshed.getBody());
+  assertThat(rotated.get("refreshToken").asText()).isNotEqualTo(initial.get("refreshToken").asText());
+  assertThat(read(rotated.get("accessToken").asText(),"/api/v1/notifications/preferences").getStatusCode()).isEqualTo(HttpStatus.OK);
+  assertThat(read(rotated.get("accessToken").asText(),"/actuator/metrics").getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+ }
 }

@@ -154,6 +154,13 @@ void main() {
       await tester.tap(find.text('Ir a iniciar sesión'));
       await tester.pumpAndSettle();
       expect(find.text('Inicia sesión'), findsOneWidget);
+      expect(fake.calls, 0);
+      await fillLogin(tester);
+      await tester.tap(find.text('INGRESAR'));
+      await tester.pumpAndSettle();
+      expect(fake.calls, 1);
+      expect(await auth.store.read(), isNotNull);
+      expect(find.text('¿Dónde vas a estacionar?'), findsOneWidget);
     },
   );
   for (final size in [const Size(320, 640), const Size(640, 320)]) {

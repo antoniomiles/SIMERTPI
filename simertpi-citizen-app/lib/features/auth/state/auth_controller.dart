@@ -203,7 +203,10 @@ String authErrorMessage(Object error, {bool registration = false}) {
     return 'No pudimos confirmar la creación de la cuenta. Intenta ingresar antes de repetir el registro.';
   }
   return switch (error.kind) {
-    FailureKind.unauthorized => 'No pudimos verificar tu usuario y contraseña.',
+    FailureKind.unauthorized =>
+      registration
+          ? 'No pudimos completar el registro. Inténtalo nuevamente o contacta con soporte.'
+          : 'No pudimos verificar tu usuario y contraseña.',
     FailureKind.forbidden =>
       'Esta cuenta no tiene acceso a la aplicación ciudadana.',
     FailureKind.conflict => 'El usuario o correo ya está registrado.',

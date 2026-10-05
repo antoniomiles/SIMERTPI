@@ -39,6 +39,11 @@ class AppConfig {
         (env != AppEnvironment.dev && uri.scheme != 'https')) {
       throw const FormatException('Invalid API_BASE_URL');
     }
-    return AppConfig(environment: env, apiBaseUrl: uri);
+    // A deployment origin is not an API base. Preserve explicitly supplied paths
+    // (including reverse-proxy prefixes), and resolve only an empty/root path.
+    final apiUri = uri.path.isEmpty || uri.path == '/'
+        ? uri.replace(path: '/api/v1')
+        : uri;
+    return AppConfig(environment: env, apiBaseUrl: apiUri);
   }
 }
