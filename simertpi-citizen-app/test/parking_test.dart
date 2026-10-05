@@ -85,6 +85,8 @@ class MemoryIntent implements ParkingIntentStore {
 }
 
 class FakeVehicles implements VehicleGateway {
+  @override
+  Future<void> deactivate(String id) async {}
   List<CitizenVehicle> items = [vehicle];
   @override
   Future<List<CitizenVehicle>> list() async => items;
@@ -396,7 +398,7 @@ void main() {
     final c = controller(FakeParking());
     await tester.pumpWidget(await page(c));
     await tester.pumpAndSettle();
-    expect(find.text('TEST-123'), findsOneWidget);
+    expect(find.text('TEST-123'), findsWidgets);
     expect(find.textContaining('USD 0.31'), findsOneWidget);
     await tester.ensureVisible(find.text('Revisar resumen'));
     await tester.tap(find.text('Revisar resumen'));

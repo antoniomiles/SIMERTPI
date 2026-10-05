@@ -90,6 +90,8 @@ public class SecurityConfig {
                 .requestMatchers("/api/v1/audit/**").denyAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/vehicles")
                     .hasAuthority("CITIZEN")
+                .requestMatchers(HttpMethod.PUT, "/api/v1/vehicles/*/deactivation")
+                    .hasAuthority("CITIZEN")
                 .requestMatchers(HttpMethod.GET, "/api/v1/vehicles/plate/**")
                     .hasAnyAuthority("INSPECTOR", "SUPERVISOR", "SIMERTPI_ADMIN", "IT_ADMIN", "AUDITOR")
                 .requestMatchers(HttpMethod.GET, "/api/v1/vehicles/user/**")

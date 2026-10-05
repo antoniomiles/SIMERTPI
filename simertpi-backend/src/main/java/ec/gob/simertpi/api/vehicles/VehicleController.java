@@ -41,6 +41,11 @@ public class VehicleController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    @PutMapping("/{id}/deactivation")
+    public VehicleResponse deactivate(@PathVariable UUID id, Authentication authentication) {
+        return toResponse(vehicleService.deactivate(id, authentication.getName()));
+    }
+
     private VehicleResponse toResponse(Vehicle vehicle) {
         return new VehicleResponse(
                 vehicle.getId(), vehicle.getUserId(), vehicle.getPlate(),

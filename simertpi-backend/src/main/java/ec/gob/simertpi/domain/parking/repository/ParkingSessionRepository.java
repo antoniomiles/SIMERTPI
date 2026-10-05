@@ -21,6 +21,8 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
 
     List<ParkingSession> findByVehicleId(UUID vehicleId);
 
+    boolean existsByVehicleIdAndStatusIn(UUID vehicleId, List<String> statuses);
+
     Optional<ParkingSession> findFirstByParkingSpaceIdAndStatusInOrderByStartedAtDesc(
             UUID parkingSpaceId,
             List<String> statuses

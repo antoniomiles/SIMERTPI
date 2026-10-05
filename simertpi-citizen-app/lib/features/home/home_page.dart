@@ -10,6 +10,7 @@ import '../../core/widgets/app_feedback.dart';
 import '../vehicles/data/vehicle_service.dart';
 import '../vehicles/state/vehicles_controller.dart';
 import '../vehicles/presentation/vehicle_list.dart';
+import '../vehicles/presentation/vehicle_form_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key, this.controller});
@@ -40,12 +41,20 @@ class _HomePageState extends State<HomePage> {
 
   void _future() =>
       AppSnackbar.show(context, 'Esta función todavía no está disponible.');
-  Future<void> _openVehicles() async {
-    if (_openingVehicles) return;
+  Future<void> _addVehicle() async {
+    if (_openingVehicles || _vehicles!.processing) return;
     _openingVehicles = true;
     try {
-      await Navigator.pushNamed(context, AppRoute.vehicles.path);
-      if (mounted) await _vehicles!.load();
+      final saved = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => VehicleFormPage(controller: _vehicles!),
+        ),
+      );
+      if (mounted && saved == true) {
+        await _vehicles!.load();
+        if (mounted) AppSnackbar.show(context, 'Vehículo registrado.');
+      }
     } finally {
       _openingVehicles = false;
     }
@@ -130,20 +139,7 @@ class _HomePageState extends State<HomePage> {
                       Navigator.pushNamed(context, AppRoute.discovery.path),
                 ),
                 const SizedBox(height: AppSpace.xl),
-                TextButton(
-                  style: TextButton.styleFrom(padding: EdgeInsets.zero),
-                  onPressed: _openVehicles,
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text('Mis vehículos', style: AppTypography.section),
-                  ),
-                ),
-                const SizedBox(height: AppSpace.md),
-                VehicleList(
-                  controller: _vehicles!,
-                  onAdd: _openVehicles,
-                  limit: 3,
-                ),
+                VehicleList(controller: _vehicles!, onAdd: _addVehicle),
                 const SizedBox(height: AppSpace.xl),
                 SecondaryButton(
                   label: 'CONSULTAR PAGO PENDIENTE',

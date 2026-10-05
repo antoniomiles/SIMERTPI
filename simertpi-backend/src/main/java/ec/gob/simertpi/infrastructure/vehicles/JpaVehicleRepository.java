@@ -9,7 +9,11 @@ import java.util.UUID;
 
 public interface JpaVehicleRepository extends JpaRepository<Vehicle, UUID> {
 
-    Optional<Vehicle> findByPlate(String plate);
+    List<Vehicle> findByPlateIgnoreCase(String plate);
+
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("select v from Vehicle v where v.id = :id")
+    Optional<Vehicle> findByIdForUpdate(@org.springframework.data.repository.query.Param("id") UUID id);
 
     List<Vehicle> findByUserId(UUID userId);
 }

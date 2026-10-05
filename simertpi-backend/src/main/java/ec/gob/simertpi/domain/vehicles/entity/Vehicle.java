@@ -25,7 +25,7 @@ public class Vehicle {
     @Column(name = "user_id", nullable = false)
     private UUID userId;
 
-    @Column(name = "plate", nullable = false, unique = true, length = 10)
+    @Column(name = "plate", nullable = false, length = 10)
     private String plate;
 
     @Column(name = "brand", length = 100)

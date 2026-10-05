@@ -25,10 +25,13 @@ public class VehicleService {
 
     private final VehicleRepository vehicleRepository;
     private final UserRepository userRepository;
+    private final ec.gob.simertpi.domain.parking.repository.ParkingSessionRepository sessions;
 
-    public VehicleService(VehicleRepository vehicleRepository, UserRepository userRepository) {
+    public VehicleService(VehicleRepository vehicleRepository, UserRepository userRepository,
+                          ec.gob.simertpi.domain.parking.repository.ParkingSessionRepository sessions) {
         this.vehicleRepository = vehicleRepository;
         this.userRepository = userRepository;
+        this.sessions = sessions;
     }
 
     @Transactional
@@ -39,7 +42,10 @@ public class VehicleService {
         if (!currentUser.getId().equals(request.userId())) {
             throw new ForbiddenException();
         }
-        if (vehicleRepository.findByPlate(request.plate()).isPresent()) {
+        String plate = request.plate().trim().toUpperCase(java.util.Locale.ROOT);
+        if (plate.isEmpty() || plate.length() > 10) throw new IllegalArgumentException("Placa inválida");
+        if (vehicleRepository.findByUserId(currentUser.getId()).stream()
+                .anyMatch(v -> v.isActive() && v.getPlate().trim().equalsIgnoreCase(plate))) {
             throw new IllegalArgumentException("La placa ya está registrada");
         }
 
@@ -47,7 +53,7 @@ public class VehicleService {
         Vehicle vehicle = new Vehicle();
         vehicle.setId(UUID.randomUUID());
         vehicle.setUserId(request.userId());
-        vehicle.setPlate(request.plate());
+        vehicle.setPlate(plate);
         vehicle.setBrand(request.brand());
         vehicle.setModel(request.model());
         vehicle.setColor(request.color());
@@ -70,7 +76,26 @@ public class VehicleService {
         if (!currentUser.getId().equals(userId) && !hasStaffRole(currentUser)) {
             throw new ForbiddenException();
         }
-        return vehicleRepository.findByUserId(userId);
+        return vehicleRepository.findByUserId(userId).stream()
+                .filter(v -> hasStaffRole(currentUser) || v.isActive()).toList();
+    }
+
+    @Transactional
+    @ec.gob.simertpi.application.audit.Audited(action = "VEHICLE_DEACTIVATED", resourceType = "VEHICLE", resourceIdArgument = 0)
+    public Vehicle deactivate(UUID id, String username) {
+        User user = userRepository.findByUsernameWithRoles(username).filter(User::isEnabled)
+                .orElseThrow(() -> new ResourceNotFoundException("Authenticated user not found"));
+        Vehicle vehicle = vehicleRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Vehicle not found"));
+        if (!vehicle.getUserId().equals(user.getId())) throw new ForbiddenException();
+        if (!vehicle.isActive()) return vehicle;
+        if (sessions.existsByVehicleIdAndStatusIn(id,
+                ec.gob.simertpi.domain.parking.entity.ParkingSessionStatus.occupyingCodes())) {
+            throw new IllegalArgumentException("No puedes dar de baja este vehículo mientras tenga un estacionamiento activo o pendiente.");
+        }
+        vehicle.setActive(false);
+        vehicle.setUpdatedAt(OffsetDateTime.now());
+        return vehicleRepository.save(vehicle);
     }
 
     @Transactional(readOnly = true)

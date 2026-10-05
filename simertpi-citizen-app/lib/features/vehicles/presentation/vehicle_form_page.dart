@@ -5,6 +5,7 @@ import '../../../core/widgets/app_buttons.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../data/vehicle_service.dart';
 import '../state/vehicles_controller.dart';
+import 'vehicle_plate.dart';
 
 class VehicleFormPage extends StatefulWidget {
   const VehicleFormPage({super.key, required this.controller});
@@ -30,7 +31,7 @@ class _VehicleFormPageState extends State<VehicleFormPage> {
     String? optional(int i) => _fields[i].text.isEmpty ? null : _fields[i].text;
     final saved = await widget.controller.create(
       VehicleInput(
-        _fields[0].text,
+        _fields[0].text.trim().toUpperCase(),
         brand: optional(1),
         model: optional(2),
         color: optional(3),
@@ -69,6 +70,7 @@ class _VehicleFormPageState extends State<VehicleFormPage> {
                     'Color (opcional)',
                   ][i],
                   controller: _fields[i],
+                  inputFormatters: i == 0 ? [UppercasePlateFormatter()] : null,
                   enabled: !widget.controller.processing,
                   textInputAction: i == 3
                       ? TextInputAction.done

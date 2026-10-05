@@ -14,6 +14,14 @@ import java.util.Map;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    @ExceptionHandler(ec.gob.simertpi.domain.vehicles.VehicleAssociationConflictException.class)
+    public ResponseEntity<Map<String, Object>> handleVehicleAssociationConflict(
+            ec.gob.simertpi.domain.vehicles.VehicleAssociationConflictException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                "timestamp", OffsetDateTime.now(), "status", 409,
+                "error", "Conflict", "message", exception.getMessage()));
+    }
+
     @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
     public ResponseEntity<Map<String,Object>> handleAccessDenied(Exception exception) {
         return ResponseEntity.status(403).body(Map.of("status",403,"error","Forbidden","message","Access denied"));

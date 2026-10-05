@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/bootstrap/bootstrap.dart';
-import '../../../core/widgets/app_buttons.dart';
 import '../../../core/widgets/app_feedback.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../data/vehicle_service.dart';
@@ -37,9 +36,7 @@ class _VehiclesPageState extends State<VehiclesPage> {
   }
 
   Future<void> _add() async {
-    if (_openingForm ||
-        _controller!.processing ||
-        _controller!.phase == VehiclesPhase.loading) {
+    if (_openingForm || _controller!.processing) {
       return;
     }
     _openingForm = true;
@@ -51,7 +48,8 @@ class _VehiclesPageState extends State<VehiclesPage> {
     );
     _openingForm = false;
     if (mounted && saved == true) {
-      AppSnackbar.show(context, 'Vehículo registrado.');
+      await _controller!.load();
+      if (mounted) AppSnackbar.show(context, 'Vehículo registrado.');
     }
   }
 
@@ -74,21 +72,7 @@ class _VehiclesPageState extends State<VehiclesPage> {
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  ListenableBuilder(
-                    listenable: _controller!,
-                    builder: (context, _) => PrimaryButton(
-                      label: 'Agregar vehículo',
-                      onPressed:
-                          _controller!.phase == VehiclesPhase.loading ||
-                              _controller!.processing
-                          ? null
-                          : _add,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpace.lg),
-                  VehicleList(controller: _controller!, onAdd: _add),
-                ],
+                children: [VehicleList(controller: _controller!, onAdd: _add)],
               ),
             ),
           ),

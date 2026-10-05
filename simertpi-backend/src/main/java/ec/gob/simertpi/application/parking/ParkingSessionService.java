@@ -174,7 +174,7 @@ public class ParkingSessionService {
             throw new IllegalArgumentException("User is disabled");
         }
 
-        Vehicle vehicle = vehicleRepository.findById(vehicleId)
+        Vehicle vehicle = vehicleRepository.findByIdForUpdate(vehicleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Vehicle not found"));
 
         if (!vehicle.getUserId().equals(user.getId())) {

@@ -42,7 +42,7 @@ class VehicleInput {
   final String? brand, model, color;
   Map<String, Object?> toJson(String owner) => {
     'userId': owner,
-    'plate': plate,
+    'plate': plate.trim().toUpperCase(),
     'brand': brand,
     'model': model,
     'color': color,
@@ -52,6 +52,7 @@ class VehicleInput {
 abstract interface class VehicleGateway {
   Future<List<CitizenVehicle>> list();
   Future<CitizenVehicle> create(VehicleInput input);
+  Future<void> deactivate(String id);
 }
 
 class VehicleService implements VehicleGateway {
@@ -70,6 +71,18 @@ class VehicleService implements VehicleGateway {
     );
     if (response.body is! List) throw const AppFailure(FailureKind.unknown);
     return (response.body as List).map(CitizenVehicle.fromJson).toList();
+  }
+
+  @override
+  Future<void> deactivate(String id) async {
+    final response = await _api.request(
+      ApiMethod.put,
+      'vehicles/${Uri.encodeComponent(id)}/deactivation',
+    );
+    if (response.statusCode != 200 ||
+        CitizenVehicle.fromJson(response.body).active) {
+      throw const AppFailure(FailureKind.unknown);
+    }
   }
 
   @override

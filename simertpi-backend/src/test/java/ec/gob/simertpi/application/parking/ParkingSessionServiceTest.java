@@ -138,7 +138,7 @@ class ParkingSessionServiceTest {
     @Test
     void shouldCreateSessionWhenParkingCalendarIsOperational() {
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
-        when(vehicleRepository.findById(vehicleId)).thenReturn(Optional.of(vehicle));
+        when(vehicleRepository.findByIdForUpdate(vehicleId)).thenReturn(Optional.of(vehicle));
         when(parkingSpaceRepository.findById(parkingSpaceId)).thenReturn(Optional.of(parkingSpace));
         when(parkingSessionRepository.existsByParkingSpaceIdAndStatusIn(parkingSpaceId, List.of("PENDING_PAYMENT", "ACTIVE", "EXTENDED", "EXPIRED", "MAX_TIME_REACHED"))).thenReturn(false);
         when(streetRepository.findById(streetId)).thenReturn(Optional.of(street));
@@ -168,7 +168,7 @@ class ParkingSessionServiceTest {
     @Test
     void shouldRejectSessionWhenParkingCalendarIsNotOperational() {
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
-        when(vehicleRepository.findById(vehicleId)).thenReturn(Optional.of(vehicle));
+        when(vehicleRepository.findByIdForUpdate(vehicleId)).thenReturn(Optional.of(vehicle));
         when(parkingSpaceRepository.findById(parkingSpaceId)).thenReturn(Optional.of(parkingSpace));
         when(parkingSessionRepository.existsByParkingSpaceIdAndStatusIn(parkingSpaceId, List.of("PENDING_PAYMENT", "ACTIVE", "EXTENDED", "EXPIRED", "MAX_TIME_REACHED"))).thenReturn(false);
         when(streetRepository.findById(streetId)).thenReturn(Optional.of(street));
@@ -208,7 +208,7 @@ class ParkingSessionServiceTest {
     void shouldRejectVehicleOwnedByAnotherUser() {
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
         vehicle.setUserId(UUID.randomUUID());
-        when(vehicleRepository.findById(vehicleId)).thenReturn(Optional.of(vehicle));
+        when(vehicleRepository.findByIdForUpdate(vehicleId)).thenReturn(Optional.of(vehicle));
         assertThrows(ec.gob.simertpi.api.ForbiddenException.class,
                 () -> parkingSessionService.create(userId, vehicleId, parkingSpaceId, tariffId, 60));
         verify(parkingSessionRepository, never()).save(any(ParkingSession.class));
@@ -218,7 +218,7 @@ class ParkingSessionServiceTest {
     void shouldRejectInactiveVehicle() {
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
         vehicle.setActive(false);
-        when(vehicleRepository.findById(vehicleId)).thenReturn(Optional.of(vehicle));
+        when(vehicleRepository.findByIdForUpdate(vehicleId)).thenReturn(Optional.of(vehicle));
         assertThrows(IllegalArgumentException.class,
                 () -> parkingSessionService.create(userId, vehicleId, parkingSpaceId, tariffId, 60));
         verify(parkingSessionRepository, never()).save(any(ParkingSession.class));
@@ -235,7 +235,7 @@ class ParkingSessionServiceTest {
     @Test
     void shouldRejectOccupiedParkingSpace() {
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
-        when(vehicleRepository.findById(vehicleId)).thenReturn(Optional.of(vehicle));
+        when(vehicleRepository.findByIdForUpdate(vehicleId)).thenReturn(Optional.of(vehicle));
         when(parkingSpaceRepository.findById(parkingSpaceId)).thenReturn(Optional.of(parkingSpace));
         when(parkingSessionRepository.existsByParkingSpaceIdAndStatusIn(parkingSpaceId,
                 List.of("PENDING_PAYMENT", "ACTIVE", "EXTENDED", "EXPIRED", "MAX_TIME_REACHED"))).thenReturn(true);
@@ -247,7 +247,7 @@ class ParkingSessionServiceTest {
     @Test
     void shouldRejectTariffOutsideValidity() {
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
-        when(vehicleRepository.findById(vehicleId)).thenReturn(Optional.of(vehicle));
+        when(vehicleRepository.findByIdForUpdate(vehicleId)).thenReturn(Optional.of(vehicle));
         when(parkingSpaceRepository.findById(parkingSpaceId)).thenReturn(Optional.of(parkingSpace));
         when(parkingSessionRepository.existsByParkingSpaceIdAndStatusIn(parkingSpaceId,
                 List.of("PENDING_PAYMENT", "ACTIVE", "EXTENDED", "EXPIRED", "MAX_TIME_REACHED"))).thenReturn(false);

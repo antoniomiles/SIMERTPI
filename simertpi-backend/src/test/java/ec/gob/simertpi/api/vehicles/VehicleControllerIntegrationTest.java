@@ -28,16 +28,21 @@ class VehicleControllerIntegrationTest extends ec.gob.simertpi.testsupport.Abstr
     @Autowired private UserRepository userRepository;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private PasswordEncoder passwordEncoder;
+    @Autowired private com.fasterxml.jackson.databind.ObjectMapper json;
 
     private UUID userId;
     private String username;
     private String inspectorUsername;
+    private String otherUsername;
+    private UUID otherUserId;
 
     @AfterEach
     void cleanUp() {
-        jdbc.update("DELETE FROM identity.vehicles WHERE user_id IN (SELECT id FROM identity.users WHERE username IN (?, ?))", username, inspectorUsername);
-        jdbc.update("DELETE FROM identity.user_roles WHERE user_id IN (SELECT id FROM identity.users WHERE username IN (?, ?))", username, inspectorUsername);
-        jdbc.update("DELETE FROM identity.users WHERE username IN (?, ?)", username, inspectorUsername);
+        jdbc.update("DELETE FROM identity.mobile_refresh_tokens WHERE session_id IN (SELECT id FROM identity.mobile_sessions WHERE user_id IN (SELECT id FROM identity.users WHERE username IN (?, ?, ?)))", username, inspectorUsername, otherUsername);
+        jdbc.update("DELETE FROM identity.mobile_sessions WHERE user_id IN (SELECT id FROM identity.users WHERE username IN (?, ?, ?))", username, inspectorUsername, otherUsername);
+        jdbc.update("DELETE FROM identity.vehicles WHERE user_id IN (SELECT id FROM identity.users WHERE username IN (?, ?, ?))", username, inspectorUsername, otherUsername);
+        jdbc.update("DELETE FROM identity.user_roles WHERE user_id IN (SELECT id FROM identity.users WHERE username IN (?, ?, ?))", username, inspectorUsername, otherUsername);
+        jdbc.update("DELETE FROM identity.users WHERE username IN (?, ?, ?)", username, inspectorUsername, otherUsername);
     }
 
     @BeforeEach
@@ -46,6 +51,8 @@ class VehicleControllerIntegrationTest extends ec.gob.simertpi.testsupport.Abstr
         inspectorUsername = "vehicle.inspector." + UUID.randomUUID();
         userId = insertUser(username, "CITIZEN");
         insertUser(inspectorUsername, "INSPECTOR");
+        otherUsername = "vehicle.other." + UUID.randomUUID();
+        otherUserId = insertUser(otherUsername, "CITIZEN");
     }
 
     private UUID insertUser(String username, String role) {
@@ -171,4 +178,56 @@ class VehicleControllerIntegrationTest extends ec.gob.simertpi.testsupport.Abstr
         ResponseEntity<String> response = restTemplate.postForEntity(url("/api/v1/parking/sessions"), body, String.class);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"lower", "mixed", "trim"})
+    void normalizesPlateAndRejectsSameOwnerCaseDuplicate(String variant) {
+        String canonical = uniquePlate();
+        String input = variant.equals("mixed") ? canonical.substring(0, 1) + canonical.substring(1).toLowerCase(java.util.Locale.ROOT)
+                : variant.equals("trim") ? " " + canonical.substring(0, 7).toLowerCase(java.util.Locale.ROOT) + " " : canonical.toLowerCase(java.util.Locale.ROOT);
+        canonical = input.trim().toUpperCase(java.util.Locale.ROOT);
+        var created = request(username, HttpMethod.POST, "/api/v1/vehicles", Map.of("userId", userId, "plate", input));
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(jdbc.queryForObject("SELECT plate FROM identity.vehicles WHERE user_id = ?", String.class, userId)).isEqualTo(canonical);
+        assertThat(request(inspectorUsername, HttpMethod.GET, "/api/v1/vehicles/plate/" + canonical.toLowerCase(java.util.Locale.ROOT), null).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(request(username, HttpMethod.POST, "/api/v1/vehicles", Map.of("userId", userId, "plate", canonical.toLowerCase(java.util.Locale.ROOT))).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    @Test void ownersCanSharePlateAndDeactivationIsIndependentAndIdempotent() {
+        String plate = uniquePlate();
+        assertThat(request(username, HttpMethod.POST, "/api/v1/vehicles", Map.of("userId", userId, "plate", plate)).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(request(otherUsername, HttpMethod.POST, "/api/v1/vehicles", Map.of("userId", otherUserId, "plate", plate.toLowerCase(java.util.Locale.ROOT))).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        UUID id = jdbc.queryForObject("SELECT id FROM identity.vehicles WHERE user_id = ?", UUID.class, userId);
+        String path = "/api/v1/vehicles/" + id + "/deactivation";
+        assertThat(request(otherUsername, HttpMethod.PUT, path, null).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(request(inspectorUsername, HttpMethod.PUT, path, null).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(restTemplate.exchange(url(path), HttpMethod.PUT, HttpEntity.EMPTY, String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(request(username, HttpMethod.PUT, path, null).getStatusCode()).isEqualTo(HttpStatus.OK);
+        var updated = jdbc.queryForObject("SELECT updated_at FROM identity.vehicles WHERE id=?", OffsetDateTime.class, id);
+        assertThat(request(username, HttpMethod.PUT, path, null).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(jdbc.queryForObject("SELECT updated_at FROM identity.vehicles WHERE id=?", OffsetDateTime.class, id)).isEqualTo(updated);
+        assertThat(jdbc.queryForObject("SELECT active FROM identity.vehicles WHERE user_id=?", Boolean.class, otherUserId)).isTrue();
+        assertThat(request(username, HttpMethod.GET, "/api/v1/vehicles/user/" + userId, null).getBody()).isEqualTo("[]");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM identity.vehicles WHERE id=?", Integer.class, id)).isEqualTo(1);
+        assertThat(request(username, HttpMethod.POST, "/api/v1/vehicles", Map.of("userId", userId, "plate", plate)).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM identity.vehicles WHERE user_id=?", Integer.class, userId)).isEqualTo(2);
+    }
+
+    @Test void mobileBearerCanDeactivateOwnedVehicleAndAmbiguousStaffLookupFailsClosed() throws Exception {
+        String plate = uniquePlate();
+        assertThat(request(username, HttpMethod.POST, "/api/v1/vehicles", Map.of("userId", userId, "plate", plate)).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(request(otherUsername, HttpMethod.POST, "/api/v1/vehicles", Map.of("userId", otherUserId, "plate", plate)).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(request(inspectorUsername, HttpMethod.GET, "/api/v1/vehicles/plate/" + plate, null).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        UUID id = jdbc.queryForObject("SELECT id FROM identity.vehicles WHERE user_id=?", UUID.class, userId);
+        var login = restTemplate.postForEntity(url("/api/v1/auth/login"), Map.of("username", username, "password", PASSWORD), String.class);
+        assertThat(login.getStatusCode()).isEqualTo(HttpStatus.OK);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(json.readTree(login.getBody()).get("accessToken").asText());
+        headers.set("X-Correlation-ID", "vehicle-deactivation-test");
+        var result = restTemplate.exchange(url("/api/v1/vehicles/" + id + "/deactivation"), HttpMethod.PUT, new HttpEntity<>(headers), String.class);
+        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(result.getHeaders().getFirst("X-Correlation-ID")).isEqualTo("vehicle-deactivation-test");
+        assertThat(json.readTree(result.getBody()).get("active").asBoolean()).isFalse();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM audit.functional_audit_log WHERE action='VEHICLE_DEACTIVATED' AND resource_id=? AND result='SUCCESS'", Integer.class, id)).isEqualTo(1);
+    }
+
 }

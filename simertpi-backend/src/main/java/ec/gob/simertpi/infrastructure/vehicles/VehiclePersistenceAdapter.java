@@ -28,8 +28,17 @@ public class VehiclePersistenceAdapter implements VehicleRepository {
     }
 
     @Override
+    public Optional<Vehicle> findByIdForUpdate(UUID id) {
+        return jpaVehicleRepository.findByIdForUpdate(id);
+    }
+
+    @Override
     public Optional<Vehicle> findByPlate(String plate) {
-        return jpaVehicleRepository.findByPlate(plate);
+        var matches = jpaVehicleRepository.findByPlateIgnoreCase(plate.trim());
+        if (matches.size() > 1) {
+            throw new ec.gob.simertpi.domain.vehicles.VehicleAssociationConflictException();
+        }
+        return matches.stream().findFirst();
     }
 
     @Override

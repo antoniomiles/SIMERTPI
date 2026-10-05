@@ -35,6 +35,8 @@ const vehicle = CitizenVehicle(
 );
 
 class FakeVehicles implements VehicleGateway {
+  @override
+  Future<void> deactivate(String id) async {}
   List<CitizenVehicle> items = [];
   int lists = 0, creates = 0;
   Object? error;
@@ -153,7 +155,7 @@ void main() {
     fake.items = [vehicle];
     await controller.load();
     await tester.pumpAndSettle();
-    expect(find.text('TEST-123'), findsOneWidget);
+    expect(find.text('TEST-123'), findsWidgets);
     controller.dispose();
   });
   testWidgets('Error retry reloads without inventing vehicles', (tester) async {
@@ -166,7 +168,7 @@ void main() {
     fake.items = [vehicle];
     await tester.tap(find.text('Reintentar'));
     await tester.pumpAndSettle();
-    expect(find.text('TEST-123'), findsOneWidget);
+    expect(find.text('TEST-123'), findsWidgets);
     controller.dispose();
   });
   testWidgets(
@@ -191,7 +193,7 @@ void main() {
       expect(fake.creates, 1);
       fake.pending!.complete();
       await tester.pumpAndSettle();
-      expect(fake.input!.plate, 'Test-123');
+      expect(fake.input!.plate, 'TEST-123');
       controller.dispose();
     },
   );

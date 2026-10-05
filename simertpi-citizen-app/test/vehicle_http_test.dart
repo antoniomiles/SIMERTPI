@@ -17,7 +17,7 @@ void main() {
       final dto = {
         'id': 'fixture-id',
         'userId': 'fixture-owner',
-        'plate': 'Test-123',
+        'plate': 'TEST-123',
         'brand': null,
         'model': null,
         'color': null,
@@ -38,7 +38,7 @@ void main() {
           expect(request.uri.path, '/api/v1/vehicles');
           expect(jsonDecode(await utf8.decoder.bind(request).join()), {
             'userId': 'fixture-owner',
-            'plate': 'Test-123',
+            'plate': 'TEST-123',
             'brand': null,
             'model': null,
             'color': null,
@@ -49,7 +49,7 @@ void main() {
         await request.response.close();
       });
       final service = VehicleService(api, 'fixture-owner');
-      expect((await service.list()).single.plate, 'Test-123');
+      expect((await service.list()).single.plate, 'TEST-123');
       expect(
         (await service.create(const VehicleInput('Test-123'))).active,
         true,

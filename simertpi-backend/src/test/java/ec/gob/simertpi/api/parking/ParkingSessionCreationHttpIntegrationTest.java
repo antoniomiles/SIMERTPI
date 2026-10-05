@@ -369,4 +369,45 @@ class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupp
         final UUID spaceE = UUID.randomUUID();
         final UUID tariff = UUID.randomUUID();
     }
+    private ResponseEntity<String> deactivateVehicle(UUID vehicle) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBasicAuth("citizen-a-" + fixture.tag, "integration-password");
+        return restTemplate.exchange("http://localhost:" + port + "/api/v1/vehicles/" + vehicle + "/deactivation",
+                HttpMethod.PUT, new HttpEntity<>(headers), String.class);
+    }
+
+    @Test void deactivationPreservesSessionAndPaymentHistoryAndBlocksNewParking() throws Exception {
+        var created = post("citizen-a-" + fixture.tag, "DEACTIVATE-HISTORY", fixture.spaceA, fixture.vehicleA);
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        UUID id = UUID.fromString(objectMapper.readTree(created.getBody()).get("id").asText());
+        for (String state : ec.gob.simertpi.domain.parking.entity.ParkingSessionStatus.occupyingCodes()) {
+            jdbc.update("UPDATE parking.parking_sessions SET status=? WHERE id=?", state, id);
+            assertThat(deactivateVehicle(fixture.vehicleA).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+            assertThat(jdbc.queryForObject("SELECT active FROM identity.vehicles WHERE id=?", Boolean.class, fixture.vehicleA)).isTrue();
+        }
+        jdbc.update("UPDATE parking.parking_sessions SET status='COMPLETED', ended_at=CURRENT_TIMESTAMP WHERE id=?", id);
+        UUID payment = UUID.randomUUID();
+        jdbc.update("INSERT INTO payments.payments(id,parking_session_id,provider,idempotency_key,amount,payment_method,status) VALUES (?, ?, 'TEST', ?, 1.00, 'TEST', 'APPROVED')", payment, id, "history-" + payment);
+        assertThat(deactivateVehicle(fixture.vehicleA).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(sessionRepository.findById(id).orElseThrow().getVehicleId()).isEqualTo(fixture.vehicleA);
+        assertThat(jdbc.queryForObject("SELECT parking_session_id FROM payments.payments WHERE id=?", UUID.class, payment)).isEqualTo(id);
+        assertThat(post("citizen-a-" + fixture.tag, "DEACTIVATE-NEW", fixture.spaceB, fixture.vehicleA).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    @Test void concurrentCreationAndDeactivationCannotLeaveOpenSessionWithInactiveVehicle() throws Exception {
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            var gate = new CountDownLatch(1);
+            var create = executor.submit(() -> { gate.await(); return post("citizen-a-" + fixture.tag, "DEACTIVATE-RACE", fixture.spaceA, fixture.vehicleA); });
+            var deactivate = executor.submit(() -> { gate.await(); return deactivateVehicle(fixture.vehicleA); });
+            gate.countDown();
+            var a = create.get(); var b = deactivate.get();
+            assertThat(java.util.List.of(a.getStatusCode(),b.getStatusCode())).containsExactlyInAnyOrder(
+                    a.getStatusCode()==HttpStatus.CREATED ? HttpStatus.CREATED : HttpStatus.CONFLICT,
+                    a.getStatusCode()==HttpStatus.CREATED ? HttpStatus.CONFLICT : HttpStatus.OK);
+            boolean active = jdbc.queryForObject("SELECT active FROM identity.vehicles WHERE id=?", Boolean.class, fixture.vehicleA);
+            assertThat(active || sessionRepository.findByVehicleId(fixture.vehicleA).isEmpty()).isTrue();
+        } finally { executor.shutdownNow(); }
+    }
+
 }

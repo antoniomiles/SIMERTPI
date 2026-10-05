@@ -12,6 +12,8 @@ public interface VehicleRepository {
 
     Optional<Vehicle> findById(UUID id);
 
+    Optional<Vehicle> findByIdForUpdate(UUID id);
+
     Optional<Vehicle> findByPlate(String plate);
 
     List<Vehicle> findByUserId(UUID userId);
