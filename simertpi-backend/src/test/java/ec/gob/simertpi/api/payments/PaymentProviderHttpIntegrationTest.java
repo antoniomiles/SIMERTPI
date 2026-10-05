@@ -123,6 +123,8 @@ class PaymentProviderHttpIntegrationTest extends ec.gob.simertpi.testsupport.Abs
         jdbc.update("DELETE FROM parking.zones WHERE id = ?", zoneId);
         jdbc.update("DELETE FROM parking.tariffs WHERE id = ?", tariffId);
         jdbc.update("DELETE FROM identity.vehicles WHERE id = ?", vehicleId);
+        jdbc.update("DELETE FROM identity.mobile_refresh_tokens WHERE session_id IN (SELECT id FROM identity.mobile_sessions WHERE user_id IN (?, ?))", userId, otherUserId);
+        jdbc.update("DELETE FROM identity.mobile_sessions WHERE user_id IN (?, ?)", userId, otherUserId);
         jdbc.update("DELETE FROM identity.users WHERE id = ?", userId);
         jdbc.update("DELETE FROM identity.users WHERE id = ?", otherUserId);
     }
@@ -222,4 +224,42 @@ class PaymentProviderHttpIntegrationTest extends ec.gob.simertpi.testsupport.Abs
         assertThat(paymentRepository.findById(id).orElseThrow().getProviderOperationStatus()).isEqualTo("CONFIRMED");assertThat(sessionState()).isEqualTo("PENDING_PAYMENT");
     }
     @Test void flywayValidatesV28() {flyway.validate();assertThat(Integer.parseInt(flyway.info().current().getVersion().toString())).isGreaterThanOrEqualTo(28);}
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value=ec.gob.simertpi.application.payments.ProviderPaymentStatus.class,names={"APPROVED","DECLINED","UNKNOWN"})
+    void mobileBearerSupportsCitizenPaymentAndOwnedRecovery(ec.gob.simertpi.application.payments.ProviderPaymentStatus outcome) throws Exception {
+        outcome(outcome);
+        var login = restTemplate.postForEntity("http://localhost:" + port + "/api/v1/auth/login",
+                java.util.Map.of("username", username, "password", PASSWORD), String.class);
+        assertThat(login.getStatusCode()).isEqualTo(HttpStatus.OK);
+        var authHeaders = headers("mobile-cp22");
+        authHeaders.setBearerAuth(objectMapper.readTree(login.getBody()).get("accessToken").asText());
+        authHeaders.set("X-Correlation-ID", "cp22-mobile-payment");
+        String body = "{\"parkingSessionId\":\"" + sessionId + "\",\"paymentMethod\":\"TEST\"}";
+        var created = restTemplate.postForEntity("http://localhost:" + port + "/api/v1/payments",
+                new HttpEntity<>(body, authHeaders), String.class);
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(created.getHeaders().getFirst("X-Correlation-ID")).isEqualTo("cp22-mobile-payment");
+        var response = objectMapper.readTree(created.getBody());
+        String paymentId = response.get("id").asText();
+        assertThat(response.get("amount").decimalValue()).isEqualByComparingTo("1.25");
+        assertThat(response.get("status").asText()).isEqualTo(outcome == ec.gob.simertpi.application.payments.ProviderPaymentStatus.UNKNOWN ? "PROCESSING" : outcome.name());
+        assertThat(sessionState()).isEqualTo(outcome == ec.gob.simertpi.application.payments.ProviderPaymentStatus.APPROVED ? "ACTIVE" : "PENDING_PAYMENT");
+        var replay = restTemplate.postForEntity("http://localhost:" + port + "/api/v1/payments",
+                new HttpEntity<>(body, authHeaders), String.class);
+        assertThat(objectMapper.readTree(replay.getBody()).get("id").asText()).isEqualTo(paymentId);
+        org.mockito.Mockito.verify(sandbox, org.mockito.Mockito.times(1)).createPayment(org.mockito.ArgumentMatchers.any());
+        var read = restTemplate.exchange("http://localhost:" + port + "/api/v1/payments/" + paymentId,
+                org.springframework.http.HttpMethod.GET, new HttpEntity<>(authHeaders), String.class);
+        assertThat(read.getStatusCode()).isEqualTo(HttpStatus.OK);
+        var otherLogin = restTemplate.postForEntity("http://localhost:" + port + "/api/v1/auth/login",
+                java.util.Map.of("username", otherUsername, "password", PASSWORD), String.class);
+        var otherHeaders = new HttpHeaders();
+        otherHeaders.setBearerAuth(objectMapper.readTree(otherLogin.getBody()).get("accessToken").asText());
+        assertThat(restTemplate.exchange("http://localhost:" + port + "/api/v1/payments/" + paymentId,
+                org.springframework.http.HttpMethod.GET, new HttpEntity<>(otherHeaders), String.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        query(ec.gob.simertpi.application.payments.ProviderPaymentStatus.PENDING);
+        assertThat(restTemplate.postForEntity("http://localhost:" + port + "/api/v1/payments/" + paymentId + "/refresh",
+                new HttpEntity<>(null, authHeaders), String.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
 }

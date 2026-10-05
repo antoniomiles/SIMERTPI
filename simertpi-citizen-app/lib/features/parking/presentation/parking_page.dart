@@ -1,3 +1,5 @@
+import '../../../app/router/app_router.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -132,7 +134,16 @@ class _ParkingPageState extends State<ParkingPage> {
                 ),
                 const SizedBox(height: AppSpace.md),
                 const Text(
-                  'Se activará cuando el pago sea aprobado. El proceso de pago todavía no está disponible.',
+                  'Se activará únicamente cuando el sistema confirme el pago aprobado.',
+                ),
+                const SizedBox(height: AppSpace.md),
+                PrimaryButton(
+                  label: 'Continuar al pago',
+                  onPressed: () => Navigator.pushNamed(
+                    context,
+                    AppRoute.payments.path,
+                    arguments: c.receipt!.id,
+                  ),
                 ),
                 const SizedBox(height: AppSpace.md),
                 Text('Inicio registrado: ${localTime(c.receipt!.startedAt)}'),

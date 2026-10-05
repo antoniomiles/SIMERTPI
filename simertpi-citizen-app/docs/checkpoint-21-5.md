@@ -142,3 +142,8 @@ Flutter analyze limpio y 103 tests PASS. La suite global backend obtuvo BUILD SU
 El flujo HTTP llegó a PENDING_PAYMENT sin pagos. Después del redeploy quedan pendientes:
 vehículo físico, catálogo Render, código/QR, cotización y PENDING_PAYMENT. Payment físico
 se probará después de ese orden. Esta ejecución no modifica Render ni realiza deployment.
+Resultado final global después de CP22: backend 414 tests PASS, Flyway validate V30;
+Flutter 132 tests PASS, analyze limpio, format sin cambios y APK DEV compilada contra
+Render /api/v1 con ENVIRONMENT=dev y MAP_SOURCE=osm-dev. CP21.5: PASS CON OBSERVACIONES,
+implementación local validada; dataset/vehículo/QR/CP21 físico pendientes de redeploy.
+No hubo cambios Render, commit, push ni prueba física de payment.

@@ -145,6 +145,12 @@ class _HomePageState extends State<HomePage> {
                   limit: 3,
                 ),
                 const SizedBox(height: AppSpace.xl),
+                SecondaryButton(
+                  label: 'CONSULTAR PAGO PENDIENTE',
+                  onPressed: () =>
+                      Navigator.pushNamed(context, AppRoute.payments.path),
+                ),
+                const SizedBox(height: AppSpace.md),
                 TextButton(
                   style: TextButton.styleFrom(padding: EdgeInsets.zero),
                   onPressed: _future,

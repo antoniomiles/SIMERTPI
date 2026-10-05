@@ -1,3 +1,5 @@
+import '../../features/payments/presentation/payments_page.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../features/auth/state/auth_controller.dart';
@@ -25,6 +27,7 @@ enum AppRoute {
   qr('/qr'),
   space('/space'),
   parking('/parking'),
+  payments('/payments'),
   showcase('/showcase'),
   components('/components'),
   states('/states');
@@ -71,6 +74,11 @@ abstract final class AppRouter {
                       selected: settings.arguments! as IdentifiedSpace,
                     )
                   : const DiscoveryPage(),
+            AppRoute.payments => PaymentsPage(
+              sessionId: settings.arguments is String
+                  ? settings.arguments! as String
+                  : null,
+            ),
             AppRoute.showcase => const showcase.HomePage(),
             AppRoute.components => const ComponentsPage(),
             AppRoute.states => const StatesPage(),

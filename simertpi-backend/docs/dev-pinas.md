@@ -96,6 +96,9 @@ El flujo HTTP con registro, Bearer, vehículo, código/QR, reglas y cotización 
 a PENDING_PAYMENT sin crear pagos. Idempotencia y concurrencia del seed verificadas.
 Flutter previo a CP22: analyze limpio y 103 tests verdes. Suite backend global y
 validación final Flutter/APK se documentan al cierre de esta ejecución.
+Suite backend final después de incorporar los 3 escenarios Bearer CP22:
+BUILD SUCCESS, 414 tests, 0 failures, 0 errors y 0 skipped; Flyway validate V30,
+PostgreSQL 16.15 Testcontainers. No cambio funcional en contratos de pagos.
 
 Físico pendiente después de redeploy: vehículo, zonas/listado/mapa, code/QR,
 cotización y PENDING_PAYMENT. Pendientes pueden bloquear plazas hasta resolución;
