@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../features/auth/state/auth_controller.dart';
+import '../../features/parking/presentation/parking_page.dart';
 import '../../features/discovery/data/parking_catalog.dart';
 import '../../features/discovery/presentation/discovery_page.dart';
 import '../../features/discovery/presentation/qr_scan_page.dart';
@@ -23,6 +24,7 @@ enum AppRoute {
   discovery('/discovery'),
   qr('/qr'),
   space('/space'),
+  parking('/parking'),
   showcase('/showcase'),
   components('/components'),
   states('/states');
@@ -61,6 +63,12 @@ abstract final class AppRouter {
               settings.arguments is IdentifiedSpace
                   ? SpaceSelectionPage(
                       result: settings.arguments! as IdentifiedSpace,
+                    )
+                  : const DiscoveryPage(),
+            AppRoute.parking =>
+              settings.arguments is IdentifiedSpace
+                  ? ParkingPage(
+                      selected: settings.arguments! as IdentifiedSpace,
                     )
                   : const DiscoveryPage(),
             AppRoute.showcase => const showcase.HomePage(),

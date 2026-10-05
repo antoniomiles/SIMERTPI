@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../theme/app_tokens.dart';
 
@@ -54,6 +55,8 @@ class AppTextField extends StatelessWidget {
     this.autofillHints,
     this.textInputAction,
     this.enabled = true,
+    this.onChanged,
+    this.inputFormatters,
   });
   final String label;
   final TextEditingController? controller;
@@ -65,6 +68,8 @@ class AppTextField extends StatelessWidget {
   final Iterable<String>? autofillHints;
   final TextInputAction? textInputAction;
   final bool enabled;
+  final ValueChanged<String>? onChanged;
+  final List<TextInputFormatter>? inputFormatters;
   @override
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -81,6 +86,8 @@ class AppTextField extends StatelessWidget {
           obscureText: obscureText,
           validator: validator,
           enabled: enabled,
+          onChanged: onChanged,
+          inputFormatters: inputFormatters,
           autofillHints: autofillHints,
           textInputAction: textInputAction,
           autocorrect: !obscureText && autofillHints == null,

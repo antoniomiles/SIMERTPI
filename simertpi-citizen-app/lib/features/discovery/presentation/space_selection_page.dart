@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/router/app_router.dart';
+
 import '../../../core/widgets/app_layout.dart';
 import '../../../core/widgets/app_buttons.dart';
 import '../../../core/theme/app_tokens.dart';
@@ -48,11 +50,20 @@ class _SpaceSelectionPageState extends State<SpaceSelectionPage> {
                   ? () => setState(() => _selected = true)
                   : null,
             ),
+          if (_selected && result.selectable)
+            PrimaryButton(
+              label: 'Continuar con este espacio',
+              onPressed: () => Navigator.pushNamed(
+                context,
+                AppRoute.parking.path,
+                arguments: result,
+              ),
+            ),
           if (_selected)
             Semantics(
               liveRegion: true,
               child: Text(
-                'Espacio seleccionado. El inicio del estacionamiento todavía no está disponible.',
+                'Espacio seleccionado. Consulta las reglas y elige tu vehículo para continuar.',
               ),
             ),
         ],

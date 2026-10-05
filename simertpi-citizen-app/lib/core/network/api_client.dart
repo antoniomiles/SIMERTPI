@@ -49,6 +49,7 @@ class ApiClient {
     Map<String, String> query = const {},
     String? correlationId,
     bool retryUnauthorized = true,
+    Object? Function(String)? responseDecoder,
   }) async {
     if (path.startsWith('/') ||
         path.contains('..') ||
@@ -111,6 +112,7 @@ class ApiClient {
               query: query,
               correlationId: id,
               retryUnauthorized: false,
+              responseDecoder: responseDecoder,
             );
           }
         }
@@ -139,7 +141,7 @@ class ApiClient {
       log.requestResult(success: true, correlationId: effectiveId);
       return ApiResponse(
         response.statusCode,
-        text.isEmpty ? null : jsonDecode(text),
+        text.isEmpty ? null : (responseDecoder ?? jsonDecode)(text),
         effectiveId,
       );
     } on AppFailure {

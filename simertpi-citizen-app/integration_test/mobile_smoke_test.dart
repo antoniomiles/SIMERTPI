@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -6,6 +7,8 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:simertpi_citizen_app/app/app.dart';
+import 'package:simertpi_citizen_app/app/router/app_router.dart';
+import 'package:simertpi_citizen_app/features/discovery/data/parking_catalog.dart';
 import 'package:simertpi_citizen_app/app/bootstrap/bootstrap.dart';
 import 'package:simertpi_citizen_app/core/config/app_config.dart';
 import 'package:simertpi_citizen_app/core/network/api_client.dart';
@@ -22,6 +25,10 @@ void main() {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       const userId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
       var remoteLogouts = 0;
+      var parkingPosts = 0;
+      var parkingVehicles = true;
+      const vehicleId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+      const tariffId = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
       const zoneId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
       const streetId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
       const realMapSmoke = bool.fromEnvironment('MAP_SMOKE_REAL_TILES');
@@ -66,7 +73,94 @@ void main() {
             request.headers.value('Authorization'),
             'Bearer ${'A' * 43}',
           );
-          request.response.write('[]');
+          request.response.write(
+            jsonEncode(
+              parkingVehicles
+                  ? [
+                      {
+                        'id': vehicleId,
+                        'userId': userId,
+                        'plate': 'SMOKE-123',
+                        'active': true,
+                      },
+                    ]
+                  : [],
+            ),
+          );
+        } else if (request.uri.path == '/api/v1/parking/rules') {
+          final minutes = int.tryParse(
+            request.uri.queryParameters['durationMinutes'] ?? '',
+          );
+          expectSync(request.uri.queryParameters['spaceId'], space['id']);
+          final now = DateTime.now().toUtc();
+          request.response.write(
+            jsonEncode({
+              'spaceId': space['id'],
+              'zoneId': zoneId,
+              'evaluatedAt': now.toIso8601String(),
+              'operational': true,
+              'chargeable': true,
+              'holiday': false,
+              'reasonCode': 'RULES_RESOLVED',
+              'minimumFractionMinutes': 15,
+              'maximumContinuousMinutes': 180,
+              'gracePeriodMinutes': 7,
+              'currency': 'USD',
+              'applicableTariff': 'SMOKE-TARIFF',
+              'unitPrice': 1.23,
+              'unitDurationMinutes': 60,
+              'requestedDurationMinutes': minutes,
+              'billedDurationMinutes': minutes == null ? null : 15,
+              'calculatedAmount': minutes == null ? null : 0.31,
+              'expiresAt': minutes == null
+                  ? null
+                  : now.add(Duration(minutes: minutes)).toIso8601String(),
+              'applicableSchedule': {
+                'startTime': '00:00:00',
+                'endTime': '23:59:59',
+                'source': 'ZONE',
+              },
+            }),
+          );
+        } else if (request.uri.path == '/api/v1/tariffs/code/SMOKE-TARIFF') {
+          request.response.write(
+            jsonEncode({
+              'id': tariffId,
+              'code': 'SMOKE-TARIFF',
+              'active': true,
+            }),
+          );
+        } else if (request.uri.path == '/api/v1/parking/sessions') {
+          expectSync(request.method, 'POST');
+          expectSync(
+            request.headers.value('Idempotency-Key'),
+            matches(RegExp(r'^[a-f0-9]{32}$')),
+          );
+          expectSync(jsonDecode(await utf8.decoder.bind(request).join()), {
+            'parkingSpaceQrCode': 'SMOKE-QR',
+            'vehicleId': vehicleId,
+            'tariffId': tariffId,
+            'durationMinutes': 15,
+          });
+          parkingPosts++;
+          final now = DateTime.now().toUtc();
+          request.response.statusCode = 201;
+          request.response.write(
+            jsonEncode({
+              'id': '11111111-1111-4111-8111-111111111111',
+              'userId': userId,
+              'vehicleId': vehicleId,
+              'parkingSpaceId': space['id'],
+              'tariffId': tariffId,
+              'status': 'PENDING_PAYMENT',
+              'totalAmount': 0,
+              'durationMinutes': 15,
+              'startedAt': now.toIso8601String(),
+              'expectedEndAt': now
+                  .add(const Duration(minutes: 15))
+                  .toIso8601String(),
+            }),
+          );
         } else if (request.uri.path == '/api/v1/zones') {
           request.response.write(
             jsonEncode([
@@ -92,7 +186,8 @@ void main() {
         } else if (request.uri.path == '/api/v1/parking-spaces') {
           request.response.write(jsonEncode([space]));
         } else if (request.uri.path ==
-            '/api/v1/parking-spaces/code/SMOKE-SPACE') {
+                '/api/v1/parking-spaces/code/SMOKE-SPACE' ||
+            request.uri.path == '/api/v1/parking-spaces/qr/SMOKE-QR') {
           request.response.write(jsonEncode(space));
         } else if (request.uri.path == '/api/v1/auth/logout') {
           remoteLogouts++;
@@ -190,6 +285,18 @@ void main() {
         await tester.ensureVisible(find.text('Seleccionar espacio'));
         await tester.tap(find.text('Seleccionar espacio'));
         await visible(find.text('Espacio seleccionado'));
+        await tester.ensureVisible(find.text('Continuar con este espacio'));
+        await tester.tap(find.text('Continuar con este espacio'));
+        await visible(find.text('SMOKE-123'));
+        await tester.ensureVisible(find.text('Revisar resumen'));
+        await tester.tap(find.text('Revisar resumen'));
+        await visible(find.text('Resumen de la solicitud'));
+        await tester.ensureVisible(find.text('Preparar solicitud'));
+        await tester.tap(find.text('Preparar solicitud'));
+        await visible(find.text('Solicitud pendiente de pago'));
+        expectSync(parkingPosts, 1);
+        await tester.binding.handlePopRoute();
+        await visible(find.text('Espacio seleccionado'));
         await tester.binding.handlePopRoute();
         await visible(find.text('Buscar estacionamiento'));
         await tester.binding.handlePopRoute();
@@ -200,6 +307,33 @@ void main() {
         expectSync(find.bySemanticsLabel('Área de escaneo QR'), findsOneWidget);
         await tester.binding.handlePopRoute();
         await visible(find.text('¿Dónde vas a estacionar?'));
+        // Controlled QR lookup uses the same real API contract; no physical decode claim.
+        final qrSpace = await ParkingCatalogService(api)
+            .identify('SMOKE-QR', qr: true);
+        unawaited(
+          tester
+              .state<NavigatorState>(find.byType(Navigator).first)
+              .pushNamed<void>(AppRoute.space.path, arguments: qrSpace),
+        );
+        await visible(find.text('Detalle del espacio'));
+        await tester.ensureVisible(find.text('Seleccionar espacio'));
+        await tester.tap(find.text('Seleccionar espacio'));
+        await visible(find.text('Espacio seleccionado'));
+        await tester.ensureVisible(find.text('Continuar con este espacio'));
+        await tester.tap(find.text('Continuar con este espacio'));
+        await visible(find.text('SMOKE-123'));
+        await tester.ensureVisible(find.text('Revisar resumen'));
+        await tester.tap(find.text('Revisar resumen'));
+        await visible(find.text('Resumen de la solicitud'));
+        expectSync(
+          parkingPosts,
+          1,
+        ); // Stop before any second operation or payment.
+        await tester.binding.handlePopRoute();
+        await visible(find.text('Espacio seleccionado'));
+        await tester.binding.handlePopRoute();
+        await visible(find.text('¿Dónde vas a estacionar?'));
+        parkingVehicles = false;
         await tester.ensureVisible(find.text('Mis vehículos'));
         await tester.tap(find.text('Mis vehículos'));
         await visible(find.text('Agregar vehículo'));
