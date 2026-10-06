@@ -2,7 +2,9 @@ import '../../vehicles/presentation/vehicle_plate.dart';
 import '../../../app/router/app_router.dart';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+
+import '../../../core/widgets/operational_ui.dart';
+import 'duration_options.dart';
 
 import '../../../app/bootstrap/bootstrap.dart';
 import '../../../core/theme/app_tokens.dart';
@@ -28,8 +30,6 @@ class ParkingPage extends StatefulWidget {
 
 class _ParkingPageState extends State<ParkingPage> {
   ParkingController? _controller;
-  final _duration = TextEditingController();
-  final _form = GlobalKey<FormState>();
   int step = 0;
   @override
   void didChangeDependencies() {
@@ -55,7 +55,6 @@ class _ParkingPageState extends State<ParkingPage> {
   Future<void> _load() async {
     await _controller!.load();
     if (!mounted) return;
-    _duration.text = _controller!.minutes?.toString() ?? '';
     if (_controller!.phase == ParkingPhase.uncertain) {
       await _controller!.recover();
     }
@@ -77,12 +76,6 @@ class _ParkingPageState extends State<ParkingPage> {
     }
   }
 
-  Future<void> _estimate() async {
-    if (!_form.currentState!.validate()) return;
-    FocusScope.of(context).unfocus();
-    await _controller!.estimate();
-  }
-
   Future<void> _submit() async {
     await _controller!.create();
     if (mounted && _controller!.phase == ParkingPhase.created) {
@@ -101,7 +94,6 @@ class _ParkingPageState extends State<ParkingPage> {
 
   @override
   void dispose() {
-    _duration.dispose();
     if (widget.controller == null) _controller?.dispose();
     super.dispose();
   }
@@ -121,6 +113,7 @@ class _ParkingPageState extends State<ParkingPage> {
           if (!didPop && !c.busy && step > 0) setState(() => step--);
         },
         child: AppPage(
+          showNavigation: !c.busy,
           title: step == 0
               ? 'Selecciona un vehículo'
               : step == 1
@@ -130,11 +123,10 @@ class _ParkingPageState extends State<ParkingPage> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                c.space.space.code,
-                style: Theme.of(context).textTheme.titleLarge,
+                '${c.space.space.code} · ${c.space.catalog.streetOf(c.space.space)?.name ?? ""}',
+                style: Theme.of(context).textTheme.bodySmall,
               ),
-              Text(c.space.catalog.streetOf(c.space.space)?.name ?? ''),
-              const SizedBox(height: AppSpace.lg),
+              const SizedBox(height: 12),
               if (c.phase == ParkingPhase.loading ||
                   c.phase == ParkingPhase.initial)
                 const SkeletonList(count: 2)
@@ -169,33 +161,55 @@ class _ParkingPageState extends State<ParkingPage> {
                       onAction: c.busy ? null : _register,
                     ),
                   for (final v in c.items)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: AppSpace.md),
-                      child: AppCard(
-                        child: Semantics(
-                          label: 'Vehículo ${v.plate}',
-                          selected: c.vehicleId == v.id,
-                          enabled: !c.occupiedVehicles.contains(v.id),
-                          child: ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            leading: const Icon(Icons.directions_car),
-                            title: Text(visualPlate(v.plate)),
-                            subtitle: Text(
-                              c.occupiedVehicles.contains(v.id)
-                                  ? 'Estacionado actualmente'
-                                  : 'Vehículo disponible',
+                    OperationalCard(
+                      color: c.occupiedVehicles.contains(v.id)
+                          ? AppColors.dangerSurface
+                          : c.vehicleId == v.id
+                          ? AppColors.parkingHint
+                          : AppColors.surface,
+                      border: c.vehicleId == v.id
+                          ? AppColors.action
+                          : AppColors.outline,
+                      onTap: c.busy || c.occupiedVehicles.contains(v.id)
+                          ? null
+                          : () => c.choose(v.id),
+                      child: Semantics(
+                        label: 'Vehículo ${v.plate}',
+                        selected: c.vehicleId == v.id,
+                        enabled: !c.occupiedVehicles.contains(v.id),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.directions_car, size: 32),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    visualPlate(v.plate),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium,
+                                  ),
+                                  Text(
+                                    c.occupiedVehicles.contains(v.id)
+                                        ? 'Estacionado actualmente'
+                                        : 'Vehículo disponible',
+                                  ),
+                                ],
+                              ),
                             ),
-                            trailing: Icon(
+                            Icon(
                               c.occupiedVehicles.contains(v.id)
-                                  ? Icons.lock
+                                  ? Icons.lock_outline
                                   : c.vehicleId == v.id
                                   ? Icons.radio_button_checked
                                   : Icons.radio_button_unchecked,
+                              color: c.vehicleId == v.id
+                                  ? AppColors.action
+                                  : AppColors.muted,
                             ),
-                            onTap: c.busy || c.occupiedVehicles.contains(v.id)
-                                ? null
-                                : () => c.choose(v.id),
-                          ),
+                          ],
                         ),
                       ),
                     ),
@@ -211,43 +225,17 @@ class _ParkingPageState extends State<ParkingPage> {
                         : null,
                   ),
                 ] else if (step == 1 && q != null) ...[
-                  if (q.minimum != null && q.maximum != null) ...[
-                    Text('Mínimo ${q.minimum} min · máximo ${q.maximum} min'),
-                    Text('Fracción facturable: ${q.minimum} min'),
-                    const SizedBox(height: AppSpace.md),
-                    Form(
-                      key: _form,
-                      child: AppTextField(
-                        controller: _duration,
-                        label: 'Minutos',
-                        enabled: !c.busy,
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.digitsOnly,
-                        ],
-                        onChanged: c.changedDuration,
-                        validator: (text) {
-                          final n = int.tryParse(text ?? '');
-                          return n == null || n < q.minimum! || n > q.maximum!
-                              ? 'Ingresa de ${q.minimum} a ${q.maximum} minutos.'
-                              : null;
-                        },
-                      ),
-                    ),
-                    AsyncButton(
-                      label: 'Consultar importe',
-                      onPressed: _estimate,
-                    ),
-                  ],
-                  if (q.quoted && q.minutes == c.minutes)
-                    Text(
-                      'Importe cotizado: ${q.currency} ${q.amount}',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                  if (q.schedule != null)
-                    Text('Horario aplicable: ${q.window}'),
+                  DurationOptions(
+                    load: c.durationOptions,
+                    selected: c.minutes,
+                    onSelected: c.selectDuration,
+                    enabled: !c.busy,
+                  ),
+                  InfoCard(
+                    'Tiempo máximo continuo: ${q.maximum == null ? "—" : durationLabel(q.maximum!)}.',
+                  ),
                   PrimaryButton(
-                    label: 'Revisar resumen',
+                    label: 'Continuar',
                     onPressed: c.canSubmit
                         ? () => setState(() => step = 2)
                         : null,
@@ -257,22 +245,33 @@ class _ParkingPageState extends State<ParkingPage> {
                     onPressed: c.busy ? null : () => setState(() => step = 0),
                   ),
                 ] else if (q != null) ...[
-                  Text(
-                    'Zona: ${c.space.catalog.zoneOf(c.space.space)?.name ?? ""}',
-                  ),
-                  Text('Espacio: ${c.space.space.code}'),
-                  Text(
-                    'Vehículo: ${visualPlate(c.items.where((v) => v.id == c.vehicleId).firstOrNull?.plate ?? "")}',
-                  ),
-                  Text('Tiempo: ${q.minutes} min'),
-                  const SizedBox(height: AppSpace.lg),
-                  Text(
-                    'Total: ${q.currency} ${q.amount}',
-                    style: Theme.of(context).textTheme.headlineSmall,
-                  ),
-                  const SizedBox(height: AppSpace.md),
-                  const Text(
-                    'La solicitud reserva el espacio; el estacionamiento se activa solo después de confirmar el pago.',
+                  OperationalCard(
+                    child: Column(
+                      children: [
+                        SummaryRow(
+                          'Zona',
+                          c.space.catalog.zoneOf(c.space.space)?.name ?? '',
+                        ),
+                        SummaryRow('Espacio', c.space.space.code),
+                        SummaryRow(
+                          'Vehículo',
+                          visualPlate(
+                            c.items
+                                    .where((v) => v.id == c.vehicleId)
+                                    .firstOrNull
+                                    ?.plate ??
+                                '',
+                          ),
+                        ),
+                        SummaryRow('Tiempo', durationLabel(q.minutes!)),
+                        const Divider(),
+                        SummaryRow(
+                          'Total',
+                          displayMoney(q.currency, q.amount),
+                          important: true,
+                        ),
+                      ],
+                    ),
                   ),
                   if (c.canSubmit || c.phase == ParkingPhase.processing)
                     AsyncButton(

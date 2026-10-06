@@ -1,3 +1,5 @@
+import '../../core/widgets/citizen_navigation.dart';
+import '../../core/widgets/operational_ui.dart';
 import '../../core/config/app_config.dart';
 import '../../core/network/api_client.dart';
 import '../discovery/presentation/discovery_page.dart';
@@ -13,7 +15,6 @@ import '../../app/bootstrap/bootstrap.dart';
 import '../../app/router/app_router.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../core/theme/app_typography.dart';
-import '../../core/widgets/app_buttons.dart';
 import '../../core/widgets/app_feedback.dart';
 import '../vehicles/data/vehicle_service.dart';
 import '../vehicles/state/vehicles_controller.dart';
@@ -38,7 +39,10 @@ class _HomePageState extends State<HomePage> {
   int tab = 0, mapRefresh = 0;
   bool mapOpened = false;
   String? greeting;
-  ValueNotifier<int>? _parkingConfirmed;
+  ValueNotifier<int>? _parkingConfirmed, _citizenTab;
+  void _requestedTab() {
+    if (mounted && _citizenTab!.value != tab) _tab(_citizenTab!.value);
+  }
 
   void _confirmed() {
     if (!mounted) return;
@@ -46,6 +50,7 @@ class _HomePageState extends State<HomePage> {
       tab = 0;
       mapRefresh++;
     });
+    _citizenTab?.value = 0;
     _active?.load();
     _vehicles?.load();
   }
@@ -65,6 +70,7 @@ class _HomePageState extends State<HomePage> {
         mapRefresh++;
       }
     });
+    if (_citizenTab?.value != value) _citizenTab?.value = value;
     if (value == 0) {
       _active?.load();
       _vehicles?.load();
@@ -85,6 +91,9 @@ class _HomePageState extends State<HomePage> {
     super.didChangeDependencies();
     if (_active != null) return;
     final scope = AppScope.of(context);
+    _citizenTab = scope.citizenTab;
+    _citizenTab?.value = tab;
+    _citizenTab?.addListener(_requestedTab);
     _parkingConfirmed = scope.parkingConfirmed;
     _parkingConfirmed?.addListener(_confirmed);
     // A vehicles controller is only needed when injected by a host/test.
@@ -112,7 +121,15 @@ class _HomePageState extends State<HomePage> {
           if (mounted &&
               r.body is Map &&
               (r.body as Map)['username'] is String) {
-            setState(() => greeting = (r.body as Map)['username'] as String);
+            setState(
+              () => greeting =
+                  ((r.body as Map)['firstName'] as String?)
+                          ?.trim()
+                          .isNotEmpty ==
+                      true
+                  ? (r.body as Map)['firstName'] as String
+                  : (r.body as Map)['username'] as String,
+            );
           }
         })
         .catchError((Object _) {});
@@ -121,6 +138,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void dispose() {
     _parkingConfirmed?.removeListener(_confirmed);
+    _citizenTab?.removeListener(_requestedTab);
     if (widget.controller == null) _vehicles?.dispose();
     if (widget.activeController == null) _active?.dispose();
     super.dispose();
@@ -167,13 +185,41 @@ class _HomePageState extends State<HomePage> {
                   ),
                   const SizedBox(height: AppSpace.lg),
                   ActiveParkingPanel(controller: _active!),
-                  PrimaryButton(
-                    label: 'ESTACIONAR',
-                    onPressed: () => _launch(AppRoute.startParking),
+                  OperationalCard(
+                    color: AppColors.action,
+                    border: AppColors.action,
+                    onTap: () => _launch(AppRoute.startParking),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.local_parking,
+                          size: 34,
+                          color: Colors.white,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'ESTACIONAR',
+                                style: Theme.of(context).textTheme.titleMedium
+                                    ?.copyWith(color: Colors.white),
+                              ),
+                              const Text(
+                                'Buscar espacio o escanear QR',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(Icons.chevron_right, color: Colors.white),
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: AppSpace.sm),
-                  const Text('Buscar espacio o escanear QR'),
-                  const SizedBox(height: AppSpace.lg),
                   LayoutBuilder(
                     builder: (context, box) {
                       final width =
@@ -186,33 +232,104 @@ class _HomePageState extends State<HomePage> {
                         children: [
                           SizedBox(
                             width: width,
-                            child: SecondaryButton(
-                              label: 'Mis vehículos',
-                              onPressed: () => _launch(AppRoute.vehicles),
-                            ),
-                          ),
-                          SizedBox(
-                            width: width,
-                            child: SecondaryButton(
-                              label: 'Historial',
-                              onPressed: () => AppSnackbar.show(
-                                context,
-                                'Historial estará disponible próximamente.',
+                            child: OperationalCard(
+                              onTap: () => _launch(AppRoute.vehicles),
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.directions_car_outlined,
+                                    color: AppColors.action,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Mis vehículos',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .labelMedium,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ),
                           SizedBox(
                             width: width,
-                            child: SecondaryButton(
-                              label: 'Mapa',
-                              onPressed: () => _tab(1),
+                            child: OperationalCard(
+                              onTap: () => AppSnackbar.show(
+                                context,
+                                'Historial estará disponible próximamente.',
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.history,
+                                    color: AppColors.muted,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text('Historial'),
+                                        Text(
+                                          'Próximamente',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                           SizedBox(
                             width: width,
-                            child: SecondaryButton(
-                              label: 'Notificaciones',
-                              onPressed: () => _tab(2),
+                            child: OperationalCard(
+                              onTap: () => _tab(1),
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.location_on_outlined,
+                                    color: AppColors.action,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Mapa',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .labelMedium,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          SizedBox(
+                            width: width,
+                            child: OperationalCard(
+                              onTap: () => _tab(2),
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.notifications_none,
+                                    color: AppColors.action,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Notificaciones',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .labelMedium,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ],
@@ -229,7 +346,11 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
           mapOpened
-              ? DiscoveryPage(initialMap: true, refreshToken: mapRefresh)
+              ? DiscoveryPage(
+                  initialMap: true,
+                  embedded: true,
+                  refreshToken: mapRefresh,
+                )
               : const SizedBox(),
           const Scaffold(
             body: SafeArea(
@@ -253,30 +374,7 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: tab,
-        onDestinationSelected: _tab,
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: 'Inicio',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.map_outlined),
-            selectedIcon: Icon(Icons.map),
-            label: 'Mapa',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.notifications_outlined),
-            label: 'Notificaciones',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            label: 'Perfil',
-          ),
-        ],
-      ),
+      bottomNavigationBar: CitizenNavigation(selected: tab, onSelected: _tab),
     ),
   );
 }

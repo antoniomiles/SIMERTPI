@@ -44,94 +44,16 @@ class ParkingSessionExtensionServiceTest {
     private ParkingSessionExtensionService service;
 
     @Test
-    void shouldAllowExtensionDuringGracePeriod() {
-        OffsetDateTime now = OffsetDateTime.now();
-
-        ParkingSession session = createSession(
-                "EXPIRED",
-                now.minusHours(1),
-                now.minusMinutes(5)
-        );
-
-        Tariff tariff = createTariff(240);
-        Payment payment = createPayment();
-
-        when(parkingSessionRepository.findByIdForUpdate(session.getId()))
-                .thenReturn(Optional.of(session));
-
-        when(sessionExtensionRepository
-                .findPendingByParkingSessionId(session.getId()))
-                .thenReturn(Optional.empty());
-
-        when(rules.evaluateExtension(eq(session), any(), any())).thenReturn(quote(session, true, "RULES_RESOLVED", 30));
-
-        when(paymentService.createExtensionPayment(
-                eq(session.getId()),
-                eq("TEST_PROVIDER"),
-                eq("TEST_METHOD"),
-                eq("EXT-TEST-001"),
-                any(BigDecimal.class)
-        )).thenReturn(payment);
-
-        when(sessionExtensionRepository.save(any(SessionExtension.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
-
-        SessionExtension extension = service.requestExtension(
-                session.getId(),
-                30,
-                "TEST_PROVIDER",
-                "TEST_METHOD",
-                "EXT-TEST-001"
-        );
-
-        assertEquals("PENDING_PAYMENT", extension.getStatus());
-        assertEquals(30, extension.getAdditionalMinutes());
-
-        verify(paymentService).createExtensionPayment(
-                eq(session.getId()),
-                eq("TEST_PROVIDER"),
-                eq("TEST_METHOD"),
-                eq("EXT-TEST-001"),
-                any(BigDecimal.class)
-        );
-    }
-
-    @Test
-    void shouldRejectExtensionAfterGracePeriod() {
-        OffsetDateTime now = OffsetDateTime.now();
-
-        ParkingSession session = createSession(
-                "EXPIRED",
-                now.minusHours(1),
-                now.minusMinutes(11)
-        );
-
-        when(parkingSessionRepository.findByIdForUpdate(session.getId()))
-                .thenReturn(Optional.of(session));
-
-        when(rules.evaluateExtension(eq(session), any(), any())).thenReturn(quote(session, false, "EXTENSION_GRACE_EXCEEDED", 30));
-
-        IllegalArgumentException exception = assertThrows(
-                IllegalArgumentException.class,
-                () -> service.requestExtension(
-                        session.getId(),
-                        30,
-                        "TEST_PROVIDER",
-                        "TEST_METHOD",
-                        "EXT-TEST-002"
-                )
-        );
-
-        assertEquals(
-                "EXTENSION_GRACE_EXCEEDED",
-                exception.getMessage()
-        );
-
-
-        verifyNoInteractions(paymentService);
-
-        verify(sessionExtensionRepository, never())
-                .save(any(SessionExtension.class));
+    void shouldRejectExpiredExtensionEvenDuringOperationalGrace() {
+        var now = OffsetDateTime.now();
+        for (int overdue : java.util.List.of(5,11)) {
+            var session=createSession("EXPIRED",now.minusHours(1),now.minusMinutes(overdue));
+            when(parkingSessionRepository.findByIdForUpdate(session.getId())).thenReturn(Optional.of(session));
+            assertThrows(IllegalArgumentException.class,()->service.requestExtension(session.getId(),30,
+                "TEST_PROVIDER","TEST_METHOD","EXPIRED-"+overdue));
+        }
+        verifyNoInteractions(paymentService, rules);
+        verify(sessionExtensionRepository,never()).save(any(SessionExtension.class));
     }
 
     @Test

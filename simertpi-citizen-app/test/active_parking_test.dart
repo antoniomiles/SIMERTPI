@@ -37,7 +37,18 @@ class FakeActive implements ActiveParkingGateway {
   Object? error;
   Completer<void>? gate;
   Map<String, Object>? sent;
-  ParkingReceipt receipt() => pay.session(state);
+  ParkingReceipt receipt() => state == 'EXTENDED'
+      ? ParkingReceipt({
+          'id': 'receipt',
+          'userId': 'fixture-citizen',
+          'vehicleId': 'v',
+          'parkingSpaceId': 's',
+          'status': state,
+          'startedAt': '2026-10-04T15:00:00Z',
+          'expectedEndAt': '2026-10-04T15:30:00Z',
+          'tariffId': 'tariff-fixture',
+        })
+      : pay.session(state);
   @override
   Future<List<ParkingReceipt>> mine(String owner) async {
     loads++;
@@ -239,12 +250,28 @@ void main() {
       await c.load();
       await tester.pumpWidget(panel(c));
       await tester.pump();
-      expect(find.text(activeStatus(state)), findsOneWidget);
       expect(
-        find.text('Extender tiempo'),
-        state == 'MAX_TIME_REACHED' ? findsNothing : findsOneWidget,
+        find.text(
+          state == 'EXPIRED'
+              ? 'Tiempo de estacionamiento vencido'
+              : state == 'MAX_TIME_REACHED'
+              ? 'Tiempo máximo alcanzado'
+              : 'Estacionamiento activo',
+        ),
+        findsOneWidget,
       );
-      expect(find.text('Finalizar estacionamiento'), findsOneWidget);
+      expect(
+        find.text('Extender'),
+        {'MAX_TIME_REACHED', 'EXPIRED'}.contains(state)
+            ? findsNothing
+            : findsOneWidget,
+      );
+      expect(
+        find.text('Finalizar'),
+        {'MAX_TIME_REACHED', 'EXPIRED'}.contains(state)
+            ? findsNothing
+            : findsOneWidget,
+      );
       expect(find.byType(Semantics), findsWidgets);
       await tester.pumpWidget(const SizedBox());
       c.dispose();
@@ -257,14 +284,19 @@ void main() {
       final c = controller(g);
       await c.load();
       await tester.pumpWidget(panel(c));
-      await tester.tap(find.text('Finalizar estacionamiento'));
+      await tester.tap(find.text('Finalizar'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Cancelar'));
       await tester.pumpAndSettle();
       expect(g.closes, 0);
-      await tester.tap(find.text('Finalizar estacionamiento'));
-      await tester.pumpAndSettle();
       await tester.tap(find.text('Finalizar'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text('Finalizar'),
+        ),
+      );
       await tester.pumpAndSettle();
       expect(g.closes, 1);
       expect(find.text('Estacionamiento activo'), findsNothing);
@@ -302,13 +334,15 @@ void main() {
           home: ExtensionPage(controller: c),
         ),
       );
-      await tester.tap(find.text('Confirmar extensión'));
+      await tester.ensureVisible(find.text('Continuar'));
+      await tester.tap(find.text('Continuar'));
       await tester.pumpAndSettle();
       expect(g.extensions, 0);
       await tester.tap(find.text('Cancelar'));
       await tester.pumpAndSettle();
       expect(g.extensions, 0);
-      await tester.tap(find.text('Confirmar extensión'));
+      await tester.ensureVisible(find.text('Continuar'));
+      await tester.tap(find.text('Continuar'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Confirmar'));
       await tester.pump();
@@ -318,7 +352,8 @@ void main() {
       g.gate!.complete();
       await tester.pumpAndSettle();
       expect(g.extensions, 1);
-      expect(find.text('Pago por confirmar'), findsOneWidget);
+      expect(c.payment!.waiting, isTrue);
+      expect(find.text('Tiempo extendido correctamente'), findsNothing);
       await tester.pumpWidget(const SizedBox());
       c.dispose();
     },

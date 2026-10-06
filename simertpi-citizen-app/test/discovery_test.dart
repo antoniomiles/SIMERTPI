@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter_map/flutter_map.dart';
 
 import 'package:flutter/material.dart';
+import 'package:simertpi_citizen_app/features/discovery/presentation/parking_map_marker.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:simertpi_citizen_app/app/bootstrap/bootstrap.dart';
@@ -310,8 +311,8 @@ void main() {
     await tester.tap(find.text('Zona fixture'));
     await tester.pumpAndSettle();
     expect(c.zoneId, 'z');
-    await tester.ensureVisible(find.text('Ver espacio 1'));
-    await tester.tap(find.text('Ver espacio 1'));
+    await tester.ensureVisible(find.text('SPACE-TEST'));
+    await tester.tap(find.text('SPACE-TEST'));
     await tester.pumpAndSettle();
     expect(find.text('Detalle del espacio'), findsOneWidget);
     expect(find.text('Seleccionar espacio'), findsOneWidget);
@@ -435,12 +436,15 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.byType(FlutterMap), findsOneWidget);
         expect(find.text('Fixture attribution'), findsOneWidget);
-        expect(find.bySemanticsLabel('Espacio 1, Disponible'), findsOneWidget);
+        expect(
+          find.bySemanticsLabel(RegExp('SPACE-TEST, Disponible')),
+          findsOneWidget,
+        );
         await tester.tap(find.byTooltip('Espacio 1'));
         await tester.pump();
         expect(picked?.id, 's');
         expect(
-          tester.getSize(find.byType(IconButton)).height,
+          tester.getSize(find.byType(ParkingMapMarker)).height,
           greaterThanOrEqualTo(48),
         );
         expect(tester.takeException(), isNull);

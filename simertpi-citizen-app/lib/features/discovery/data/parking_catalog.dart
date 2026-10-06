@@ -51,6 +51,7 @@ class CatalogSpace {
     this.backendSelectable = false,
     this.remainingSeconds,
     this.expectedEndAt,
+    this.endingSoonSeconds,
   });
   final String id, streetId, code, qrCode, number;
   final bool active;
@@ -59,6 +60,7 @@ class CatalogSpace {
   final bool backendSelectable;
   final int? remainingSeconds;
   final DateTime? expectedEndAt;
+  final int? endingSoonSeconds;
   CatalogSpace withAvailability(Map<String, dynamic> data) {
     const known = {
       'AVAILABLE',
@@ -98,6 +100,7 @@ class CatalogSpace {
       longitude: coordinate('longitude'),
       operationalStatus: data['operationalStatus'] as String,
       backendSelectable: data['selectable'] as bool,
+      endingSoonSeconds: data['endingSoonSeconds'] as int?,
       remainingSeconds: remaining as int?,
       expectedEndAt: data['expectedEndAt'] == null
           ? null

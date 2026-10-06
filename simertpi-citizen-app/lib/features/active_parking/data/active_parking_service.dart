@@ -13,7 +13,18 @@ abstract interface class ActiveParkingGateway {
   Future<Map> extend(String id, Map<String, Object> request);
 }
 
-class ActiveParkingService implements ActiveParkingGateway {
+class ActiveParkingService
+    implements ActiveParkingGateway, DurationOptionsGateway {
+  @override
+  Future<List<ParkingRules>> options(String id) async {
+    final r = await client.request(
+      ApiMethod.get,
+      'parking-sessions/${Uri.encodeComponent(id)}/extensions/options',
+      responseDecoder: parkingJson,
+    );
+    return parseDurationOptions(r.body);
+  }
+
   ActiveParkingService(this.api);
   final ApiClient? api;
   ApiClient get client => api ?? (throw invalidParking);

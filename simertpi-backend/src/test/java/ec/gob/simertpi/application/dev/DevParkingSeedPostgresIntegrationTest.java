@@ -22,6 +22,34 @@ class DevParkingSeedPostgresIntegrationTest extends AbstractPostgresIntegrationT
     @Autowired JdbcTemplate jdbc;
     @Autowired TestRestTemplate http;
     @Autowired ObjectMapper json;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
+    @Autowired ec.gob.simertpi.application.parking.rules.ParkingRulesService rules;
+    @Autowired org.springframework.core.env.Environment runtimeEnvironment;
+    @Test void optInReference2021IsIdempotentAndPreservesHistoricalTariffs() {
+        var environment=new org.springframework.mock.env.MockEnvironment()
+                .withProperty("simertpi.dev-seed.pinas-ordinance-2021","true");
+        environment.setActiveProfiles("dev","test");
+        var runner=new DevParkingSeed(environment,jdbc,new org.springframework.transaction.support.TransactionTemplate(transactionManager));
+        try {
+            runner.run(null);runner.run(null);
+            assertThat(count("parking.tariffs","code LIKE 'PIN-DEV-NORM-%' AND amount=0.25 AND duration_minutes=60 AND min_minutes=30 AND max_continuous_minutes=240 AND grace_period_minutes=10")).isEqualTo(3);
+            assertThat(count("parking.tariffs","code LIKE 'PIN-DEV-T%' AND amount=0.80 AND max_continuous_minutes=120")).isEqualTo(3);
+            var zone=java.time.ZoneId.of(runtimeEnvironment.getProperty("simertpi.parking.rules.time-zone","America/Guayaquil"));
+            var at=java.time.LocalDateTime.of(2026,10,5,9,0).atZone(zone).toInstant();
+            UUID space=jdbc.queryForObject("SELECT id FROM parking.parking_spaces WHERE code='PIN-DEV-001'",UUID.class);
+            var quote=rules.evaluate(space,null,at,60);
+            assertThat(quote.calculatedAmount()).isEqualByComparingTo("0.25");
+            assertThat(quote.maximumContinuousMinutes()).isEqualTo(240);
+            assertThat(rules.evaluate(space,null,at,270).operational()).isFalse();
+            var exempt=java.time.LocalDateTime.of(2026,11,8,9,0).atZone(zone).toInstant();
+            assertThat(rules.evaluate(space,null,exempt,60).operational()).isFalse();
+        } finally {
+            // Isolated Testcontainers fixtures only; preserve the base scenario for the remaining tests.
+            jdbc.update("DELETE FROM parking.holidays WHERE name='DEV REFERENCIA 2021 / DIA NO TARIFADO'");
+            jdbc.update("DELETE FROM parking.tariffs WHERE code LIKE 'PIN-DEV-NORM-%'");
+            jdbc.update("UPDATE parking.schedules SET start_time='00:00:00',end_time='23:59:59' WHERE zone_id IN (SELECT id FROM parking.zones WHERE code LIKE 'PIN-DEV-Z%')");
+        }
+    }
     // Keep wall-clock POST deterministic near midnight without changing DEV settings.
     @org.springframework.test.context.DynamicPropertySource
     static void testClock(org.springframework.test.context.DynamicPropertyRegistry registry) {

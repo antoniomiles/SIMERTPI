@@ -204,7 +204,40 @@ abstract interface class ParkingGateway {
   Future<List<ParkingReceipt>> mine(String owner);
 }
 
-class ParkingService implements ParkingGateway {
+abstract interface class DurationOptionsGateway {
+  Future<List<ParkingRules>> options(String id);
+}
+
+List<ParkingRules> parseDurationOptions(Object? body, {String? spaceId}) {
+  if (body is! List) throw invalidParking;
+  final values = body.map((v) {
+    if (v is! Map) throw invalidParking;
+    return ParkingRules(v);
+  }).toList();
+  if (values.any(
+        (q) =>
+            !q.quoted ||
+            q.minutes == null ||
+            (spaceId != null && q.spaceId != spaceId),
+      ) ||
+      values.map((q) => q.minutes).toSet().length != values.length) {
+    throw invalidParking;
+  }
+  return values;
+}
+
+class ParkingService implements ParkingGateway, DurationOptionsGateway {
+  @override
+  Future<List<ParkingRules>> options(String id) async {
+    final r = await client.request(
+      ApiMethod.get,
+      'parking/rules/options',
+      query: {'spaceId': id},
+      responseDecoder: parkingJson,
+    );
+    return parseDurationOptions(r.body, spaceId: id);
+  }
+
   ParkingService(this.api);
   final ApiClient? api;
   ApiClient get client => api ?? (throw invalidParking);

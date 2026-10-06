@@ -21,10 +21,13 @@ public class ParkingAvailabilityService {
     }
     public record Availability(UUID parkingSpaceId, UUID streetId, UUID zoneId, String spaceCode,
             boolean active, String operationalStatus, boolean selectable, OffsetDateTime expectedEndAt,
-            Long remainingSeconds, BigDecimal latitude, BigDecimal longitude, Instant evaluatedAt) { }
+            Long remainingSeconds, BigDecimal latitude, BigDecimal longitude, Instant evaluatedAt, long endingSoonSeconds) { }
     @Transactional(readOnly=true)
     public List<Availability> list() {
         Instant now = Instant.now();
+        // Yellow starts when the first configured expiration reminder becomes due.
+        Long reminderSeconds = jdbc.queryForObject("SELECT max(minutes_before)::bigint * 60 FROM configuration.notification_rules WHERE event_type='EXPIRATION' AND enabled=true AND minutes_before>0 AND valid_from<=CURRENT_TIMESTAMP AND (valid_to IS NULL OR valid_to>=CURRENT_TIMESTAMP)", Long.class);
+        long effectiveThreshold = reminderSeconds == null ? threshold : reminderSeconds;
         // One statement gives list/map the same database snapshot. V21 enforces one occupant per space.
         return jdbc.query("""
             SELECT p.id,p.street_id,t.zone_id,p.code,p.active,
@@ -39,7 +42,7 @@ public class ParkingAvailabilityService {
             """, (r,n) -> project(r.getObject("id",UUID.class),r.getObject("street_id",UUID.class),
                 r.getObject("zone_id",UUID.class),r.getString("code"),r.getBoolean("active"),
                 r.getBoolean("enabled"),r.getString("status"),r.getObject("expected_end_at",OffsetDateTime.class),
-                r.getBigDecimal("latitude"),r.getBigDecimal("longitude"),now,threshold));
+                r.getBigDecimal("latitude"),r.getBigDecimal("longitude"),now,effectiveThreshold));
     }
     public static Availability project(UUID id, UUID street, UUID zone, String code, boolean active,
             boolean enabled, String state, OffsetDateTime end, BigDecimal lat, BigDecimal lon, Instant now, long threshold) {
@@ -50,6 +53,6 @@ public class ParkingAvailabilityService {
         if (enabled && List.of("ACTIVE","EXTENDED").contains(state == null ? "" : state)
                 && remaining != null && remaining > 0 && remaining <= threshold) status="ENDING_SOON";
         return new Availability(id,street,zone,code,active,status,"AVAILABLE".equals(status),
-                revealTime ? end : null,remaining,lat,lon,now);
+                revealTime ? end : null,remaining,lat,lon,now,threshold);
     }
 }

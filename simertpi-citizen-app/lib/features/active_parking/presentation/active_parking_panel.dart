@@ -1,3 +1,5 @@
+import '../../../core/widgets/operational_ui.dart';
+import '../../parking/presentation/duration_options.dart';
 import '../../vehicles/presentation/vehicle_plate.dart';
 import '../../../app/router/app_router.dart';
 
@@ -11,7 +13,6 @@ import '../../../core/widgets/app_feedback.dart';
 import '../../../core/widgets/app_skeleton.dart';
 import '../../parking/data/parking_contract.dart';
 import '../../payments/data/payment_contract.dart';
-import '../data/active_parking_service.dart';
 import '../state/active_parking_controller.dart';
 
 class ActiveParkingPanel extends StatefulWidget {
@@ -142,82 +143,188 @@ class _ActiveParkingPanelState extends State<ActiveParkingPanel>
           if (c.loading && !c.loaded) const SkeletonCard(),
           if (c.message != null)
             ErrorState(message: c.message!, onRetry: c.load),
-          for (final s in c.sessions)
-            Padding(
-              padding: const EdgeInsets.only(bottom: AppSpace.lg),
-              child: Semantics(
-                container: true,
-                label: 'Estacionamiento ${activeStatus(s.status)}',
-                child: Container(
-                  padding: const EdgeInsets.all(AppSpace.lg),
-                  decoration: BoxDecoration(
-                    color: AppColors.parkingHint,
-                    borderRadius: BorderRadius.circular(AppSize.radius),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        'Estacionamiento activo',
-                        style: Theme.of(context).textTheme.headlineSmall,
-                      ),
-                      Text(activeStatus(s.status)),
-                      if (c.stale)
-                        const Text(
-                          'Último estado conocido. Requiere actualización.',
-                        ),
-                      const SizedBox(height: AppSpace.md),
-                      Text('Espacio: ${c.space(s)}'),
-                      if (c.street(s) != null)
-                        Text('Ubicación: ${c.street(s)}'),
-                      Text('Vehículo: ${visualPlate(c.plate(s))}'),
-                      Semantics(
-                        label:
-                            'Tiempo contratado restante ${remainingTime(s, c.now())}',
-                        child: ExcludeSemantics(
-                          child: Text(
-                            'Tiempo contratado restante: ${remainingTime(s, c.now())}',
-                          ),
-                        ),
-                      ),
-                      Text(
-                        'Hasta: ${s.expectedEndAt.toLocal().hour.toString().padLeft(2, '0')}:${s.expectedEndAt.toLocal().minute.toString().padLeft(2, '0')}',
-                      ),
-                      if (s.status == 'EXPIRED')
-                        const Text(
-                          'El período contratado terminó. La sesión aún no está finalizada.',
-                        ),
-                      if (s.status == 'MAX_TIME_REACHED')
-                        const Text(
-                          'Se alcanzó el límite continuo. No es posible extender el tiempo.',
-                        ),
-                      const SizedBox(height: AppSpace.md),
-                      if (!c.busy &&
-                          !c.stale &&
-                          {'ACTIVE', 'EXTENDED', 'EXPIRED'}.contains(s.status))
-                        SecondaryButton(
-                          label: 'Extender tiempo',
-                          onPressed: () => _extension(s),
-                        ),
-                      if (!c.busy)
-                        SecondaryButton(
-                          label: 'Finalizar estacionamiento',
-                          onPressed: () => _close(s),
-                        ),
-                      if (c.busy) const LinearProgressIndicator(),
-                      TextButton(
-                        onPressed: c.busy ? null : c.load,
-                        child: const Text('Actualizar estado'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+          for (final s in c.sessions) _card(context, c, s),
         ],
       );
     },
   );
+  Widget _card(
+    BuildContext context,
+    ActiveParkingController c,
+    ParkingReceipt s,
+  ) {
+    final left = s.expectedEndAt.difference(c.now()).inSeconds;
+    final location = c.locations?.spaces
+        .where((v) => v.id == s.spaceId)
+        .firstOrNull;
+    final expired = s.status == 'EXPIRED' || left <= 0;
+    final maximum = s.status == 'MAX_TIME_REACHED';
+    final soon =
+        !expired &&
+        !maximum &&
+        (location?.endingSoonSeconds != null
+            ? left <= location!.endingSoonSeconds!
+            : location?.operationalStatus == 'ENDING_SOON');
+    final color = expired || maximum
+        ? AppColors.occupied
+        : soon
+        ? AppColors.endingSoon
+        : AppColors.available;
+    final label = maximum
+        ? 'Tiempo máximo alcanzado'
+        : expired
+        ? 'Tiempo de estacionamiento vencido'
+        : soon
+        ? 'Próximo a vencer'
+        : 'Estacionamiento activo';
+    final extend =
+        !maximum &&
+        !expired &&
+        !c.busy &&
+        !c.stale &&
+        {'ACTIVE', 'EXTENDED'}.contains(s.status) &&
+        (c.gateway is! DurationOptionsGateway ||
+            c.extensionOptions[s.id]?.isNotEmpty == true);
+    final close = !c.busy && !c.stale && (!expired && !maximum);
+    return OperationalCard(
+      color: expired || maximum
+          ? AppColors.dangerSurface
+          : soon
+          ? AppColors.warningSurface
+          : AppColors.successSurface,
+      border: Colors.transparent,
+      child: Semantics(
+        container: true,
+        label: label,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  expired || maximum || soon
+                      ? Icons.warning_amber_rounded
+                      : Icons.directions_car,
+                  color: color,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: Theme.of(context).textTheme.titleSmall
+                        ?.copyWith(color: color),
+                  ),
+                ),
+                if (!expired && !maximum)
+                  IconButton(
+                    tooltip: 'Actualizar estado',
+                    onPressed: c.busy ? null : c.load,
+                    icon: Icon(Icons.refresh, color: color, size: 18),
+                  ),
+              ],
+            ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.directions_car, size: 32, color: color),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        visualPlate(c.plate(s)),
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      Text('Espacio ${c.space(s)}'),
+                      if (c.street(s) != null)
+                        Text(
+                          c.street(s)!,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      if (c.stale)
+                        const Text(
+                          'Último estado conocido. Requiere actualización.',
+                        ),
+                      if (expired || maximum)
+                        Text(
+                          maximum
+                              ? 'Has cumplido el tiempo máximo permitido en este espacio.\nDebes mover tu vehículo a otro espacio.'
+                              : 'El tiempo contratado ha finalizado.',
+                          style: TextStyle(color: color),
+                        )
+                      else ...[
+                        const Text('Tiempo contratado restante'),
+                        Semantics(
+                          label: 'Tiempo restante ${(left + 59) ~/ 60} minutos',
+                          child: Text(
+                            '${(left + 59) ~/ 60} min',
+                            style: Theme.of(context).textTheme.titleLarge
+                                ?.copyWith(color: color),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (extend || close)
+              LayoutBuilder(
+                builder: (context, box) {
+                  final buttons = <Widget>[
+                    if (extend)
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => _extension(s),
+                          child: const Text('Extender'),
+                        ),
+                      ),
+                    if (extend && close) const SizedBox(width: 8),
+                    if (close)
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => _close(s),
+                          child: const Text('Finalizar'),
+                        ),
+                      ),
+                  ];
+                  if (MediaQuery.textScalerOf(context).scale(14) > 22) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (extend)
+                          OutlinedButton(
+                            onPressed: () => _extension(s),
+                            child: const Text('Extender'),
+                          ),
+                        if (close)
+                          OutlinedButton(
+                            onPressed: () => _close(s),
+                            child: const Text('Finalizar'),
+                          ),
+                      ],
+                    );
+                  }
+                  return Row(children: buttons);
+                },
+              ),
+            if (expired && !maximum && !extend && !c.loading)
+              const Text(
+                'No es posible extender una sesión vencida. Solicita asistencia para resolverla.',
+              ),
+            if (maximum)
+              const Text(
+                'El límite continuo impide extender este estacionamiento.',
+              ),
+            if (c.busy) const LinearProgressIndicator(),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class ExtensionPage extends StatefulWidget {
@@ -228,13 +335,6 @@ class ExtensionPage extends StatefulWidget {
 }
 
 class _ExtensionPageState extends State<ExtensionPage> {
-  final minutes = TextEditingController();
-  @override
-  void dispose() {
-    minutes.dispose();
-    super.dispose();
-  }
-
   bool confirming = false;
   Future<void> _confirm() async {
     if (confirming || widget.controller.busy) return;
@@ -292,98 +392,88 @@ class _ExtensionPageState extends State<ExtensionPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (c.selected != null) ...[
-                    Text('Espacio: ${c.space(c.selected!)}'),
-                    Text('Vehículo: ${c.plate(c.selected!)}'),
-                    Text(activeStatus(c.selected!.status)),
-                  ],
-                  if (c.message != null)
-                    Semantics(liveRegion: true, child: Text(c.message!)),
-                  if (c.message != null &&
-                      c.intent == null &&
-                      c.selected != null &&
-                      !c.busy)
-                    TextButton(
-                      onPressed: () => c.prepare(c.selected!.id),
-                      child: const Text('Reintentar consulta'),
-                    ),
-                  if (!c.dev)
-                    const Text(
-                      'No hay un método de pago habilitado para esta aplicación en este ambiente.',
-                    ),
-                  if (c.intent == null && p == null && q != null) ...[
+                  if (c.extensionConfirmed) ...[
+                    const SuccessMark(),
                     Text(
-                      'Mínimo: ${q.minimum} minutos. Máximo continuo: ${q.maximum} minutos, sujeto al tiempo ya utilizado y al calendario.',
+                      'Tiempo extendido correctamente',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.headlineSmall,
                     ),
-                    TextField(
-                      controller: minutes,
-                      keyboardType: TextInputType.number,
-                      decoration: InputDecoration(
-                        labelText: 'Minutos adicionales',
-                        hintText: '${q.minutes ?? q.minimum}',
-                      ),
-                      enabled: !c.busy,
-                      onChanged: (_) => setState(() {}),
+                    SummaryRow(
+                      'Nuevo tiempo contratado restante',
+                      '${c.selected!.expectedEndAt.difference(c.now()).inMinutes.clamp(0, 999999)} min',
                     ),
-                    TextButton(
-                      onPressed: c.busy
-                          ? null
-                          : () {
-                              final value = int.tryParse(minutes.text.trim());
-                              if (value == null || value <= 0) {
-                                AppSnackbar.show(
-                                  context,
-                                  'Ingresa una cantidad válida de minutos.',
-                                );
-                                return;
-                              }
-                              c.pricing(value);
-                            },
-                      child: const Text('Consultar cotización'),
+                    SummaryRow('Importe', displayMoney(p?.currency, p?.amount)),
+                    PrimaryButton(
+                      label: 'Volver al inicio',
+                      onPressed: () => Navigator.pop(context),
                     ),
-                    if (q.quoted) ...[
-                      Text('Tiempo adicional cotizado: ${q.minutes} minutos'),
-                      Text('Importe calculado: ${q.currency} ${q.amount}'),
-                      Text(
-                        'Nueva finalización: ${DateTime.parse(q.expiresAt!).toLocal()}',
-                      ),
-                      if (c.canExtend &&
-                          (minutes.text.trim().isEmpty ||
-                              int.tryParse(minutes.text.trim()) == q.minutes))
-                        SecondaryButton(
-                          label: 'Confirmar extensión',
-                          onPressed: _confirm,
+                  ] else ...[
+                    if (c.selected != null)
+                      OperationalCard(
+                        child: Column(
+                          children: [
+                            Text(
+                              visualPlate(c.plate(c.selected!)),
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            Text(c.space(c.selected!)),
+                          ],
                         ),
-                    ] else
-                      Text(ruleMessage(q.reason)),
-                    if (c.dev)
-                      const Text(
-                        'Método TEST, solo para pruebas DEV. No representa un pago real.',
                       ),
-                  ],
-                  if (p != null) ...[
-                    Text(switch (p.status) {
-                      PaymentStatus.approved => 'Pago aprobado',
-                      PaymentStatus.declined => 'Pago rechazado',
-                      PaymentStatus.failed => 'Pago no completado',
-                      PaymentStatus.cancelled => 'Pago cancelado',
-                      _ => 'Pago por confirmar',
-                    }),
-                    Text('Importe backend: ${p.currency} ${p.amount}'),
-                    if (p.status == PaymentStatus.approved &&
-                        c.selected?.status == 'EXTENDED')
-                      const Text('El sistema confirmó la extensión.')
-                    else
-                      const Text(
-                        'No damos el tiempo por ampliado sin confirmación del estado de la sesión.',
+                    if (c.message != null)
+                      ErrorState(
+                        message: c.message!,
+                        onRetry: () => c.prepare(c.selected!.id),
                       ),
+                    if (!c.dev)
+                      const InfoCard(
+                        'La extensión de tiempo no está habilitada para este ambiente.',
+                      ),
+                    if (c.intent == null && p == null && q != null) ...[
+                      Text(
+                        '¿Cuánto tiempo deseas agregar?',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 16),
+                      DurationOptions(
+                        load: c.durationOptions,
+                        selected: q.minutes,
+                        onSelected: c.selectDuration,
+                        enabled: !c.busy,
+                      ),
+                      if (q.quoted)
+                        SummaryRow(
+                          'Total adicional',
+                          displayMoney(q.currency, q.amount),
+                          important: true,
+                        ),
+                      if (c.canExtend)
+                        PrimaryButton(label: 'Continuar', onPressed: _confirm),
+                      if (!q.quoted) InfoCard(ruleMessage(q.reason)),
+                    ],
+                    if (p != null)
+                      InfoCard(switch (p.status) {
+                        PaymentStatus.declined =>
+                          'Pago rechazado. El tiempo no se amplió.',
+                        PaymentStatus.failed =>
+                          'No se completó el pago. El tiempo no se amplió.',
+                        _ => 'El resultado está por confirmar. Consulta antes de repetir.',
+                      }),
+                    if (c.intent != null && !c.busy)
+                      AsyncButton(
+                        label: 'Consultar resultado',
+                        onPressed: c.checkExtension,
+                      ),
+                    if (c.busy)
+                      const Center(child: CircularProgressIndicator()),
                   ],
-                  if (c.intent != null && !c.busy)
-                    AsyncButton(
-                      label: 'Consultar resultado',
-                      onPressed: c.checkExtension,
+                  if (c.dev)
+                    Text(
+                      'Pago de prueba. Sin transacción bancaria real.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                      textAlign: TextAlign.center,
                     ),
-                  if (c.busy) const LinearProgressIndicator(),
                 ],
               ),
             ),

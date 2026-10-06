@@ -64,6 +64,8 @@ info:
 simertpi:
   dev-seed:
     enabled: ${SIMERTPI_DEV_SEED_ENABLED:false}
+    # Explicit DEV reference to the published 2021 text, not confirmation of current production rules.
+    pinas-ordinance-2021: ${SIMERTPI_DEV_PINAS_ORDINANCE_2021_ENABLED:false}
   auth:
     access-ttl: ${SIMERTPI_AUTH_ACCESS_TTL:15m}
     refresh-ttl: ${SIMERTPI_AUTH_REFRESH_TTL:30d}

@@ -2,14 +2,26 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../theme/app_tokens.dart';
+import 'citizen_navigation.dart';
 
 class AppPage extends StatelessWidget {
-  const AppPage({super.key, required this.title, required this.child});
+  const AppPage({
+    super.key,
+    required this.title,
+    required this.child,
+    this.showNavigation = false,
+    this.navigationIndex = 0,
+  });
   final String title;
   final Widget child;
+  final bool showNavigation;
+  final int navigationIndex;
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: Text(title)),
+    bottomNavigationBar: showNavigation
+        ? CitizenNavigation(selected: navigationIndex)
+        : null,
     body: SafeArea(
       top: false,
       child: Align(

@@ -41,9 +41,18 @@ public class MobileExtensionController {
             Authentication auth) {
         parking.assertSessionOwner(id,auth.getName());
         var session=parking.findById(id);
-        if (!java.util.Set.of("ACTIVE","EXTENDED","EXPIRED").contains(session.getStatus()))
+        if (!java.util.Set.of("ACTIVE","EXTENDED").contains(session.getStatus()))
             throw new IllegalArgumentException("Session is not eligible for extension");
         return rules.evaluateExtension(session,additionalMinutes,Instant.now());
+    }
+    @GetMapping("/options")
+    public java.util.List<ParkingRulesResult> options(@PathVariable UUID id, Authentication auth) {
+        parking.assertSessionOwner(id, auth.getName());
+        var session = parking.findById(id);
+        if (!java.util.Set.of("ACTIVE", "EXTENDED").contains(session.getStatus())) return java.util.List.of();
+        Instant now = Instant.now();
+        var policy = rules.evaluateExtension(session, null, now);
+        return ParkingDurationOptions.quotes(policy, minutes -> rules.evaluateExtension(session, minutes, now));
     }
     public record Request(@NotNull @Min(1) Integer additionalMinutes, @NotBlank @Size(max=50) String paymentMethod,
             @NotBlank @Size(max=128) String idempotencyKey, @NotNull @DecimalMin("0.0") BigDecimal expectedAmount,

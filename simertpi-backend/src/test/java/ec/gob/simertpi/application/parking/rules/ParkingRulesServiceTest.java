@@ -45,7 +45,7 @@ class ParkingRulesServiceTest {
         ParkingSpace space = new ParkingSpace(); space.setId(spaceId); space.setStreetId(street.getId());
         when(spaces.findById(spaceId)).thenReturn(Optional.of(space)); when(spaces.findByQrCode("QR-TEST")).thenReturn(Optional.of(space));
         when(streets.findById(street.getId())).thenReturn(Optional.of(street)); when(zones.findById(zoneId)).thenReturn(Optional.of(zone));
-        session = new ParkingSession(); session.setParkingSpaceId(spaceId); session.setTariffId(tariff.getId());
+        session = new ParkingSession(); session.setStatus("ACTIVE"); session.setParkingSpaceId(spaceId); session.setTariffId(tariff.getId());
         session.setStartedAt(at.minusSeconds(3600).atOffset(ZoneOffset.UTC)); session.setExpectedEndAt(at.plusSeconds(1800).atOffset(ZoneOffset.UTC));
     }
     ParkingRulesResult evaluate(Integer minutes) { return service.evaluate(spaceId, null, at, minutes); }
@@ -112,11 +112,11 @@ class ParkingRulesServiceTest {
     @Test void queryBySpaceOrQrMatches() { assertThat(service.evaluate(null,"QR-TEST",at,60)).isEqualTo(evaluate(60)); }
     @Test void extensionWithinAccumulatedMaximum() { var r=service.evaluateExtension(session,90,at); assertThat(r.extensionAllowed()).isTrue(); assertThat(r.expiresAt()).isEqualTo(session.getStartedAt().plusMinutes(180).toInstant()); }
     @Test void extensionBeyondAccumulatedMaximum() { assertThat(service.evaluateExtension(session,91,at).reasonCode()).isEqualTo("MAX_CONTINUOUS_EXCEEDED"); }
-    @Test void graceChecksExactSecondsRegardlessOfStoredStatus() {
+    @Test void elapsedContractNeverAllowsExtensionEvenWithinGrace() {
         session.setExpectedEndAt(at.minusSeconds(7*60).atOffset(ZoneOffset.UTC));
-        assertThat(service.evaluateExtension(session,30,at).extensionAllowed()).isTrue();
+        assertThat(service.evaluateExtension(session,30,at).reasonCode()).isEqualTo("PARKING_TIME_EXPIRED");
         session.setExpectedEndAt(at.minusSeconds(7*60+1).atOffset(ZoneOffset.UTC));
-        assertThat(service.evaluateExtension(session,30,at).reasonCode()).isEqualTo("EXTENSION_GRACE_EXCEEDED");
+        assertThat(service.evaluateExtension(session,30,at).reasonCode()).isEqualTo("PARKING_TIME_EXPIRED");
     }
     @Test void doesNotSellAcrossClosingTime() { assertThat(service.evaluate(spaceId,null,Instant.parse("2026-10-05T22:30:00Z"),60).reasonCode()).isEqualTo("DURATION_OUTSIDE_OPERATION_HOURS"); }
     @Test void timezoneDeterminesCalendarDate() {
@@ -126,4 +126,29 @@ class ParkingRulesServiceTest {
     }
     @Test void negativeAmountAndInvalidDurationNeverCalculate() { tariff.setAmount(new BigDecimal("-1")); assertThat(evaluate(60).reasonCode()).isEqualTo("INVALID_TARIFF_CONFIGURATION"); tariff.setAmount(BigDecimal.ONE); assertThat(evaluate(0).reasonCode()).isEqualTo("INVALID_DURATION"); }
     @Test void conflictingTariffsFailClosed() { Tariff other=new Tariff(); other.setId(UUID.randomUUID()); other.setValidFrom(tariff.getValidFrom()); when(tariffs.findActiveTariffsAt(any())).thenReturn(List.of(tariff,other)); assertThat(evaluate(60).reasonCode()).isEqualTo("AMBIGUOUS_ACTIVE_TARIFF"); }
+
+    @Test void finalProductMatrixUsesConfiguredHalfUpAndGraceDoesNotExtendContract() {
+        tariff.setAmount(new BigDecimal("0.25")); tariff.setMinMinutes(30); tariff.setMaxContinuousMinutes(240); tariff.setGracePeriodMinutes(10);
+        var offers=ParkingDurationOptions.quotes(evaluate(null), this::evaluate);
+        assertThat(offers).extracting(ParkingRulesResult::requestedDurationMinutes).containsExactly(30,60,90,120,150,180,210,240);
+        assertThat(offers).extracting(ParkingRulesResult::calculatedAmount).containsExactly(
+            new BigDecimal("0.13"),new BigDecimal("0.25"),new BigDecimal("0.38"),new BigDecimal("0.50"),
+            new BigDecimal("0.63"),new BigDecimal("0.75"),new BigDecimal("0.88"),new BigDecimal("1.00"));
+        assertThat(evaluate(60).expiresAt()).isEqualTo(at.plusSeconds(3600));
+    }
+    @Test void extensionOptionsRespectRemainingCapacityAndExpiredStatesFailClosed() {
+        tariff.setAmount(new BigDecimal("0.25")); tariff.setMinMinutes(30); tariff.setMaxContinuousMinutes(240);
+        session.setStartedAt(at.minusSeconds(60).atOffset(ZoneOffset.UTC));
+        for (int contracted : List.of(180,210,240)) {
+            session.setExpectedEndAt(session.getStartedAt().plusMinutes(contracted));
+            var policy=service.evaluateExtension(session,null,at);
+            var offers=ParkingDurationOptions.quotes(policy,n->service.evaluateExtension(session,n,at));
+            assertThat(offers).extracting(ParkingRulesResult::requestedDurationMinutes)
+                .containsExactlyElementsOf(contracted==180?List.of(30,60):contracted==210?List.of(30):List.of());
+        }
+        for (String status : List.of("EXPIRED","MAX_TIME_REACHED","COMPLETED","CANCELLED")) {
+            session.setStatus(status);
+            assertThat(service.evaluateExtension(session,30,at).extensionAllowed()).isFalse();
+        }
+    }
 }

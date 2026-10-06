@@ -84,7 +84,9 @@ public class ParkingRulesService {
         var quote = evaluateSpace(space, at, minutes, retained);
         String reason = quote.reasonCode();
         Instant expires = null;
-        if (retained == null) reason = "NO_ACTIVE_TARIFF";
+        if (!java.util.Set.of("ACTIVE", "EXTENDED").contains(session.getStatus() == null ? "" : session.getStatus())) reason = "SESSION_NOT_EXTENSIBLE";
+        else if (session.getExpectedEndAt() == null || !at.isBefore(session.getExpectedEndAt().toInstant())) reason = "PARKING_TIME_EXPIRED";
+        else if (retained == null) reason = "NO_ACTIVE_TARIFF";
         else if (minutes == null || minutes <= 0 || session.getStartedAt() == null || session.getExpectedEndAt() == null) reason = "INVALID_DURATION";
         else if (quote.operational()) {
             expires = session.getExpectedEndAt().toInstant().plus(Duration.ofMinutes(minutes));

@@ -35,6 +35,12 @@ public class DevParkingSeed implements ApplicationRunner {
             var script = new ResourceDatabasePopulator(new ClassPathResource("dev/pinas-parking.sql"));
             script.setSqlScriptEncoding("UTF-8");
             script.execute(java.util.Objects.requireNonNull(jdbc.getDataSource()));
+            if (environment.getProperty("simertpi.dev-seed.pinas-ordinance-2021", Boolean.class, false)) {
+                var normative = new ResourceDatabasePopulator(new ClassPathResource("dev/pinas-ordinance-2021.sql"));
+                normative.setSqlScriptEncoding("UTF-8");
+                normative.execute(java.util.Objects.requireNonNull(jdbc.getDataSource()));
+                DevPinasCalendar.seed(jdbc, java.time.LocalDate.now(java.time.ZoneId.of("America/Guayaquil")).getYear());
+            }
         });
     }
 

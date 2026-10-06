@@ -66,6 +66,22 @@ class ParkingController extends ChangeNotifier {
       !occupiedVehicles.contains(vehicleId) &&
       quote?.quoted == true &&
       minutes == quote?.minutes;
+  Future<List<ParkingRules>> durationOptions() async =>
+      parking is DurationOptionsGateway
+      ? (parking as DurationOptionsGateway).options(space.space.id)
+      : [if (quote?.quoted == true) quote!];
+  void selectDuration(ParkingRules value) {
+    if (busy ||
+        _intent != null ||
+        value.spaceId != space.space.id ||
+        !value.quoted) {
+      return;
+    }
+    quote = value;
+    minutes = value.minutes;
+    _notify();
+  }
+
   void changedDuration(String text) {
     if (busy || _intent != null) return;
     minutes = int.tryParse(text);

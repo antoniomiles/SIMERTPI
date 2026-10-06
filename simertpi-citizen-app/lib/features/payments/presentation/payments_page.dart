@@ -11,6 +11,7 @@ import '../../../core/widgets/app_buttons.dart';
 import '../../../core/widgets/app_feedback.dart';
 import '../../../core/widgets/app_layout.dart';
 import '../../../core/widgets/app_skeleton.dart';
+import '../../../core/widgets/operational_ui.dart';
 import '../../parking/data/parking_contract.dart';
 import '../../vehicles/data/vehicle_service.dart';
 import '../data/payment_contract.dart';
@@ -73,10 +74,15 @@ class _PaymentsPageState extends State<PaymentsPage> {
       return PopScope(
         canPop: !c.busy,
         child: AppPage(
-          title: c.phase == PaymentPhase.result
+          showNavigation: !c.busy,
+          title: c.activated
+              ? 'Estacionamiento confirmado'
+              : c.phase == PaymentPhase.result
               ? 'Resultado de pago'
+              : c.phase == PaymentPhase.processing
+              ? 'Procesando pago'
               : _reviewing
-              ? 'Confirmar pago'
+              ? 'Resumen del estacionamiento'
               : 'Resumen del estacionamiento',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -140,7 +146,14 @@ class _PaymentsPageState extends State<PaymentsPage> {
                       onPressed: c.check,
                     ),
                 ] else if (c.phase == PaymentPhase.processing) ...[
-                  const Center(child: CircularProgressIndicator()),
+                  const SizedBox(height: 64),
+                  const Center(
+                    child: SizedBox(
+                      width: 64,
+                      height: 64,
+                      child: CircularProgressIndicator(strokeWidth: 5),
+                    ),
+                  ),
                   const SizedBox(height: AppSpace.lg),
                   const Text(
                     'Procesando tu pago...',
@@ -154,16 +167,13 @@ class _PaymentsPageState extends State<PaymentsPage> {
                     'No cierres la aplicación.',
                     textAlign: TextAlign.center,
                   ),
-                  const Text(
-                    'El estacionamiento se iniciará únicamente cuando el pago sea confirmado.',
+                  const SizedBox(height: AppSpace.lg),
+                  const InfoCard(
+                    'Una vez aprobado el pago, se iniciará tu estacionamiento automáticamente.',
                   ),
                 ] else if (c.phase == PaymentPhase.result && c.activated) ...[
-                  const Icon(
-                    Icons.check_circle,
-                    color: AppColors.available,
-                    size: 64,
-                    semanticLabel: 'Estacionamiento confirmado',
-                  ),
+                  const SizedBox(height: AppSpace.lg),
+                  const SuccessMark(),
                   const SizedBox(height: AppSpace.lg),
                   Text(
                     'Vehículo estacionado correctamente',
@@ -171,16 +181,35 @@ class _PaymentsPageState extends State<PaymentsPage> {
                     style: Theme.of(context).textTheme.headlineSmall,
                   ),
                   const SizedBox(height: AppSpace.lg),
-                  Text('Espacio: ${c.spaceCode ?? "Espacio confirmado"}'),
-                  Text(
-                    'Vehículo: ${c.vehicle == null ? "Vehículo confirmado" : visualPlate(c.vehicle!.plate)}',
-                  ),
-                  Text(
-                    'Tiempo: ${c.session!.expectedEndAt.difference(c.session!.startedAt).inMinutes} min',
+                  OperationalCard(
+                    child: Column(
+                      children: [
+                        SummaryRow(
+                          'Espacio',
+                          c.spaceCode ?? 'Espacio confirmado',
+                        ),
+                        SummaryRow(
+                          'Vehículo',
+                          c.vehicle == null
+                              ? 'Vehículo confirmado'
+                              : visualPlate(c.vehicle!.plate),
+                        ),
+                        SummaryRow(
+                          'Tiempo contratado',
+                          durationLabel(
+                            c.session!.expectedEndAt
+                                .difference(c.session!.startedAt)
+                                .inMinutes,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                   if (p?.provider == 'SANDBOX_STUB')
-                    const Text(
+                    Text(
                       'Pago de prueba DEV. Sin transacción bancaria real.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
                   PrimaryButton(
                     label: 'Aceptar',
@@ -228,8 +257,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                             'Importe registrado: ${p.currency} ${p.amount}',
                             style: Theme.of(context).textTheme.titleLarge,
                           ),
-                          Text('Referencia SIMERTPI: ${p.id}'),
-                          Text('Solicitud: ${p.sessionId}'),
+
                           if (p.provider == 'SANDBOX_STUB')
                             const Text(
                               'Pago de prueba DEV. Sin transacción bancaria real.',
@@ -258,61 +286,59 @@ class _PaymentsPageState extends State<PaymentsPage> {
                       },
                     ),
                 ] else if (q != null && c.session != null) ...[
-                  Text(
-                    _reviewing
-                        ? 'Revisa el resumen antes de confirmar.'
-                        : 'Selecciona cómo tramitar el pago.',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: AppSpace.lg),
-                  if (!_reviewing) ...[
-                    if (c.dev)
-                      AppCard(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            const Text('Solicitud de pago DEV'),
-                            const Text(
-                              'Método técnico de prueba. Requiere un proveedor configurado en el backend; no es un pago bancario.',
+                  if (!_reviewing && c.dev)
+                    OperationalCard(
+                      onTap: c.busy ? null : c.chooseMethod,
+                      color: c.methodSelected
+                          ? AppColors.parkingHint
+                          : AppColors.surface,
+                      child: Row(
+                        children: [
+                          Icon(
+                            c.methodSelected
+                                ? Icons.radio_button_checked
+                                : Icons.radio_button_unchecked,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              c.methodSelected
+                                  ? 'Método DEV seleccionado'
+                                  : 'Seleccionar método DEV',
                             ),
-                            const SizedBox(height: AppSpace.sm),
-                            Semantics(
-                              selected: c.methodSelected,
-                              child: SecondaryButton(
-                                label: c.methodSelected
-                                    ? 'Método DEV seleccionado'
-                                    : 'Seleccionar método DEV',
-                                onPressed: c.busy ? null : c.chooseMethod,
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                    else
-                      const EmptyState(
-                        message: 'Los métodos de pago aún no están habilitados para este ambiente.',
+                          ),
+                        ],
                       ),
-                    const SizedBox(height: AppSpace.lg),
-                  ],
-                  AppCard(
+                    ),
+                  if (!c.dev)
+                    const InfoCard(
+                      'Los métodos de pago aún no están habilitados para este ambiente.',
+                    ),
+                  OperationalCard(
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Text('Zona: ${c.zoneName ?? ""}'),
-                        Text('Espacio: ${c.spaceCode}'),
-                        Text('Vehículo: ${c.vehicle!.plate}'),
-                        Text('Duración: ${q.minutes} min'),
-                        const SizedBox(height: AppSpace.md),
-                        Text(
-                          'Importe estimado: ${q.currency} ${q.amount}',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        const Text(
-                          'Cotización del sistema. El backend valida el importe definitivo al procesar el pago.',
+                        SummaryRow('Zona', c.zoneName ?? ''),
+                        SummaryRow('Espacio', c.spaceCode ?? ''),
+                        SummaryRow('Vehículo', visualPlate(c.vehicle!.plate)),
+                        SummaryRow('Tiempo', durationLabel(q.minutes!)),
+                        const Divider(height: 24),
+                        SummaryRow(
+                          'Total',
+                          displayMoney(q.currency, q.amount),
+                          important: true,
                         ),
                       ],
                     ),
                   ),
+                  const InfoCard(
+                    'Pago procesado mediante el proveedor configurado.',
+                    icon: Icons.lock_outline,
+                  ),
+                  if (c.dev)
+                    Text(
+                      'Pago de prueba DEV. Sin transacción bancaria real.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
                   const SizedBox(height: AppSpace.lg),
                   if (_reviewing) ...[
                     const Text(
@@ -321,7 +347,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                     const SizedBox(height: AppSpace.md),
                     if (c.canConfirm || c.phase == PaymentPhase.processing)
                       AsyncButton(
-                        label: 'Pagar ${q.currency} ${q.amount}',
+                        label: 'Pagar ${displayMoney(q.currency, q.amount)}',
                         processingLabel: 'Procesando pago...',
                         onPressed: _confirm,
                       ),

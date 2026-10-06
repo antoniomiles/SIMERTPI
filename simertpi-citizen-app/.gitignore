@@ -58,3 +58,6 @@ app.*.map.json
 
 # Kotlin compiler operational cache
 /android/.kotlin/
+
+# Local visual inputs supplied for design comparison; never product assets
+/docs/reference/

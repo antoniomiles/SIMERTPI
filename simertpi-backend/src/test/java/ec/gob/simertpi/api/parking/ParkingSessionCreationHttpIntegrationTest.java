@@ -94,6 +94,11 @@ class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupp
         var quote=own.getForEntity(base+"/extensions/quote?additionalMinutes=30",String.class);
         assertThat(quote.getStatusCode()).isEqualTo(HttpStatus.OK);
         var q=objectMapper.readTree(quote.getBody());
+        var options=own.getForEntity(base+"/extensions/options",String.class);
+        assertThat(options.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(objectMapper.readTree(options.getBody()).isArray()).isTrue();
+        assertThat(restTemplate.withBasicAuth("citizen-b-"+fixture.tag,"integration-password").getForEntity(base+"/extensions/options",String.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(restTemplate.getForEntity(base+"/extensions/options",String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         var request=Map.of("additionalMinutes",30,"paymentMethod","TEST","idempotencyKey","CP23-EXTENSION",
                 "expectedAmount",q.get("calculatedAmount").decimalValue(),"expectedEndAt",q.get("expiresAt").asText());
         var result=own.postForEntity(base+"/extensions/mobile",request,String.class);
@@ -117,7 +122,7 @@ class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupp
         assertThat(own.getForEntity(base+"/extensions/quote?additionalMinutes=30",String.class).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
     }
 
-    @Test void expiredAndMaximumAreClosableButPendingAndForeignSessionsAreNot() throws Exception {
+    @Test void expiredAndMaximumCannotBeClosedOrExtendedByCitizen() throws Exception {
         String owner="citizen-a-"+fixture.tag;
         var created=post(owner,"CP23-CLOSE",fixture.spaceA,fixture.vehicleA);
         UUID id=UUID.fromString(objectMapper.readTree(created.getBody()).get("id").asText());
@@ -127,9 +132,10 @@ class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupp
         assertThat(restTemplate.withBasicAuth("citizen-b-"+fixture.tag,"integration-password").postForEntity(base+"/close",null,String.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         for(String status:java.util.List.of("EXPIRED","MAX_TIME_REACHED")) {
             jdbc.update("UPDATE parking.parking_sessions SET status=?,ended_at=NULL WHERE id=?",status,id);
-            if(status.equals("MAX_TIME_REACHED")) assertThat(own.getForEntity(base+"/extensions/quote?additionalMinutes=30",String.class).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-            assertThat(own.postForEntity(base+"/close",null,String.class).getStatusCode()).isEqualTo(HttpStatus.OK);
-            assertThat(sessionRepository.findById(id).orElseThrow().getEndedAt()).isNotNull();
+            assertThat(own.postForEntity(base+"/close",null,String.class).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+            assertThat(sessionRepository.findById(id).orElseThrow().getEndedAt()).isNull();
+            assertThat(own.getForEntity(base+"/extensions/quote?additionalMinutes=30",String.class).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+            assertThat(own.getForEntity(base+"/extensions/options",String.class).getBody()).isEqualTo("[]");
         }
     }
 

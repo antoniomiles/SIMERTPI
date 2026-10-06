@@ -3,14 +3,15 @@ import 'package:flutter/material.dart';
 import '../../app/router/app_router.dart';
 import '../../core/widgets/app_layout.dart';
 import '../../core/widgets/app_buttons.dart';
-import '../../core/widgets/app_qr_marker.dart';
+import '../../core/widgets/operational_ui.dart';
 import '../../core/theme/app_tokens.dart';
 
 class StartParkingPage extends StatelessWidget {
   const StartParkingPage({super.key});
   @override
   Widget build(BuildContext context) => AppPage(
-    title: 'Estacionar',
+    showNavigation: true,
+    title: 'Buscar estacionamiento',
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -21,10 +22,15 @@ class StartParkingPage extends StatelessWidget {
         const SizedBox(height: AppSpace.md),
         const Text('Escanea el QR del espacio o búscalo manualmente.'),
         const SizedBox(height: AppSpace.lg),
-        const AppCard(
+        const OperationalCard(
+          color: AppColors.parkingHint,
+          border: Colors.transparent,
           child: Column(
             children: [
-              AppQrMarker(),
+              Padding(
+                padding: EdgeInsets.all(16),
+                child: Icon(Icons.qr_code_2, size: 72, color: AppColors.action),
+              ),
               Text('Escanear código QR'),
               Text('Identifica zona y espacio'),
             ],
@@ -36,7 +42,16 @@ class StartParkingPage extends StatelessWidget {
           onPressed: () => Navigator.pushNamed(context, AppRoute.qr.path),
         ),
         const SizedBox(height: AppSpace.md),
-        const Center(child: Text('o')),
+        const Row(
+          children: [
+            Expanded(child: Divider()),
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Text('o'),
+            ),
+            Expanded(child: Divider()),
+          ],
+        ),
         const SizedBox(height: AppSpace.md),
         SecondaryButton(
           label: 'BUSCAR ESTACIONAMIENTO',

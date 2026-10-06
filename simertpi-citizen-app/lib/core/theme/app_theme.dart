@@ -44,19 +44,39 @@ abstract final class AppTheme {
         labelLarge: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
       ),
       appBarTheme: const AppBarTheme(
-        backgroundColor: AppColors.canvas,
-        foregroundColor: AppColors.ink,
+        backgroundColor: AppColors.primary,
+        foregroundColor: AppColors.surface,
         centerTitle: false,
         elevation: 0,
         scrolledUnderElevation: 0,
+      ),
+      navigationBarTheme: NavigationBarThemeData(
+        height: 64,
+        backgroundColor: AppColors.surface,
+        indicatorColor: AppColors.parkingHint,
+        labelTextStyle: WidgetStateProperty.resolveWith(
+          (states) => TextStyle(
+            fontSize: 12,
+            color: states.contains(WidgetState.selected)
+                ? AppColors.action
+                : AppColors.muted,
+          ),
+        ),
+        iconTheme: WidgetStateProperty.resolveWith(
+          (states) => IconThemeData(
+            color: states.contains(WidgetState.selected)
+                ? AppColors.action
+                : AppColors.muted,
+          ),
+        ),
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          backgroundColor: AppColors.accent,
-          foregroundColor: AppColors.ink, // White/cyan fails contrast in Figma.
+          backgroundColor: AppColors.action,
+          foregroundColor: AppColors.surface,
           minimumSize: const Size(AppSize.touchTarget, 54),
           padding: const EdgeInsets.symmetric(
             horizontal: AppSpace.lg,

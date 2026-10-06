@@ -39,6 +39,8 @@ class ActiveParkingController extends ChangeNotifier {
   Map<String, dynamic>? intent;
   CitizenPayment? payment;
   bool closeUncertain = false;
+  bool extensionConfirmed = false;
+  Map<String, List<ParkingRules>> extensionOptions = {};
   void emit() {
     if (!_disposed) notifyListeners();
   }
@@ -55,6 +57,28 @@ class ActiveParkingController extends ChangeNotifier {
       sessions = all
           .where((s) => openParkingStates.contains(s.status))
           .toList();
+      extensionOptions = {};
+      if (gateway is DurationOptionsGateway) {
+        for (final session in sessions) {
+          if (!{'ACTIVE', 'EXTENDED'}.contains(session.status) ||
+              !session.expectedEndAt.isAfter(now())) {
+            continue;
+          }
+          try {
+            final values = await (gateway as DurationOptionsGateway).options(
+              session.id,
+            );
+            if (_disposed) return;
+            if (values.any((q) => q.spaceId != session.spaceId)) {
+              throw invalidParking;
+            }
+            extensionOptions[session.id] = values;
+          } catch (_) {
+            // Unknown eligibility stays disabled; never substitute a local municipal rule.
+            extensionOptions[session.id] = [];
+          }
+        }
+      }
       loaded = true;
       stale = false;
       try {
@@ -77,6 +101,7 @@ class ActiveParkingController extends ChangeNotifier {
     busy = true;
     quote = null;
     payment = null;
+    extensionConfirmed = false;
     message = null;
     emit();
     try {
@@ -94,7 +119,7 @@ class ActiveParkingController extends ChangeNotifier {
         }
         return;
       }
-      if (!{'ACTIVE', 'EXTENDED', 'EXPIRED'}.contains(selected!.status)) return;
+      if (!{'ACTIVE', 'EXTENDED'}.contains(selected!.status)) return;
       final policy = await gateway.quote(id, null);
       final minutes = policy.minimum;
       if (minutes != null && minutes > 0) {
@@ -106,6 +131,21 @@ class ActiveParkingController extends ChangeNotifier {
       busy = false;
       emit();
     }
+  }
+
+  Future<List<ParkingRules>> durationOptions() async =>
+      gateway is DurationOptionsGateway
+      ? (gateway as DurationOptionsGateway).options(selected!.id)
+      : [if (quote?.quoted == true) quote!];
+  void selectDuration(ParkingRules value) {
+    if (busy ||
+        intent != null ||
+        !value.quoted ||
+        value.spaceId != selected?.spaceId) {
+      return;
+    }
+    quote = value;
+    emit();
   }
 
   Future<void> pricing(int minutes) async {
@@ -131,7 +171,8 @@ class ActiveParkingController extends ChangeNotifier {
       intent == null &&
       quote?.quoted == true &&
       selected != null &&
-      {'ACTIVE', 'EXTENDED', 'EXPIRED'}.contains(selected!.status);
+      {'ACTIVE', 'EXTENDED'}.contains(selected!.status) &&
+      selected!.expectedEndAt.isAfter(now());
   Future<void> confirmExtension() async {
     if (!canExtend) return;
     busy = true;
@@ -189,7 +230,19 @@ class ActiveParkingController extends ChangeNotifier {
     }
     payment = p;
     selected = await gateway.session(p.sessionId);
-    if (selected!.owner != owner) throw invalidParking;
+    if (selected!.owner != owner || selected!.id != p.sessionId) {
+      throw invalidParking;
+    }
+    extensionConfirmed =
+        p.status == PaymentStatus.approved &&
+        selected!.status == 'EXTENDED' &&
+        !selected!.expectedEndAt.isBefore(
+          DateTime.parse(intent!['expectedEndAt'] as String),
+        );
+    if (p.status == PaymentStatus.approved && !extensionConfirmed) {
+      message = 'El pago está aprobado. Estamos comprobando el nuevo tiempo contratado.';
+      return;
+    }
     if (!p.waiting) {
       await store.clear();
       intent = null;
@@ -225,15 +278,25 @@ class ActiveParkingController extends ChangeNotifier {
     emit();
     try {
       final current = await gateway.session(id);
-      if (current.owner != owner) throw invalidParking;
+      if (current.owner != owner || current.id != id) throw invalidParking;
       if (current.status == 'COMPLETED') {
         sessions.removeWhere((s) => s.id == id);
         closeUncertain = false;
         return true;
       }
-      if (!openParkingStates.contains(current.status)) throw invalidParking;
+      if (!openParkingStates.contains(current.status) ||
+          current.status == 'EXPIRED' ||
+          current.status == 'MAX_TIME_REACHED' ||
+          ({'ACTIVE', 'EXTENDED'}.contains(current.status) &&
+              !current.expectedEndAt.isAfter(now()))) {
+        throw invalidParking;
+      }
       final result = await gateway.close(id);
-      if (result.owner != owner) throw invalidParking;
+      if (result.owner != owner ||
+          result.id != id ||
+          result.status != 'COMPLETED') {
+        throw invalidParking;
+      }
       sessions.removeWhere((s) => s.id == id);
       closeUncertain = false;
       return true;

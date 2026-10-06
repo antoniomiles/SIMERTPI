@@ -12,6 +12,8 @@ import 'package:simertpi_citizen_app/features/discovery/presentation/parking_map
 import 'package:simertpi_citizen_app/features/home/home_page.dart';
 import 'package:simertpi_citizen_app/features/vehicles/data/vehicle_service.dart';
 
+import 'package:simertpi_citizen_app/core/widgets/operational_ui.dart';
+
 import 'discovery_test.dart' as d;
 import 'parking_test.dart' as p;
 import 'payments_test.dart' as pay;
@@ -42,8 +44,10 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextFormField), 'SPACE-TEST');
     await tester.tap(find.text('Buscar por código'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField), 'SPACE-TEST');
+    await tester.tap(find.text('Buscar código'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     // A refresh while the sheet is open must not invalidate its captured result.
@@ -139,8 +143,8 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Continuar'));
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Revisar resumen'));
-      await tester.tap(find.text('Revisar resumen'));
+      await tester.ensureVisible(find.text('Continuar'));
+      await tester.tap(find.text('Continuar'));
       await tester.pumpAndSettle();
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
@@ -228,9 +232,9 @@ void main() {
         await tester.pumpWidget(await p.page(c));
         await tester.pumpAndSettle();
         expect(find.text('Estacionado actualmente'), findsOneWidget);
-        expect(find.byIcon(Icons.lock), findsOneWidget);
-        final tile = find.byType(ListTile);
-        expect(tester.widget<ListTile>(tile).onTap, isNull);
+        expect(find.byIcon(Icons.lock_outline), findsOneWidget);
+        final tile = find.byType(OperationalCard);
+        expect(tester.widget<OperationalCard>(tile.first).onTap, isNull);
         final next = find.widgetWithText(FilledButton, 'Continuar');
         expect(tester.widget<FilledButton>(next).onPressed, isNull);
         c.dispose();

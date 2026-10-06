@@ -12,6 +12,7 @@ import '../data/parking_catalog.dart';
 import '../state/discovery_controller.dart';
 import 'parking_map.dart';
 import 'space_status.dart';
+import '../../../core/widgets/operational_ui.dart';
 
 class DiscoveryPage extends StatefulWidget {
   const DiscoveryPage({
@@ -20,11 +21,13 @@ class DiscoveryPage extends StatefulWidget {
     this.mapConfig,
     this.initialMap = false,
     this.refreshToken = 0,
+    this.embedded = false,
   });
   final DiscoveryController? controller;
   final MapConfig? mapConfig;
   final bool initialMap;
   final int refreshToken;
+  final bool embedded;
   @override
   State<DiscoveryPage> createState() => _DiscoveryPageState();
 }
@@ -136,33 +139,41 @@ class _DiscoveryPageState extends State<DiscoveryPage>
       final c = _controller!;
       return AppPage(
         title: 'Buscar estacionamiento',
+        showNavigation: !widget.embedded,
+        navigationIndex: map ? 1 : 0,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Wrap(
-              spacing: AppSpace.sm,
-              children: [
-                TextButton.icon(
-                  onPressed: () => setState(() => map = false),
-                  icon: const Icon(Icons.list),
-                  label: const Text('Lista'),
+            SegmentedButton<bool>(
+              segments: const [
+                ButtonSegment(
+                  value: false,
+                  label: Text('Lista'),
+                  icon: Icon(Icons.list),
                 ),
-                TextButton.icon(
-                  onPressed: () => setState(() => map = true),
-                  icon: const Icon(Icons.map),
-                  label: const Text('Mapa'),
+                ButtonSegment(
+                  value: true,
+                  label: Text('Mapa'),
+                  icon: Icon(Icons.map_outlined),
                 ),
               ],
+              selected: {map},
+              onSelectionChanged: (selection) =>
+                  setState(() => map = selection.single),
             ),
-            AppTextField(
-              label: 'Código del espacio',
-              controller: _code,
-              enabled: !c.resolving,
-            ),
-            const SizedBox(height: AppSpace.sm),
-            AsyncButton(
-              label: 'Buscar por código',
-              onPressed: () => _identify(_code.text),
+            ExpansionTile(
+              title: const Text('Buscar por código'),
+              children: [
+                AppTextField(
+                  label: 'Código del espacio',
+                  controller: _code,
+                  enabled: !c.resolving,
+                ),
+                AsyncButton(
+                  label: 'Buscar código',
+                  onPressed: () => _identify(_code.text),
+                ),
+              ],
             ),
             const SizedBox(height: AppSpace.md),
             if (c.phase == DiscoveryPhase.loading ||
@@ -209,21 +220,52 @@ class _DiscoveryPageState extends State<DiscoveryPage>
                 else if (c.zoneId == null) ...[
                   Text('Zonas', style: Theme.of(context).textTheme.titleLarge),
                   for (final zone in c.catalog!.zones)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: AppSpace.md),
-                      child: AppCard(
-                        child: ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(zone.name),
-                          subtitle: Text(
-                            '${c.catalog!.inZone(zone.id).length} espacios',
+                    OperationalCard(
+                      onTap: () {
+                        c.selectZone(zone.id);
+                        c.load();
+                      },
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 64,
+                            height: 72,
+                            decoration: BoxDecoration(
+                              color: AppColors.parkingHint,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(
+                              Icons.add_road,
+                              size: 32,
+                              color: AppColors.primary,
+                            ),
                           ),
-                          trailing: const Icon(Icons.chevron_right),
-                          onTap: () {
-                            c.selectZone(zone.id);
-                            c.load();
-                          },
-                        ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  zone.name,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium,
+                                ),
+                                Text(
+                                  c.catalog!.streets
+                                      .where((s) => s.zoneId == zone.id)
+                                      .map((s) => s.name)
+                                      .join(' · '),
+                                ),
+                                Text(
+                                  '${c.catalog!.inZone(zone.id).length} espacios',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(Icons.chevron_right),
+                        ],
                       ),
                     ),
                 ] else ...[
@@ -232,35 +274,50 @@ class _DiscoveryPageState extends State<DiscoveryPage>
                       message: 'No hay espacios registrados en esta zona.',
                     ),
                   for (final space in c.spaces)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: AppSpace.md),
-                      child: AppCard(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                    OperationalCard(
+                      onTap: c.resolving || c.refreshing || c.message != null
+                          ? null
+                          : () => _identify(space.code),
+                      child: Semantics(
+                        label: 'Ver espacio ${space.number}',
+                        button: true,
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              space.code,
-                              style: Theme.of(context).textTheme.titleLarge,
+                            Padding(
+                              padding: const EdgeInsets.only(top: 5),
+                              child: Icon(
+                                Icons.circle,
+                                size: 14,
+                                color: spaceColor(space),
+                              ),
                             ),
-                            Text(c.catalog!.streetOf(space)?.name ?? ''),
-                            SpaceStatus(space: space),
-                            SecondaryButton(
-                              label: 'Ver espacio ${space.number}',
-                              onPressed:
-                                  c.resolving ||
-                                      c.refreshing ||
-                                      c.message != null
-                                  ? null
-                                  : () => _identify(space.code),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    space.code,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium,
+                                  ),
+                                  Text(c.catalog!.streetOf(space)?.name ?? ''),
+                                  SpaceStatus(space: space),
+                                ],
+                              ),
                             ),
+                            const Icon(Icons.chevron_right),
                           ],
                         ),
                       ),
                     ),
                 ],
               ],
-              SecondaryButton(
-                label: 'Actualizar',
+              TextButton.icon(
+                icon: const Icon(Icons.refresh),
+                label: const Text("Actualizar"),
                 onPressed: c.refreshing || c.resolving ? null : c.load,
               ),
             ],

@@ -1,3 +1,5 @@
+import 'parking_map_marker.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -5,7 +7,6 @@ import 'package:latlong2/latlong.dart';
 import '../../../core/config/map_config.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../data/parking_catalog.dart';
-import 'space_status.dart';
 
 class ParkingMap extends StatefulWidget {
   const ParkingMap({
@@ -102,25 +103,12 @@ class _ParkingMapState extends State<ParkingMap> {
                         Marker(
                           point: LatLng(space.latitude!, space.longitude!),
                           width: AppSize.touchTarget,
-                          height: AppSize.touchTarget,
-                          child: Semantics(
-                            label:
-                                'Espacio ${space.number}, ${spaceStatus(space)}',
-                            child: IconButton.filled(
-                              tooltip: 'Espacio ${space.number}',
-                              onPressed: widget.enabled
-                                  ? () => widget.onSelect(space)
-                                  : null,
-                              style: IconButton.styleFrom(
-                                backgroundColor: spaceColor(space),
-                                foregroundColor: AppColors.surface,
-                              ),
-                              icon: Icon(
-                                widget.catalog.selectable(space)
-                                    ? Icons.local_parking
-                                    : Icons.block,
-                              ),
-                            ),
+                          height: 56,
+                          child: ParkingMapMarker(
+                            space: space,
+                            onTap: widget.enabled
+                                ? () => widget.onSelect(space)
+                                : null,
                           ),
                         ),
                     ],

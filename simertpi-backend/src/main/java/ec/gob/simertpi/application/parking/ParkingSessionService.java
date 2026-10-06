@@ -155,9 +155,16 @@ public class ParkingSessionService {
     @Transactional
     @Audited(action = "PARKING_SESSION_COMPLETED", resourceType = "PARKING_SESSION", resourceIdArgument = 0)
     public ParkingSession closeForUsername(UUID sessionId, String username) {
-        ParkingSession session = parkingSessionRepository.findById(sessionId)
+        ParkingSession session = parkingSessionRepository.findByIdForUpdate(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Parking session not found"));
-        requireOwnerOrOperator(session, findAuthenticatedUser(username));
+        User user = findAuthenticatedUser(username);
+        requireOwnerOrOperator(session, user);
+        if (!hasStaffRole(user) && !"COMPLETED".equals(session.getStatus())
+                && ("EXPIRED".equals(session.getStatus()) || "MAX_TIME_REACHED".equals(session.getStatus())
+                    || (("ACTIVE".equals(session.getStatus()) || "EXTENDED".equals(session.getStatus()))
+                        && !session.getExpectedEndAt().isAfter(OffsetDateTime.now())))) {
+            throw new ec.gob.simertpi.api.ParkingConflictException("PARKING_TIME_EXPIRED");
+        }
         return close(sessionId);
     }
 

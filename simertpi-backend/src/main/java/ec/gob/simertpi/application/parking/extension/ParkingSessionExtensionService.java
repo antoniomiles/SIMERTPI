@@ -22,7 +22,6 @@ public class ParkingSessionExtensionService {
 
     private static final String STATUS_ACTIVE = "ACTIVE";
     private static final String STATUS_EXTENDED = "EXTENDED";
-    private static final String STATUS_EXPIRED = "EXPIRED";
     private static final String STATUS_MAX_TIME_REACHED = "MAX_TIME_REACHED";
 
 
@@ -95,8 +94,7 @@ public class ParkingSessionExtensionService {
         }
 
         if (!STATUS_ACTIVE.equals(session.getStatus())
-                && !STATUS_EXTENDED.equals(session.getStatus())
-                && !STATUS_EXPIRED.equals(session.getStatus())) {
+                && !STATUS_EXTENDED.equals(session.getStatus())) {
             throw new IllegalArgumentException(
                     "Parking session is not eligible for extension"
             );

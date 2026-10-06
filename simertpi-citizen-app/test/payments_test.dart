@@ -392,17 +392,14 @@ void main() {
         final c = controller();
         await tester.pumpWidget(await page(c, scale: 2));
         await tester.pumpAndSettle();
-        expect(
-          find.textContaining('Importe estimado: USD 0.31'),
-          findsOneWidget,
-        );
+        expect(find.text(r'$0,31'), findsOneWidget);
         await tester.ensureVisible(find.text('Seleccionar método DEV'));
         await tester.tap(find.text('Seleccionar método DEV'));
         await tester.pump();
         await tester.ensureVisible(find.text('Continuar'));
         await tester.tap(find.text('Continuar'));
         await tester.pumpAndSettle();
-        expect(find.text('Pagar USD 0.31'), findsOneWidget);
+        expect(find.text(r'Pagar $0,31'), findsOneWidget);
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox());
         c.dispose();
@@ -422,16 +419,16 @@ void main() {
       await tester.ensureVisible(find.text('Continuar'));
       await tester.tap(find.text('Continuar'));
       await tester.pump();
-      await tester.ensureVisible(find.text('Pagar USD 0.31'));
-      await tester.tap(find.text('Pagar USD 0.31'));
+      await tester.ensureVisible(find.text(r'Pagar $0,31'));
+      await tester.tap(find.text(r'Pagar $0,31'));
       await tester.pump();
       expect(find.text('Procesando tu pago...'), findsOneWidget);
       expect(gateway.creates, 1);
-      expect(find.text('Pagar USD 0.31'), findsNothing);
+      expect(find.text(r'Pagar $0,31'), findsNothing);
       gateway.gate!.complete();
       await tester.pumpAndSettle();
       expect(find.text('Pago confirmado'), findsOneWidget);
-      expect(find.text('Referencia SIMERTPI: payment-fixture'), findsOneWidget);
+      expect(c.payment!.id, 'payment-fixture');
       await tester.pumpWidget(const SizedBox());
       c.dispose();
     },
