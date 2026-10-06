@@ -47,10 +47,64 @@ class CatalogSpace {
     this.active, {
     this.latitude,
     this.longitude,
+    this.operationalStatus = 'UNKNOWN',
+    this.backendSelectable = false,
+    this.remainingSeconds,
+    this.expectedEndAt,
   });
   final String id, streetId, code, qrCode, number;
   final bool active;
   final double? latitude, longitude;
+  final String operationalStatus;
+  final bool backendSelectable;
+  final int? remainingSeconds;
+  final DateTime? expectedEndAt;
+  CatalogSpace withAvailability(Map<String, dynamic> data) {
+    const known = {
+      'AVAILABLE',
+      'ENDING_SOON',
+      'OCCUPIED',
+      'DISABLED',
+      'UNKNOWN',
+    };
+    if (data['parkingSpaceId'] != id ||
+        data['spaceCode'] != code ||
+        data['active'] != active ||
+        !known.contains(data['operationalStatus']) ||
+        data['selectable'] is! bool ||
+        (data['selectable'] == true &&
+            data['operationalStatus'] != 'AVAILABLE')) {
+      throw _invalid;
+    }
+    final remaining = data['remainingSeconds'];
+    if (remaining != null && (remaining is! int || remaining < 0)) {
+      throw _invalid;
+    }
+    double? coordinate(String key) {
+      final value = data[key];
+      if (value == null) return null;
+      if (value is! num || !value.isFinite) throw _invalid;
+      return value.toDouble();
+    }
+
+    return CatalogSpace(
+      id,
+      streetId,
+      code,
+      qrCode,
+      number,
+      active,
+      latitude: coordinate('latitude'),
+      longitude: coordinate('longitude'),
+      operationalStatus: data['operationalStatus'] as String,
+      backendSelectable: data['selectable'] as bool,
+      remainingSeconds: remaining as int?,
+      expectedEndAt: data['expectedEndAt'] == null
+          ? null
+          : DateTime.parse(data['expectedEndAt'] as String),
+    );
+  }
+
   bool get hasCoordinates =>
       latitude != null &&
       longitude != null &&
@@ -99,6 +153,8 @@ class ParkingCatalog {
 
   bool selectable(CatalogSpace space) =>
       space.active &&
+      space.backendSelectable &&
+      space.operationalStatus == 'AVAILABLE' &&
       streetOf(space)?.active == true &&
       zoneOf(space)?.active == true;
   List<CatalogSpace> inZone(String? id) =>
@@ -148,11 +204,22 @@ class ParkingCatalogService implements ParkingCatalogGateway {
       _get('zones'),
       _get('streets'),
       _get('parking-spaces'),
+      _get('parking-spaces/availability'),
     ]);
+    final projections = <String, Map<String, dynamic>>{};
+    for (final view in _list(bodies[3], (data) => data)) {
+      final id = _text(view, 'parkingSpaceId');
+      if (projections.containsKey(id)) throw _invalid;
+      projections[id] = view;
+    }
     return ParkingCatalog(
       _list(bodies[0], ParkingZone.fromJson),
       _list(bodies[1], ParkingStreet.fromJson),
-      _list(bodies[2], CatalogSpace.fromJson),
+      _list(bodies[2], CatalogSpace.fromJson).map((space) {
+        final view = projections[space.id];
+        if (view == null) throw _invalid;
+        return space.withAvailability(view);
+      }).toList(),
     );
   }
 

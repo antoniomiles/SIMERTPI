@@ -1,4 +1,6 @@
+import '../../vehicles/presentation/vehicle_plate.dart';
 import '../../discovery/data/parking_catalog.dart';
+import '../../../app/router/app_router.dart';
 
 import 'package:flutter/material.dart';
 
@@ -75,7 +77,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
               ? 'Resultado de pago'
               : _reviewing
               ? 'Confirmar pago'
-              : 'Método de pago',
+              : 'Resumen del estacionamiento',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -137,6 +139,68 @@ class _PaymentsPageState extends State<PaymentsPage> {
                       processingLabel: 'Comprobando...',
                       onPressed: c.check,
                     ),
+                ] else if (c.phase == PaymentPhase.processing) ...[
+                  const Center(child: CircularProgressIndicator()),
+                  const SizedBox(height: AppSpace.lg),
+                  const Text(
+                    'Procesando tu pago...',
+                    textAlign: TextAlign.center,
+                  ),
+                  const Text(
+                    'Por favor espera unos segundos.',
+                    textAlign: TextAlign.center,
+                  ),
+                  const Text(
+                    'No cierres la aplicación.',
+                    textAlign: TextAlign.center,
+                  ),
+                  const Text(
+                    'El estacionamiento se iniciará únicamente cuando el pago sea confirmado.',
+                  ),
+                ] else if (c.phase == PaymentPhase.result && c.activated) ...[
+                  const Icon(
+                    Icons.check_circle,
+                    color: AppColors.available,
+                    size: 64,
+                    semanticLabel: 'Estacionamiento confirmado',
+                  ),
+                  const SizedBox(height: AppSpace.lg),
+                  Text(
+                    'Vehículo estacionado correctamente',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  const SizedBox(height: AppSpace.lg),
+                  Text('Espacio: ${c.spaceCode ?? "Espacio confirmado"}'),
+                  Text(
+                    'Vehículo: ${c.vehicle == null ? "Vehículo confirmado" : visualPlate(c.vehicle!.plate)}',
+                  ),
+                  Text(
+                    'Tiempo: ${c.session!.expectedEndAt.difference(c.session!.startedAt).inMinutes} min',
+                  ),
+                  if (p?.provider == 'SANDBOX_STUB')
+                    const Text(
+                      'Pago de prueba DEV. Sin transacción bancaria real.',
+                    ),
+                  PrimaryButton(
+                    label: 'Aceptar',
+                    onPressed: () {
+                      final confirmed = AppScope.of(context).parkingConfirmed;
+                      if (confirmed != null) confirmed.value++;
+                      final navigator = Navigator.of(context);
+                      bool foundHome = false;
+                      navigator.popUntil((route) {
+                        foundHome = route.settings.name == AppRoute.home.path;
+                        return foundHome || route.isFirst;
+                      });
+                      if (!foundHome) {
+                        navigator.pushNamedAndRemoveUntil(
+                          AppRoute.home.path,
+                          (_) => false,
+                        );
+                      }
+                    },
+                  ),
                 ] else if (c.phase == PaymentPhase.result) ...[
                   Semantics(
                     liveRegion: true,
@@ -196,7 +260,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                 ] else if (q != null && c.session != null) ...[
                   Text(
                     _reviewing
-                        ? 'Revisa la solicitud antes de confirmar.'
+                        ? 'Revisa el resumen antes de confirmar.'
                         : 'Selecciona cómo tramitar el pago.',
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
@@ -234,7 +298,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Text('Solicitud: ${c.session!.id}'),
+                        Text('Zona: ${c.zoneName ?? ""}'),
                         Text('Espacio: ${c.spaceCode}'),
                         Text('Vehículo: ${c.vehicle!.plate}'),
                         Text('Duración: ${q.minutes} min'),
@@ -257,7 +321,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                     const SizedBox(height: AppSpace.md),
                     if (c.canConfirm || c.phase == PaymentPhase.processing)
                       AsyncButton(
-                        label: 'Confirmar pago DEV',
+                        label: 'Pagar ${q.currency} ${q.amount}',
                         processingLabel: 'Procesando pago...',
                         onPressed: _confirm,
                       ),
@@ -278,7 +342,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                 if (c.busy && c.phase != PaymentPhase.processing)
                   const LinearProgressIndicator(),
                 const SizedBox(height: AppSpace.lg),
-                if (!c.busy)
+                if (!c.busy && !c.activated)
                   SecondaryButton(
                     label: 'Volver',
                     onPressed: () => Navigator.of(context).pop(),

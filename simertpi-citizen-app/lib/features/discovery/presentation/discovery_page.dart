@@ -11,19 +11,37 @@ import '../../../core/widgets/app_skeleton.dart';
 import '../data/parking_catalog.dart';
 import '../state/discovery_controller.dart';
 import 'parking_map.dart';
+import 'space_status.dart';
 
 class DiscoveryPage extends StatefulWidget {
-  const DiscoveryPage({super.key, this.controller, this.mapConfig});
+  const DiscoveryPage({
+    super.key,
+    this.controller,
+    this.mapConfig,
+    this.initialMap = false,
+    this.refreshToken = 0,
+  });
   final DiscoveryController? controller;
   final MapConfig? mapConfig;
+  final bool initialMap;
+  final int refreshToken;
   @override
   State<DiscoveryPage> createState() => _DiscoveryPageState();
 }
 
-class _DiscoveryPageState extends State<DiscoveryPage> {
+class _DiscoveryPageState extends State<DiscoveryPage>
+    with WidgetsBindingObserver {
   DiscoveryController? _controller;
   final _code = TextEditingController();
   MapConfig _map = const MapConfig();
+  late bool map;
+  @override
+  void initState() {
+    super.initState();
+    map = widget.initialMap;
+    WidgetsBinding.instance.addObserver(this);
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -40,22 +58,75 @@ class _DiscoveryPageState extends State<DiscoveryPage> {
   }
 
   @override
+  void didUpdateWidget(DiscoveryPage old) {
+    super.didUpdateWidget(old);
+    if (old.refreshToken != widget.refreshToken) _controller?.load();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _controller?.load();
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _code.dispose();
     if (widget.controller == null) _controller?.dispose();
     super.dispose();
   }
 
-  Future<void> _identify(String code) async {
+  Future<void> _identify(String value) async {
     final c = _controller!;
     if (c.resolving) return;
-    await c.resolve(code, qr: false);
+    await c.resolve(value, qr: false);
     if (!mounted || c.identified == null) return;
+    final result = c.identified!;
+    var select = false;
+    if (map) {
+      final action = await showModalBottomSheet<String>(
+        context: context,
+        isScrollControlled: true,
+        builder: (context) => SafeArea(
+          child: SingleChildScrollView(
+            padding: AppSpace.page,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  result.space.code,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                Text(result.catalog.streetOf(result.space)?.name ?? ''),
+                SpaceStatus(space: result.space),
+                PrimaryButton(
+                  label: result.selectable
+                      ? 'Seleccionar espacio'
+                      : 'No disponible',
+                  onPressed: result.selectable
+                      ? () => Navigator.pop(context, 'select')
+                      : null,
+                ),
+                SecondaryButton(
+                  label: 'Ver detalle',
+                  onPressed: () => Navigator.pop(context, 'detail'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      if (action == null) return;
+      select = action == 'select';
+    }
+    if (!mounted) return;
     await Navigator.pushNamed(
       context,
-      AppRoute.space.path,
-      arguments: c.identified,
+      select && result.selectable ? AppRoute.parking.path : AppRoute.space.path,
+      arguments: result,
     );
+    await c.load();
   }
 
   @override
@@ -68,107 +139,124 @@ class _DiscoveryPageState extends State<DiscoveryPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            Wrap(
+              spacing: AppSpace.sm,
+              children: [
+                TextButton.icon(
+                  onPressed: () => setState(() => map = false),
+                  icon: const Icon(Icons.list),
+                  label: const Text('Lista'),
+                ),
+                TextButton.icon(
+                  onPressed: () => setState(() => map = true),
+                  icon: const Icon(Icons.map),
+                  label: const Text('Mapa'),
+                ),
+              ],
+            ),
             AppTextField(
               label: 'Código del espacio',
               controller: _code,
               enabled: !c.resolving,
             ),
-            const SizedBox(height: AppSpace.md),
+            const SizedBox(height: AppSpace.sm),
             AsyncButton(
               label: 'Buscar por código',
-              processingLabel: 'Consultando…',
               onPressed: () => _identify(_code.text),
             ),
-            const SizedBox(height: AppSpace.lg),
-            if (c.phase == DiscoveryPhase.initial ||
-                c.phase == DiscoveryPhase.loading)
+            const SizedBox(height: AppSpace.md),
+            if (c.phase == DiscoveryPhase.loading ||
+                c.phase == DiscoveryPhase.initial)
               const SkeletonList(count: 2)
             else if (c.phase == DiscoveryPhase.error)
               ErrorState(message: c.message!, onRetry: c.load)
             else ...[
               if (c.refreshing || c.resolving) const LinearProgressIndicator(),
-              if (c.message != null)
+              if (c.message != null) ...[
                 ErrorState(message: c.message!, onRetry: c.load),
-              if (c.message != null && c.catalog != null)
-                const Text(
-                  'La información anterior no está actualizada. Vuelve a consultar antes de seleccionar.',
-                ),
+                if (c.catalog != null)
+                  const Text(
+                    'La disponibilidad no está confirmada. Actualiza antes de seleccionar.',
+                  ),
+              ],
               if (c.phase == DiscoveryPhase.empty)
                 const EmptyState(
                   message: 'No hay zonas ni espacios registrados.',
                 )
               else ...[
-                Text('Zonas', style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: AppSpace.sm),
-                Wrap(
-                  spacing: AppSpace.sm,
-                  runSpacing: AppSpace.sm,
-                  children: [
-                    ChoiceChip(
-                      label: const Text('Todas'),
-                      selected: c.zoneId == null,
-                      onSelected: (_) => c.selectZone(null),
-                    ),
-                    for (final zone in c.catalog!.zones)
-                      ChoiceChip(
-                        label: Text(
-                          '${zone.name}${zone.active ? '' : ' · Inactiva'}',
+                if (c.zoneId != null)
+                  TextButton.icon(
+                    onPressed: () {
+                      c.selectZone(null);
+                      c.load();
+                    },
+                    icon: const Icon(Icons.arrow_back),
+                    label: const Text('Todas las zonas'),
+                  ),
+                if (c.zoneId != null)
+                  Text(
+                    c.catalog!.zones.firstWhere((z) => z.id == c.zoneId).name,
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                if (map)
+                  ParkingMap(
+                    spaces: c.spaces,
+                    catalog: c.catalog!,
+                    config: _map,
+                    enabled: !c.resolving && !c.refreshing && c.message == null,
+                    onSelect: (s) => _identify(s.code),
+                  )
+                else if (c.zoneId == null) ...[
+                  Text('Zonas', style: Theme.of(context).textTheme.titleLarge),
+                  for (final zone in c.catalog!.zones)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: AppSpace.md),
+                      child: AppCard(
+                        child: ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(zone.name),
+                          subtitle: Text(
+                            '${c.catalog!.inZone(zone.id).length} espacios',
+                          ),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () {
+                            c.selectZone(zone.id);
+                            c.load();
+                          },
                         ),
-                        selected: c.zoneId == zone.id,
-                        onSelected: (_) => c.selectZone(zone.id),
                       ),
-                  ],
-                ),
-                const SizedBox(height: AppSpace.lg),
-                ParkingMap(
-                  spaces: c.spaces,
-                  catalog: c.catalog!,
-                  config: _map,
-                  enabled: !c.resolving && !c.refreshing && c.message == null,
-                  onSelect: (space) => _identify(space.code),
-                ),
-                const SizedBox(height: AppSpace.lg),
-                Text('Espacios', style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: AppSpace.sm),
-                const Text(
-                  'Habilitado no significa libre. La disponibilidad no está informada.',
-                ),
-                const SizedBox(height: AppSpace.md),
-                if (c.spaces.isEmpty)
-                  const EmptyState(
-                    message: 'No hay espacios registrados en esta zona.',
-                  ),
-                for (final space in c.spaces) ...[
-                  AppCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Text(
-                          'Espacio ${space.number}',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        Text(space.code),
-                        if (c.catalog!.streetOf(space) != null)
-                          Text(c.catalog!.streetOf(space)!.name),
-                        Text(
-                          c.catalog!.selectable(space)
-                              ? 'Ubicación habilitada'
-                              : 'Ubicación no habilitada',
-                        ),
-                        if (!space.hasCoordinates)
-                          const Text('Sin ubicación cartográfica informada'),
-                        const SizedBox(height: AppSpace.sm),
-                        SecondaryButton(
-                          label: 'Ver espacio ${space.number}',
-                          onPressed:
-                              c.resolving || c.refreshing || c.message != null
-                              ? null
-                              : () => _identify(space.code),
-                        ),
-                      ],
                     ),
-                  ),
-                  const SizedBox(height: AppSpace.md),
+                ] else ...[
+                  if (c.spaces.isEmpty)
+                    const EmptyState(
+                      message: 'No hay espacios registrados en esta zona.',
+                    ),
+                  for (final space in c.spaces)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: AppSpace.md),
+                      child: AppCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text(
+                              space.code,
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            Text(c.catalog!.streetOf(space)?.name ?? ''),
+                            SpaceStatus(space: space),
+                            SecondaryButton(
+                              label: 'Ver espacio ${space.number}',
+                              onPressed:
+                                  c.resolving ||
+                                      c.refreshing ||
+                                      c.message != null
+                                  ? null
+                                  : () => _identify(space.code),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                 ],
               ],
               SecondaryButton(

@@ -40,6 +40,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/v1/users").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/logout").permitAll()
                 .requestMatchers("/api/v1/auth/**").denyAll()
+                .requestMatchers(HttpMethod.GET, "/api/v1/parking-spaces/availability", "/api/v1/users/mine").hasAuthority("CITIZEN")
                 .requestMatchers(HttpMethod.GET, PUBLIC_CATALOG_GETS).permitAll()
                 .requestMatchers(HttpMethod.POST,"/api/v1/payments/webhooks/*").permitAll()
                 .requestMatchers("/api/v1/payments/webhooks/**").denyAll()

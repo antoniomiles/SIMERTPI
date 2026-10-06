@@ -1,0 +1,49 @@
+import 'package:flutter/material.dart';
+
+import '../../app/router/app_router.dart';
+import '../../core/widgets/app_layout.dart';
+import '../../core/widgets/app_buttons.dart';
+import '../../core/widgets/app_qr_marker.dart';
+import '../../core/theme/app_tokens.dart';
+
+class StartParkingPage extends StatelessWidget {
+  const StartParkingPage({super.key});
+  @override
+  Widget build(BuildContext context) => AppPage(
+    title: 'Estacionar',
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          '¿Dónde vas a estacionar?',
+          style: Theme.of(context).textTheme.headlineMedium,
+        ),
+        const SizedBox(height: AppSpace.md),
+        const Text('Escanea el QR del espacio o búscalo manualmente.'),
+        const SizedBox(height: AppSpace.lg),
+        const AppCard(
+          child: Column(
+            children: [
+              AppQrMarker(),
+              Text('Escanear código QR'),
+              Text('Identifica zona y espacio'),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpace.md),
+        PrimaryButton(
+          label: 'ESCANEAR QR',
+          onPressed: () => Navigator.pushNamed(context, AppRoute.qr.path),
+        ),
+        const SizedBox(height: AppSpace.md),
+        const Center(child: Text('o')),
+        const SizedBox(height: AppSpace.md),
+        SecondaryButton(
+          label: 'BUSCAR ESTACIONAMIENTO',
+          onPressed: () =>
+              Navigator.pushNamed(context, AppRoute.discovery.path),
+        ),
+      ],
+    ),
+  );
+}

@@ -402,7 +402,7 @@ void main() {
         await tester.ensureVisible(find.text('Continuar'));
         await tester.tap(find.text('Continuar'));
         await tester.pumpAndSettle();
-        expect(find.text('Confirmar pago DEV'), findsOneWidget);
+        expect(find.text('Pagar USD 0.31'), findsOneWidget);
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox());
         c.dispose();
@@ -422,22 +422,12 @@ void main() {
       await tester.ensureVisible(find.text('Continuar'));
       await tester.tap(find.text('Continuar'));
       await tester.pump();
-      await tester.ensureVisible(find.text('Confirmar pago DEV'));
-      await tester.tap(find.text('Confirmar pago DEV'));
+      await tester.ensureVisible(find.text('Pagar USD 0.31'));
+      await tester.tap(find.text('Pagar USD 0.31'));
       await tester.pump();
-      expect(find.text('Procesando pago...'), findsOneWidget);
+      expect(find.text('Procesando tu pago...'), findsOneWidget);
       expect(gateway.creates, 1);
-      expect(
-        tester
-            .widget<FilledButton>(
-              find.ancestor(
-                of: find.text('Procesando pago...'),
-                matching: find.byType(FilledButton),
-              ),
-            )
-            .onPressed,
-        isNull,
-      );
+      expect(find.text('Pagar USD 0.31'), findsNothing);
       gateway.gate!.complete();
       await tester.pumpAndSettle();
       expect(find.text('Pago confirmado'), findsOneWidget);

@@ -1,4 +1,6 @@
 import '../../core/config/app_config.dart';
+import '../../core/network/api_client.dart';
+import '../discovery/presentation/discovery_page.dart';
 import '../active_parking/data/active_parking_service.dart';
 import '../active_parking/state/active_parking_controller.dart';
 import '../active_parking/presentation/active_parking_panel.dart';
@@ -12,15 +14,18 @@ import '../../app/router/app_router.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/widgets/app_buttons.dart';
-import '../../core/widgets/app_qr_marker.dart';
 import '../../core/widgets/app_feedback.dart';
 import '../vehicles/data/vehicle_service.dart';
 import '../vehicles/state/vehicles_controller.dart';
-import '../vehicles/presentation/vehicle_list.dart';
-import '../vehicles/presentation/vehicle_form_page.dart';
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key, this.controller, this.activeController});
+  const HomePage({
+    super.key,
+    this.controller,
+    this.activeController,
+    this.initialTab = 0,
+  });
+  final int initialTab;
   final VehiclesController? controller;
   final ActiveParkingController? activeController;
   @override
@@ -30,16 +35,62 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   VehiclesController? _vehicles;
   ActiveParkingController? _active;
-  bool _openingVehicles = false;
+  int tab = 0, mapRefresh = 0;
+  bool mapOpened = false;
+  String? greeting;
+  ValueNotifier<int>? _parkingConfirmed;
+
+  void _confirmed() {
+    if (!mounted) return;
+    setState(() {
+      tab = 0;
+      mapRefresh++;
+    });
+    _active?.load();
+    _vehicles?.load();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    tab = widget.initialTab;
+    mapOpened = tab == 1;
+  }
+
+  void _tab(int value) {
+    setState(() {
+      tab = value;
+      if (value == 1) {
+        mapOpened = true;
+        mapRefresh++;
+      }
+    });
+    if (value == 0) {
+      _active?.load();
+      _vehicles?.load();
+    }
+  }
+
+  Future<void> _launch(AppRoute route) async {
+    await Navigator.pushNamed(context, route.path);
+    if (mounted) {
+      _active?.load();
+      _vehicles?.load();
+      setState(() => mapRefresh++);
+    }
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_vehicles != null) return;
+    if (_active != null) return;
     final scope = AppScope.of(context);
-    _vehicles =
-        widget.controller ??
-        VehiclesController(VehicleService(scope.api, scope.auth.userId));
-    _vehicles!.load();
+    _parkingConfirmed = scope.parkingConfirmed;
+    _parkingConfirmed?.addListener(_confirmed);
+    // A vehicles controller is only needed when injected by a host/test.
+    // The dedicated vehicles route owns its existing controller.
+    _vehicles = widget.controller;
+    _vehicles?.load();
     final owner = scope.auth.userId ?? '';
     _active =
         widget.activeController ??
@@ -55,147 +106,176 @@ class _HomePageState extends State<HomePage> {
           dev: scope.config.environment == AppEnvironment.dev,
         );
     _active!.load();
+    scope.api
+        ?.request(ApiMethod.get, 'users/mine')
+        .then((r) {
+          if (mounted &&
+              r.body is Map &&
+              (r.body as Map)['username'] is String) {
+            setState(() => greeting = (r.body as Map)['username'] as String);
+          }
+        })
+        .catchError((Object _) {});
   }
 
   @override
   void dispose() {
+    _parkingConfirmed?.removeListener(_confirmed);
     if (widget.controller == null) _vehicles?.dispose();
     if (widget.activeController == null) _active?.dispose();
     super.dispose();
   }
 
-  void _future() =>
-      AppSnackbar.show(context, 'Esta función todavía no está disponible.');
-  Future<void> _addVehicle() async {
-    if (_openingVehicles || _vehicles!.processing) return;
-    _openingVehicles = true;
-    try {
-      final saved = await Navigator.push<bool>(
-        context,
-        MaterialPageRoute(
-          builder: (_) => VehicleFormPage(controller: _vehicles!),
-        ),
-      );
-      if (mounted && saved == true) {
-        await _vehicles!.load();
-        if (mounted) AppSnackbar.show(context, 'Vehículo registrado.');
-      }
-    } finally {
-      _openingVehicles = false;
-    }
-  }
-
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('SIMERTPI', style: AppTypography.brand),
-      titleSpacing: AppSpace.lg,
-      backgroundColor: AppColors.primary,
-      foregroundColor: Colors.white,
-      toolbarHeight: AppSize.brandHeader,
-      actions: [
-        IconButton(
-          tooltip: 'Cerrar sesión',
-          icon: const Icon(Icons.logout),
-          onPressed: () => AppScope.of(context).auth.logout(),
-        ),
-      ],
-    ),
-    body: SafeArea(
-      top: false,
-      child: Align(
-        alignment: Alignment.topCenter,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: AppSize.contentWidth),
-          child: SingleChildScrollView(
-            padding: AppSpace.page,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                ActiveParkingPanel(controller: _active!),
-                Text(
-                  '¿Dónde vas a estacionar?',
-                  style: Theme.of(context).textTheme.headlineMedium,
-                ),
-                const SizedBox(height: AppSpace.sm),
-                const Text('Escanea el QR del espacio o búscalo manualmente.'),
-                const SizedBox(height: AppSpace.lg),
-                Container(
-                  constraints: const BoxConstraints(
-                    minHeight: AppSize.qrCardMinHeight,
-                  ),
-                  padding: const EdgeInsets.all(AppSpace.lg),
-                  decoration: BoxDecoration(
-                    color: AppColors.parkingHint,
-                    borderRadius: BorderRadius.circular(AppSize.radius),
-                  ),
-                  child: Row(
-                    children: [
-                      const AppQrMarker(),
-                      const SizedBox(width: AppSpace.xl),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Escanear código QR',
-                              style: AppTypography.section.copyWith(
-                                color: AppColors.primary,
-                              ),
-                            ),
-                            const SizedBox(height: AppSpace.sm),
-                            const Text('Identifica zona y espacio'),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: AppSpace.lg),
-                PrimaryButton(
-                  label: 'ESCANEAR QR',
-                  onPressed: () =>
-                      Navigator.pushNamed(context, AppRoute.qr.path).then((_) {
-                        if (mounted) _active!.load();
-                      }),
-                ),
-                const SizedBox(height: AppSpace.md),
-                SecondaryButton(
-                  label: 'BUSCAR ESTACIONAMIENTO',
-                  filled: true,
-                  onPressed: () =>
-                      Navigator.pushNamed(
-                        context,
-                        AppRoute.discovery.path,
-                      ).then((_) {
-                        if (mounted) _active!.load();
-                      }),
-                ),
-                const SizedBox(height: AppSpace.xl),
-                VehicleList(controller: _vehicles!, onAdd: _addVehicle),
-                const SizedBox(height: AppSpace.xl),
-                SecondaryButton(
-                  label: 'CONSULTAR PAGO PENDIENTE',
-                  onPressed: () =>
-                      Navigator.pushNamed(context, AppRoute.payments.path).then(
-                        (_) {
-                          if (mounted) _active!.load();
-                        },
-                      ),
-                ),
-                const SizedBox(height: AppSpace.md),
-                TextButton(
-                  style: TextButton.styleFrom(padding: EdgeInsets.zero),
-                  onPressed: _future,
-                  child: const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text('Historial de estacionamientos'),
-                  ),
+  Widget build(BuildContext context) => PopScope(
+    canPop: tab == 0,
+    onPopInvokedWithResult: (didPop, result) {
+      if (!didPop && tab != 0) _tab(0);
+    },
+    child: Scaffold(
+      appBar: tab == 0
+          ? AppBar(
+              title: const Text('SIMERTPI', style: AppTypography.brand),
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              actions: [
+                IconButton(
+                  tooltip: 'Cerrar sesión',
+                  icon: const Icon(Icons.logout),
+                  onPressed: () => AppScope.of(context).auth.logout(),
                 ),
               ],
+            )
+          : null,
+      body: IndexedStack(
+        index: tab,
+        children: [
+          SafeArea(
+            child: SingleChildScrollView(
+              padding: AppSpace.page,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    greeting == null ? '¡Hola!' : '¡Hola, $greeting!',
+                    style: Theme.of(context).textTheme.headlineMedium,
+                  ),
+                  const SizedBox(height: AppSpace.sm),
+                  Text(
+                    '¿Qué deseas hacer?',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: AppSpace.lg),
+                  ActiveParkingPanel(controller: _active!),
+                  PrimaryButton(
+                    label: 'ESTACIONAR',
+                    onPressed: () => _launch(AppRoute.startParking),
+                  ),
+                  const SizedBox(height: AppSpace.sm),
+                  const Text('Buscar espacio o escanear QR'),
+                  const SizedBox(height: AppSpace.lg),
+                  LayoutBuilder(
+                    builder: (context, box) {
+                      final width =
+                          MediaQuery.textScalerOf(context).scale(14) > 21
+                          ? box.maxWidth
+                          : (box.maxWidth - AppSpace.sm) / 2;
+                      return Wrap(
+                        spacing: AppSpace.sm,
+                        runSpacing: AppSpace.sm,
+                        children: [
+                          SizedBox(
+                            width: width,
+                            child: SecondaryButton(
+                              label: 'Mis vehículos',
+                              onPressed: () => _launch(AppRoute.vehicles),
+                            ),
+                          ),
+                          SizedBox(
+                            width: width,
+                            child: SecondaryButton(
+                              label: 'Historial',
+                              onPressed: () => AppSnackbar.show(
+                                context,
+                                'Historial estará disponible próximamente.',
+                              ),
+                            ),
+                          ),
+                          SizedBox(
+                            width: width,
+                            child: SecondaryButton(
+                              label: 'Mapa',
+                              onPressed: () => _tab(1),
+                            ),
+                          ),
+                          SizedBox(
+                            width: width,
+                            child: SecondaryButton(
+                              label: 'Notificaciones',
+                              onPressed: () => _tab(2),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                  const SizedBox(height: AppSpace.md),
+                  TextButton(
+                    onPressed: () => _launch(AppRoute.payments),
+                    child: const Text('Consultar pago pendiente'),
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
+          mapOpened
+              ? DiscoveryPage(initialMap: true, refreshToken: mapRefresh)
+              : const SizedBox(),
+          const Scaffold(
+            body: SafeArea(
+              child: Center(
+                child: Padding(
+                  padding: AppSpace.page,
+                  child: Text('Notificaciones estará disponible próximamente.'),
+                ),
+              ),
+            ),
+          ),
+          const Scaffold(
+            body: SafeArea(
+              child: Center(
+                child: Padding(
+                  padding: AppSpace.page,
+                  child: Text('Perfil estará disponible próximamente.'),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: tab,
+        onDestinationSelected: _tab,
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home),
+            label: 'Inicio',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.map_outlined),
+            selectedIcon: Icon(Icons.map),
+            label: 'Mapa',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.notifications_outlined),
+            label: 'Notificaciones',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.person_outline),
+            label: 'Perfil',
+          ),
+        ],
       ),
     ),
   );

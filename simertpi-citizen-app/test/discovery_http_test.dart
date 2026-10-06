@@ -37,6 +37,17 @@ void main() {
         '/api/v1/streets' => [
           {'id': 't', 'zoneId': 'z', 'name': 'Street fixture', 'active': true},
         ],
+        '/api/v1/parking-spaces/availability' => [
+          {
+            'parkingSpaceId': 's',
+            'spaceCode': dto['code'],
+            'latitude': dto['latitude'],
+            'longitude': dto['longitude'],
+            'active': !inactive,
+            'operationalStatus': inactive ? 'DISABLED' : 'AVAILABLE',
+            'selectable': !inactive,
+          },
+        ],
         '/api/v1/parking-spaces' => [
           {...dto, 'active': !inactive},
         ],

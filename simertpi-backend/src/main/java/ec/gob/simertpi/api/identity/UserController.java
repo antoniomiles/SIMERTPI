@@ -25,6 +25,13 @@ public class UserController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    public record Greeting(String username, String firstName) { }
+    @GetMapping("/mine")
+    public Greeting greeting(org.springframework.security.core.Authentication auth) {
+        User user=userService.findByUsername(auth.getName()).orElseThrow(() -> new ec.gob.simertpi.api.ResourceNotFoundException("User not found"));
+        return new Greeting(user.getUsername(),user.getFirstName());
+    }
+
     @PostMapping
     public ResponseEntity<UserResponse> createUser(
             @Valid @RequestBody CreateUserRequest request) {

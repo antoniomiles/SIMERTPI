@@ -15,11 +15,13 @@ class AppScope extends InheritedWidget {
     super.key,
     required this.config,
     this.api,
+    this.parkingConfirmed,
     required this.auth,
     required super.child,
   });
   final AppConfig config;
   final ApiClient? api;
+  final ValueNotifier<int>? parkingConfirmed;
   final AuthController auth;
   static AppScope of(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<AppScope>()!;
@@ -40,6 +42,7 @@ class _BootstrapState extends State<Bootstrap> {
   ApiClient? _api;
   AppConfig? _config;
   AuthController? _auth;
+  final _parkingConfirmed = ValueNotifier<int>(0);
   @override
   void initState() {
     super.initState();
@@ -78,6 +81,7 @@ class _BootstrapState extends State<Bootstrap> {
   void dispose() {
     _api?.close();
     _auth?.dispose();
+    _parkingConfirmed.dispose();
     super.dispose();
   }
 
@@ -86,6 +90,7 @@ class _BootstrapState extends State<Bootstrap> {
       ? AppScope(
           config: _config!,
           api: _api,
+          parkingConfirmed: _parkingConfirmed,
           auth: _auth!,
           child: SimertpiApp(auth: _auth!),
         )

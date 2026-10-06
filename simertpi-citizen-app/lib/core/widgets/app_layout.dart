@@ -31,14 +31,13 @@ class AppCard extends StatelessWidget {
   const AppCard({super.key, required this.child});
   final Widget child;
   @override
-  Widget build(BuildContext context) => Container(
-    width: double.infinity,
-    padding: const EdgeInsets.all(AppSpace.lg),
-    decoration: BoxDecoration(
-      color: AppColors.surface,
-      borderRadius: BorderRadius.circular(AppSize.radius),
+  Widget build(BuildContext context) => Material(
+    color: AppColors.surface,
+    borderRadius: BorderRadius.circular(AppSize.radius),
+    child: Padding(
+      padding: const EdgeInsets.all(AppSpace.lg),
+      child: SizedBox(width: double.infinity, child: child),
     ),
-    child: child,
   );
 }
 

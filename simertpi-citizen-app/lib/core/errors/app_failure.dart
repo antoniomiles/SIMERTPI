@@ -14,9 +14,11 @@ class AppFailure implements Exception {
   const AppFailure(
     this.kind, {
     this.correlationId,
+    this.code,
     this.outcomeUnknown = false,
   });
   final FailureKind kind;
+  final String? code;
   final String? correlationId;
   // A lost response does not prove that a write failed on the server.
   final bool outcomeUnknown;

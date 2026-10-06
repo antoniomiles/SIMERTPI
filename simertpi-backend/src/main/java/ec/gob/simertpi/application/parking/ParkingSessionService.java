@@ -192,18 +192,23 @@ public class ParkingSessionService {
             throw new IllegalArgumentException("Vehicle is inactive");
         }
 
+        // Vehicle row lock serializes creation and lifecycle changes for this association.
+        if (parkingSessionRepository.existsByVehicleIdAndStatusIn(vehicleId, ParkingSessionStatus.occupyingCodes())) {
+            throw new ec.gob.simertpi.api.ParkingConflictException("VEHICLE_OCCUPIED");
+        }
+
         ParkingSpace parkingSpace = parkingSpaceRepository.findById(parkingSpaceId)
                 .orElseThrow(() -> new ResourceNotFoundException("Parking space not found"));
 
         if (!parkingSpace.isActive()) {
-            throw new IllegalArgumentException("Parking space is inactive");
+            throw new ec.gob.simertpi.api.ParkingConflictException("SPACE_DISABLED");
         }
 
         if (parkingSessionRepository.existsByParkingSpaceIdAndStatusIn(
                 parkingSpaceId,
                 ParkingSessionStatus.occupyingCodes()
         )) {
-            throw new IllegalArgumentException("Parking space already has an active session");
+            throw new ec.gob.simertpi.api.ParkingConflictException("SPACE_UNAVAILABLE");
         }
 
         Street street = streetRepository.findById(parkingSpace.getStreetId())

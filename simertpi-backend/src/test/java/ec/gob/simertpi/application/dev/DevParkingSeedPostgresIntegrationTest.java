@@ -35,7 +35,8 @@ class DevParkingSeedPostgresIntegrationTest extends AbstractPostgresIntegrationT
         assertThat(jdbc.queryForList("SELECT DISTINCT name FROM parking.streets WHERE code LIKE 'PIN-DEV-ST%'", String.class))
                 .containsExactlyInAnyOrder("García Moreno", "Sucre", "Bolívar");
         assertThat(jdbc.queryForObject("SELECT count(DISTINCT qr_code) FROM parking.parking_spaces WHERE code LIKE 'PIN-DEV-%'", Long.class)).isEqualTo(9);
-        assertThat(count("parking.parking_spaces", "code LIKE 'PIN-DEV-%' AND (latitude IS NOT NULL OR longitude IS NOT NULL)" )).isZero();
+        assertThat(count("parking.parking_spaces", "code LIKE 'PIN-DEV-%' AND latitude BETWEEN -3.681 AND -3.679 AND longitude BETWEEN -79.683 AND -79.680" )).isEqualTo(9);
+        assertThat(jdbc.queryForObject("SELECT count(DISTINCT (latitude, longitude)) FROM parking.parking_spaces WHERE code LIKE 'PIN-DEV-%'", Long.class)).isEqualTo(9);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.parking_spaces p JOIN parking.streets s ON s.id=p.street_id JOIN parking.zones z ON z.id=s.zone_id WHERE p.code LIKE 'PIN-DEV-%' AND z.code LIKE 'PIN-DEV-Z%'",Long.class)).isEqualTo(9);
         assertThat(count("parking.tariffs", "code LIKE 'PIN-DEV-T%' AND currency='USD' AND grace_period_minutes=3 AND rounding_mode='HALF_UP'" )).isEqualTo(3);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.schedules s JOIN parking.zones z ON z.id=s.zone_id WHERE z.code LIKE 'PIN-DEV-Z%'",Long.class)).isEqualTo(21);

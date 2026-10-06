@@ -1,3 +1,4 @@
+import '../../vehicles/presentation/vehicle_plate.dart';
 import '../../../app/router/app_router.dart';
 
 import 'package:flutter/material.dart';
@@ -29,7 +30,7 @@ class _ParkingPageState extends State<ParkingPage> {
   ParkingController? _controller;
   final _duration = TextEditingController();
   final _form = GlobalKey<FormState>();
-  bool _reviewing = false;
+  int step = 0;
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -58,7 +59,7 @@ class _ParkingPageState extends State<ParkingPage> {
     if (_controller!.phase == ParkingPhase.uncertain) {
       await _controller!.recover();
     }
-    if (mounted) setState(() => _reviewing = false);
+    if (mounted) setState(() => step = 0);
   }
 
   Future<void> _register() async {
@@ -84,10 +85,17 @@ class _ParkingPageState extends State<ParkingPage> {
 
   Future<void> _submit() async {
     await _controller!.create();
+    if (mounted && _controller!.phase == ParkingPhase.created) {
+      await Navigator.pushNamed(
+        context,
+        AppRoute.payments.path,
+        arguments: _controller!.receipt!.id,
+      );
+    }
     if (mounted &&
         _controller!.phase != ParkingPhase.created &&
         _controller!.phase != ParkingPhase.uncertain) {
-      setState(() => _reviewing = false);
+      setState(() => step = 0);
     }
   }
 
@@ -102,41 +110,39 @@ class _ParkingPageState extends State<ParkingPage> {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: _controller!,
     builder: (context, _) {
-      final c = _controller!;
-      final q = c.quote;
-      final phase = c.phase;
+      final c = _controller!, q = c.quote;
       return PopScope(
-        canPop: !c.busy,
+        canPop:
+            !c.busy &&
+            (step == 0 ||
+                c.phase == ParkingPhase.created ||
+                c.phase == ParkingPhase.uncertain),
+        onPopInvokedWithResult: (didPop, result) {
+          if (!didPop && !c.busy && step > 0) setState(() => step--);
+        },
         child: AppPage(
-          title: _reviewing
-              ? 'Resumen de la solicitud'
-              : 'Preparar estacionamiento',
+          title: step == 0
+              ? 'Selecciona un vehículo'
+              : step == 1
+              ? 'Tiempo de estacionamiento'
+              : 'Resumen del estacionamiento',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'Espacio ${c.space.space.number}',
-                style: Theme.of(context).textTheme.headlineSmall,
+                c.space.space.code,
+                style: Theme.of(context).textTheme.titleLarge,
               ),
-              Text(c.space.space.code),
               Text(c.space.catalog.streetOf(c.space.space)?.name ?? ''),
-              const SizedBox(height: AppSpace.md),
-              if (phase == ParkingPhase.initial ||
-                  phase == ParkingPhase.loading)
+              const SizedBox(height: AppSpace.lg),
+              if (c.phase == ParkingPhase.loading ||
+                  c.phase == ParkingPhase.initial)
                 const SkeletonList(count: 2)
-              else if (phase == ParkingPhase.created) ...[
-                Semantics(
-                  liveRegion: true,
-                  child: Text(
-                    'Solicitud pendiente de pago',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                ),
-                const SizedBox(height: AppSpace.md),
+              else if (c.phase == ParkingPhase.created) ...[
+                const Text('Solicitud pendiente de pago'),
                 const Text(
                   'Se activará únicamente cuando el sistema confirme el pago aprobado.',
                 ),
-                const SizedBox(height: AppSpace.md),
                 PrimaryButton(
                   label: 'Continuar al pago',
                   onPressed: () => Navigator.pushNamed(
@@ -145,163 +151,139 @@ class _ParkingPageState extends State<ParkingPage> {
                     arguments: c.receipt!.id,
                   ),
                 ),
-                const SizedBox(height: AppSpace.md),
-                Text('Inicio registrado: ${localTime(c.receipt!.startedAt)}'),
-                Text('Fin previsto: ${localTime(c.receipt!.expectedEndAt)}'),
-                const Text(
-                  'Horas mostradas según la zona horaria del dispositivo.',
-                ),
-              ] else if (phase == ParkingPhase.uncertain) ...[
+              ] else if (c.phase == ParkingPhase.uncertain)
                 ErrorState(
-                  message: c.message ?? 'Hay una solicitud por confirmar. Comprueba su estado antes de continuar.',
+                  message:
+                      c.message ?? 'Comprueba la solicitud antes de continuar.',
                   onRetry: c.recover,
-                ),
-                if (c.busy) const LinearProgressIndicator(),
-                const Text(
-                  'Volver no cancela una solicitud que haya sido registrada.',
-                ),
-              ] else ...[
+                )
+              else ...[
                 if (c.message != null)
                   ErrorState(message: c.message!, onRetry: _load),
                 if (c.busy) const LinearProgressIndicator(),
-                if (phase != ParkingPhase.error &&
-                    phase != ParkingPhase.conflict &&
-                    q != null) ...[
-                  if (!_reviewing) ...[
+                if (step == 0) ...[
+                  if (c.items.isEmpty)
+                    EmptyState(
+                      message: 'No tienes vehículos habilitados.',
+                      actionLabel: 'Registrar vehículo',
+                      onAction: c.busy ? null : _register,
+                    ),
+                  for (final v in c.items)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: AppSpace.md),
+                      child: AppCard(
+                        child: Semantics(
+                          label: 'Vehículo ${v.plate}',
+                          selected: c.vehicleId == v.id,
+                          enabled: !c.occupiedVehicles.contains(v.id),
+                          child: ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.directions_car),
+                            title: Text(visualPlate(v.plate)),
+                            subtitle: Text(
+                              c.occupiedVehicles.contains(v.id)
+                                  ? 'Estacionado actualmente'
+                                  : 'Vehículo disponible',
+                            ),
+                            trailing: Icon(
+                              c.occupiedVehicles.contains(v.id)
+                                  ? Icons.lock
+                                  : c.vehicleId == v.id
+                                  ? Icons.radio_button_checked
+                                  : Icons.radio_button_unchecked,
+                            ),
+                            onTap: c.busy || c.occupiedVehicles.contains(v.id)
+                                ? null
+                                : () => c.choose(v.id),
+                          ),
+                        ),
+                      ),
+                    ),
+                  PrimaryButton(
+                    label: 'Continuar',
+                    onPressed:
+                        c.vehicleId != null &&
+                            !c.occupiedVehicles.contains(c.vehicleId) &&
+                            c.space.selectable &&
+                            !c.busy &&
+                            q?.operational == true
+                        ? () => setState(() => step = 1)
+                        : null,
+                  ),
+                ] else if (step == 1 && q != null) ...[
+                  if (q.minimum != null && q.maximum != null) ...[
+                    Text('Mínimo ${q.minimum} min · máximo ${q.maximum} min'),
+                    Text('Fracción facturable: ${q.minimum} min'),
+                    const SizedBox(height: AppSpace.md),
+                    Form(
+                      key: _form,
+                      child: AppTextField(
+                        controller: _duration,
+                        label: 'Minutos',
+                        enabled: !c.busy,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                        onChanged: c.changedDuration,
+                        validator: (text) {
+                          final n = int.tryParse(text ?? '');
+                          return n == null || n < q.minimum! || n > q.maximum!
+                              ? 'Ingresa de ${q.minimum} a ${q.maximum} minutos.'
+                              : null;
+                        },
+                      ),
+                    ),
+                    AsyncButton(
+                      label: 'Consultar importe',
+                      onPressed: _estimate,
+                    ),
+                  ],
+                  if (q.quoted && q.minutes == c.minutes)
                     Text(
-                      'Vehículo',
+                      'Importe cotizado: ${q.currency} ${q.amount}',
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
-                    if (c.items.isEmpty)
-                      EmptyState(
-                        message: 'No tienes vehículos habilitados.',
-                        actionLabel: 'Registrar vehículo',
-                        onAction: c.busy ? null : _register,
-                      )
-                    else
-                      Wrap(
-                        spacing: AppSpace.sm,
-                        runSpacing: AppSpace.sm,
-                        children: [
-                          for (final v in c.items)
-                            Semantics(
-                              label: 'Vehículo ${v.plate}',
-                              selected: c.vehicleId == v.id,
-                              child: ChoiceChip(
-                                label: Text(v.plate),
-                                selected: c.vehicleId == v.id,
-                                onSelected: c.busy
-                                    ? null
-                                    : (_) => c.choose(v.id),
-                              ),
-                            ),
-                        ],
-                      ),
-                    const SizedBox(height: AppSpace.lg),
-                    if (q.minimum != null && q.maximum != null) ...[
-                      Text(
-                        'Duración en minutos',
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      Text('Mínimo ${q.minimum} min · máximo ${q.maximum} min'),
-                      Text(
-                        'Fracción facturable: ${q.minimum} min. El importe lo calcula el sistema.',
-                      ),
-                      const SizedBox(height: AppSpace.sm),
-                      Form(
-                        key: _form,
-                        child: AppTextField(
-                          controller: _duration,
-                          label: 'Minutos',
-                          enabled: !c.busy && c.space.selectable,
-                          keyboardType: TextInputType.number,
-                          inputFormatters: [
-                            FilteringTextInputFormatter.digitsOnly,
-                          ],
-                          onChanged: c.changedDuration,
-                          validator: (text) {
-                            final n = int.tryParse(text ?? '');
-                            return n == null || n < q.minimum! || n > q.maximum!
-                                ? 'Ingresa de ${q.minimum} a ${q.maximum} minutos.'
-                                : null;
-                          },
-                        ),
-                      ),
-                      const SizedBox(height: AppSpace.sm),
-                      if (!c.busy && c.space.selectable)
-                        AsyncButton(
-                          label: 'Consultar importe',
-                          processingLabel: 'Consultando...',
-                          onPressed: _estimate,
-                        ),
-                    ],
-                  ],
-                  const SizedBox(height: AppSpace.lg),
                   if (q.schedule != null)
                     Text('Horario aplicable: ${q.window}'),
-                  if (q.schedule != null)
-                    Text('Zona horaria: ${serverOffset(q.evaluatedAt)}'),
-                  if (q.holiday)
-                    const Text('Calendario de excepción aplicado.'),
-                  if (q.unitPrice != null)
-                    Text(
-                      'Tarifa: ${q.currency} ${q.unitPrice} por ${q.unitMinutes} min',
-                    ),
-                  if (q.quoted && q.minutes == c.minutes) ...[
-                    const SizedBox(height: AppSpace.md),
-                    AppCard(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Text(
-                            'Importe estimado: ${q.currency} ${q.amount}',
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                          Text('Duración solicitada: ${q.minutes} min'),
-                          Text('Tiempo facturado: ${q.billed} min'),
-                          Text(
-                            'Fin estimado: ${localTime(DateTime.parse(q.expiresAt!))}',
-                          ),
-                          const Text(
-                            'Hora del dispositivo. Las condiciones se volverán a consultar al confirmar.',
-                          ),
-                          if (_reviewing)
-                            Text(
-                              'Vehículo: ${c.items.firstWhere((v) => v.id == c.vehicleId).plate}',
-                            ),
-                        ],
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: AppSpace.lg),
-                  const Text(
-                    'La disponibilidad se confirma al registrar la solicitud. Ubicación habilitada no significa espacio libre.',
+                  PrimaryButton(
+                    label: 'Revisar resumen',
+                    onPressed: c.canSubmit
+                        ? () => setState(() => step = 2)
+                        : null,
                   ),
-                  if (_reviewing) ...[
-                    const SizedBox(height: AppSpace.md),
-                    const Text(
-                      'Al confirmar se crea una solicitud pendiente de pago. El espacio queda ocupado y el tiempo previsto empieza según el registro del sistema.',
+                  SecondaryButton(
+                    label: 'Cambiar vehículo',
+                    onPressed: c.busy ? null : () => setState(() => step = 0),
+                  ),
+                ] else if (q != null) ...[
+                  Text(
+                    'Zona: ${c.space.catalog.zoneOf(c.space.space)?.name ?? ""}',
+                  ),
+                  Text('Espacio: ${c.space.space.code}'),
+                  Text(
+                    'Vehículo: ${visualPlate(c.items.where((v) => v.id == c.vehicleId).firstOrNull?.plate ?? "")}',
+                  ),
+                  Text('Tiempo: ${q.minutes} min'),
+                  const SizedBox(height: AppSpace.lg),
+                  Text(
+                    'Total: ${q.currency} ${q.amount}',
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  const SizedBox(height: AppSpace.md),
+                  const Text(
+                    'La solicitud reserva el espacio; el estacionamiento se activa solo después de confirmar el pago.',
+                  ),
+                  if (c.canSubmit || c.phase == ParkingPhase.processing)
+                    AsyncButton(
+                      label: 'Continuar al pago',
+                      processingLabel: 'Preparando...',
+                      onPressed: _submit,
                     ),
-                    const SizedBox(height: AppSpace.md),
-                    if (c.canSubmit || c.phase == ParkingPhase.processing)
-                      AsyncButton(
-                        label: 'Preparar solicitud',
-                        processingLabel: 'Preparando...',
-                        onPressed: _submit,
-                      ),
-                    SecondaryButton(
-                      label: 'Revisar datos',
-                      onPressed: c.busy
-                          ? null
-                          : () => setState(() => _reviewing = false),
-                    ),
-                  ] else
-                    PrimaryButton(
-                      label: 'Revisar resumen',
-                      onPressed: c.canSubmit
-                          ? () => setState(() => _reviewing = true)
-                          : null,
-                    ),
+                  SecondaryButton(
+                    label: 'Revisar datos',
+                    onPressed: c.busy ? null : () => setState(() => step = 1),
+                  ),
                 ],
               ],
             ],

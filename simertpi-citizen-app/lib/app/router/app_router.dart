@@ -15,6 +15,7 @@ import '../../features/auth/presentation/register_page.dart';
 import '../../features/splash/splash_page.dart';
 import '../../features/showcase/home_page.dart' as showcase;
 import '../../features/home/home_page.dart';
+import '../../features/home/start_parking_page.dart';
 import '../../features/vehicles/presentation/vehicles_page.dart';
 import '../../features/showcase/components_page.dart';
 import '../../features/showcase/states_page.dart';
@@ -24,6 +25,10 @@ enum AppRoute {
   login('/login'),
   register('/register'),
   home('/home'),
+  map('/map'),
+  startParking('/start-parking'),
+  notifications('/notifications'),
+  profile('/profile'),
   vehicles('/vehicles'),
   discovery('/discovery'),
   qr('/qr'),
@@ -68,6 +73,10 @@ abstract final class AppRouter {
                     )
                   : const HomePage(),
             AppRoute.home => const HomePage(),
+            AppRoute.map => const HomePage(initialTab: 1),
+            AppRoute.notifications => const HomePage(initialTab: 2),
+            AppRoute.profile => const HomePage(initialTab: 3),
+            AppRoute.startParking => const StartParkingPage(),
             AppRoute.vehicles => const VehiclesPage(),
             AppRoute.discovery => const DiscoveryPage(),
             AppRoute.qr => const QrScanPage(),

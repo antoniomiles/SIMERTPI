@@ -34,6 +34,23 @@ class ParkingController extends ChangeNotifier {
   final ParkingIntentStore store;
   ParkingPhase phase = ParkingPhase.initial;
   List<CitizenVehicle> items = [];
+  Set<String> occupiedVehicles = {};
+  static const occupying = {
+    'PENDING_PAYMENT',
+    'ACTIVE',
+    'EXTENDED',
+    'EXPIRED',
+    'MAX_TIME_REACHED',
+  };
+  Future<void> refreshVehicles() async {
+    final sessions = await parking.mine(owner);
+    if (sessions.any((s) => s.owner != owner)) throw invalidParking;
+    occupiedVehicles = sessions
+        .where((s) => occupying.contains(s.status))
+        .map((s) => s.vehicleId)
+        .toSet();
+  }
+
   String? vehicleId, message;
   int? minutes;
   ParkingRules? quote;
@@ -46,6 +63,7 @@ class ParkingController extends ChangeNotifier {
       phase == ParkingPhase.ready &&
       space.selectable &&
       vehicleId != null &&
+      !occupiedVehicles.contains(vehicleId) &&
       quote?.quoted == true &&
       minutes == quote?.minutes;
   void changedDuration(String text) {
@@ -56,7 +74,9 @@ class ParkingController extends ChangeNotifier {
 
   void choose(String id) {
     if (busy || _intent != null) return;
-    if (items.any((v) => v.id == id)) vehicleId = id;
+    if (!occupiedVehicles.contains(id) && items.any((v) => v.id == id)) {
+      vehicleId = id;
+    }
     notifyListeners();
   }
 
@@ -93,8 +113,13 @@ class ParkingController extends ChangeNotifier {
       final all = results[1] as List<CitizenVehicle>;
       if (all.any((v) => v.userId != owner)) throw invalidParking;
       items = all.where((v) => v.active).toList();
-      if (!items.any((v) => v.id == vehicleId)) {
-        vehicleId = items.length == 1 ? items.single.id : null;
+      await refreshVehicles();
+      if (!items.any((v) => v.id == vehicleId) ||
+          occupiedVehicles.contains(vehicleId)) {
+        final free = items
+            .where((v) => !occupiedVehicles.contains(v.id))
+            .toList();
+        vehicleId = free.length == 1 ? free.single.id : null;
       }
       quote = results[2] as ParkingRules;
       minutes = minutes ?? quote!.minimum;
@@ -104,7 +129,9 @@ class ParkingController extends ChangeNotifier {
       if (_disposed) return;
       phase = ParkingPhase.ready;
       if (!space.selectable) {
-        message = 'Esta ubicación ya no está habilitada.';
+        message = space.space.operationalStatus == 'DISABLED'
+            ? 'Este espacio no está habilitado actualmente.'
+            : 'Este espacio ya no está disponible. Selecciona otro estacionamiento.';
       } else if (!quote!.operational) {
         message = ruleMessage(quote!.reason);
       }
@@ -112,7 +139,17 @@ class ParkingController extends ChangeNotifier {
       if (!_disposed) {
         phase = ParkingPhase.error;
         quote = null;
-        message = parkingError(e);
+        message = e is AppFailure && e.code == 'VEHICLE_OCCUPIED'
+            ? 'Este vehículo ya tiene un estacionamiento en curso.'
+            : e is AppFailure && e.kind == FailureKind.conflict
+            ? 'Este espacio ya no está disponible. Selecciona otro estacionamiento.'
+            : parkingError(e);
+        if (e is AppFailure && e.kind == FailureKind.conflict) {
+          try {
+            space = await catalog.identify(space.space.code, qr: false);
+            await refreshVehicles();
+          } catch (_) {}
+        }
       }
     } finally {
       _busy = false;
@@ -144,7 +181,17 @@ class ParkingController extends ChangeNotifier {
       if (!_disposed) {
         quote = null;
         phase = ParkingPhase.error;
-        message = parkingError(e);
+        message = e is AppFailure && e.code == 'VEHICLE_OCCUPIED'
+            ? 'Este vehículo ya tiene un estacionamiento en curso.'
+            : e is AppFailure && e.kind == FailureKind.conflict
+            ? 'Este espacio ya no está disponible. Selecciona otro estacionamiento.'
+            : parkingError(e);
+        if (e is AppFailure && e.kind == FailureKind.conflict) {
+          try {
+            space = await catalog.identify(space.space.code, qr: false);
+            await refreshVehicles();
+          } catch (_) {}
+        }
       }
     } finally {
       _busy = false;
@@ -160,6 +207,11 @@ class ParkingController extends ChangeNotifier {
     _notify();
     var sent = false;
     try {
+      await refreshVehicles();
+      if (occupiedVehicles.contains(vehicleId)) {
+        vehicleId = null;
+        throw const AppFailure(FailureKind.conflict, code: 'VEHICLE_OCCUPIED');
+      }
       final freshSpace = await catalog.identify(space.space.code, qr: false);
       final all = await vehicles.list();
       final fresh = await parking.rules(space.space.id, minutes);
@@ -168,7 +220,9 @@ class ParkingController extends ChangeNotifier {
         throw const AppFailure(FailureKind.conflict);
       }
       space = freshSpace;
-      if (!space.selectable) throw const AppFailure(FailureKind.conflict);
+      if (!space.selectable) {
+        throw const AppFailure(FailureKind.conflict, code: 'SPACE_UNAVAILABLE');
+      }
       if (all.any((v) => v.userId != owner) ||
           !all.any((v) => v.id == vehicleId && v.active)) {
         throw const AppFailure(FailureKind.forbidden);
@@ -243,7 +297,17 @@ class ParkingController extends ChangeNotifier {
         phase = e is AppFailure && e.kind == FailureKind.conflict
             ? ParkingPhase.conflict
             : ParkingPhase.error;
-        message = parkingError(e);
+        message = e is AppFailure && e.code == 'VEHICLE_OCCUPIED'
+            ? 'Este vehículo ya tiene un estacionamiento en curso.'
+            : e is AppFailure && e.kind == FailureKind.conflict
+            ? 'Este espacio ya no está disponible. Selecciona otro estacionamiento.'
+            : parkingError(e);
+        if (e is AppFailure && e.kind == FailureKind.conflict) {
+          try {
+            space = await catalog.identify(space.space.code, qr: false);
+            await refreshVehicles();
+          } catch (_) {}
+        }
       }
     } finally {
       _busy = false;
@@ -274,7 +338,17 @@ class ParkingController extends ChangeNotifier {
     } catch (e) {
       if (!_disposed) {
         phase = ParkingPhase.uncertain;
-        message = parkingError(e);
+        message = e is AppFailure && e.code == 'VEHICLE_OCCUPIED'
+            ? 'Este vehículo ya tiene un estacionamiento en curso.'
+            : e is AppFailure && e.kind == FailureKind.conflict
+            ? 'Este espacio ya no está disponible. Selecciona otro estacionamiento.'
+            : parkingError(e);
+        if (e is AppFailure && e.kind == FailureKind.conflict) {
+          try {
+            space = await catalog.identify(space.space.code, qr: false);
+            await refreshVehicles();
+          } catch (_) {}
+        }
       }
     } finally {
       _busy = false;

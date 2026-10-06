@@ -1,3 +1,4 @@
+import '../../vehicles/presentation/vehicle_plate.dart';
 import '../../../app/router/app_router.dart';
 
 import 'dart:async';
@@ -169,13 +170,13 @@ class _ActiveParkingPanelState extends State<ActiveParkingPanel>
                       Text('Espacio: ${c.space(s)}'),
                       if (c.street(s) != null)
                         Text('Ubicación: ${c.street(s)}'),
-                      Text('Vehículo: ${c.plate(s)}'),
+                      Text('Vehículo: ${visualPlate(c.plate(s))}'),
                       Semantics(
                         label:
-                            'Tiempo restante estimado ${remainingTime(s, c.now())}',
+                            'Tiempo contratado restante ${remainingTime(s, c.now())}',
                         child: ExcludeSemantics(
                           child: Text(
-                            'Tiempo restante estimado: ${remainingTime(s, c.now())}',
+                            'Tiempo contratado restante: ${remainingTime(s, c.now())}',
                           ),
                         ),
                       ),

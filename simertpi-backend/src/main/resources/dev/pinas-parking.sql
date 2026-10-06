@@ -41,3 +41,14 @@ INSERT INTO parking.schedules(id,zone_id,day_of_week,start_time,end_time,valid_f
 INSERT INTO parking.parking_spaces(id,street_id,code,qr_code,space_number,space_type) VALUES ('45d8d920-4cc5-5ad1-aa1a-8a1ad2326f10','42b84efc-21f8-5afb-a8e9-9b6ecafb9c91','PIN-DEV-007','SIMERTPI-DEV-PIN-007','DEV-01','STANDARD') ON CONFLICT (id) DO NOTHING;
 INSERT INTO parking.parking_spaces(id,street_id,code,qr_code,space_number,space_type) VALUES ('ad8ab090-ae24-5907-9e32-87decc0a193e','42b84efc-21f8-5afb-a8e9-9b6ecafb9c91','PIN-DEV-008','SIMERTPI-DEV-PIN-008','DEV-02','STANDARD') ON CONFLICT (id) DO NOTHING;
 INSERT INTO parking.parking_spaces(id,street_id,code,qr_code,space_number,space_type) VALUES ('7152fb86-4bc6-593f-8e91-4ae2a6a0de7c','42b84efc-21f8-5afb-a8e9-9b6ecafb9c91','PIN-DEV-009','SIMERTPI-DEV-PIN-009','DEV-03','STANDARD') ON CONFLICT (id) DO NOTHING;
+
+-- DEMO / DEV / NO OFICIALES. Approximate urban positions, not surveyed parking bays.
+UPDATE parking.parking_spaces SET latitude=-3.6801000,longitude=-79.6816500,updated_at=CURRENT_TIMESTAMP WHERE code='PIN-DEV-001' AND qr_code='SIMERTPI-DEV-PIN-001' AND latitude IS NULL AND longitude IS NULL;
+UPDATE parking.parking_spaces SET latitude=-3.6802000,longitude=-79.6816500,updated_at=CURRENT_TIMESTAMP WHERE code='PIN-DEV-002' AND qr_code='SIMERTPI-DEV-PIN-002' AND latitude IS NULL AND longitude IS NULL;
+UPDATE parking.parking_spaces SET latitude=-3.6803000,longitude=-79.6816500,updated_at=CURRENT_TIMESTAMP WHERE code='PIN-DEV-003' AND qr_code='SIMERTPI-DEV-PIN-003' AND latitude IS NULL AND longitude IS NULL;
+UPDATE parking.parking_spaces SET latitude=-3.6799800,longitude=-79.6815500,updated_at=CURRENT_TIMESTAMP WHERE code='PIN-DEV-004' AND qr_code='SIMERTPI-DEV-PIN-004' AND latitude IS NULL AND longitude IS NULL;
+UPDATE parking.parking_spaces SET latitude=-3.6799800,longitude=-79.6814500,updated_at=CURRENT_TIMESTAMP WHERE code='PIN-DEV-005' AND qr_code='SIMERTPI-DEV-PIN-005' AND latitude IS NULL AND longitude IS NULL;
+UPDATE parking.parking_spaces SET latitude=-3.6799800,longitude=-79.6813500,updated_at=CURRENT_TIMESTAMP WHERE code='PIN-DEV-006' AND qr_code='SIMERTPI-DEV-PIN-006' AND latitude IS NULL AND longitude IS NULL;
+UPDATE parking.parking_spaces SET latitude=-3.6804000,longitude=-79.6815500,updated_at=CURRENT_TIMESTAMP WHERE code='PIN-DEV-007' AND qr_code='SIMERTPI-DEV-PIN-007' AND latitude IS NULL AND longitude IS NULL;
+UPDATE parking.parking_spaces SET latitude=-3.6804000,longitude=-79.6814500,updated_at=CURRENT_TIMESTAMP WHERE code='PIN-DEV-008' AND qr_code='SIMERTPI-DEV-PIN-008' AND latitude IS NULL AND longitude IS NULL;
+UPDATE parking.parking_spaces SET latitude=-3.6804000,longitude=-79.6813500,updated_at=CURRENT_TIMESTAMP WHERE code='PIN-DEV-009' AND qr_code='SIMERTPI-DEV-PIN-009' AND latitude IS NULL AND longitude IS NULL;

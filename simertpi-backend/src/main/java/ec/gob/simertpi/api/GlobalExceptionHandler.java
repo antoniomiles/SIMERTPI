@@ -14,6 +14,11 @@ import java.util.Map;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    @ExceptionHandler(ParkingConflictException.class)
+    public ResponseEntity<Map<String,Object>> parkingConflict(ParkingConflictException exception) {
+        return ResponseEntity.status(409).body(Map.of("code",exception.code(),"status",409,"message","Parking conditions changed"));
+    }
+
     @ExceptionHandler(ec.gob.simertpi.domain.vehicles.VehicleAssociationConflictException.class)
     public ResponseEntity<Map<String, Object>> handleVehicleAssociationConflict(
             ec.gob.simertpi.domain.vehicles.VehicleAssociationConflictException exception) {

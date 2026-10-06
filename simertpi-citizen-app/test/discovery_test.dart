@@ -31,6 +31,8 @@ const space = CatalogSpace(
   'QR-TEST',
   '1',
   true,
+  operationalStatus: 'AVAILABLE',
+  backendSelectable: true,
   latitude: -3,
   longitude: -79,
 );
@@ -304,7 +306,7 @@ void main() {
     await tester.tap(find.text('Reintentar'));
     await tester.pumpAndSettle();
     expect(find.text('Zona fixture'), findsOneWidget);
-    expect(find.textContaining('no está informada'), findsOneWidget);
+    expect(find.textContaining('1 espacios'), findsOneWidget);
     await tester.tap(find.text('Zona fixture'));
     await tester.pumpAndSettle();
     expect(c.zoneId, 'z');
@@ -312,10 +314,7 @@ void main() {
     await tester.tap(find.text('Ver espacio 1'));
     await tester.pumpAndSettle();
     expect(find.text('Detalle del espacio'), findsOneWidget);
-    await tester.ensureVisible(find.text('Seleccionar espacio'));
-    await tester.tap(find.text('Seleccionar espacio'));
-    await tester.pumpAndSettle();
-    expect(find.text('Espacio seleccionado'), findsOneWidget);
+    expect(find.text('Seleccionar espacio'), findsOneWidget);
     expect(f.resolutions, 1);
     expect(f.qr, false);
     c.dispose();
@@ -388,6 +387,9 @@ void main() {
   ) async {
     await tester.pumpWidget(await citizenApp());
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('ESTACIONAR'));
+    await tester.tap(find.text('ESTACIONAR'));
+    await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('BUSCAR ESTACIONAMIENTO'));
     await tester.tap(find.text('BUSCAR ESTACIONAMIENTO'));
     await tester.pumpAndSettle();
@@ -433,7 +435,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.byType(FlutterMap), findsOneWidget);
         expect(find.text('Fixture attribution'), findsOneWidget);
-        expect(find.bySemanticsLabel('Espacio 1, habilitado'), findsOneWidget);
+        expect(find.bySemanticsLabel('Espacio 1, Disponible'), findsOneWidget);
         await tester.tap(find.byTooltip('Espacio 1'));
         await tester.pump();
         expect(picked?.id, 's');

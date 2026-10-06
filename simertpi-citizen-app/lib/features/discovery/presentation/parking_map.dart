@@ -5,6 +5,7 @@ import 'package:latlong2/latlong.dart';
 import '../../../core/config/map_config.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../data/parking_catalog.dart';
+import 'space_status.dart';
 
 class ParkingMap extends StatefulWidget {
   const ParkingMap({
@@ -104,21 +105,15 @@ class _ParkingMapState extends State<ParkingMap> {
                           height: AppSize.touchTarget,
                           child: Semantics(
                             label:
-                                'Espacio ${space.number}, ${widget.catalog.selectable(space) ? 'habilitado' : 'no habilitado'}',
+                                'Espacio ${space.number}, ${spaceStatus(space)}',
                             child: IconButton.filled(
                               tooltip: 'Espacio ${space.number}',
                               onPressed: widget.enabled
                                   ? () => widget.onSelect(space)
                                   : null,
                               style: IconButton.styleFrom(
-                                backgroundColor:
-                                    widget.catalog.selectable(space)
-                                    ? AppColors.primary
-                                    : AppColors.input,
-                                foregroundColor:
-                                    widget.catalog.selectable(space)
-                                    ? AppColors.surface
-                                    : AppColors.muted,
+                                backgroundColor: spaceColor(space),
+                                foregroundColor: AppColors.surface,
                               ),
                               icon: Icon(
                                 widget.catalog.selectable(space)

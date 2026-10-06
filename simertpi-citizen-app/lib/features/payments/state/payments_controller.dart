@@ -32,7 +32,9 @@ class PaymentsController extends ChangeNotifier {
   final String owner;
   final ParkingGateway parking;
   final ParkingCatalogGateway catalog;
-  String? spaceCode;
+  String? spaceCode, zoneName;
+  bool get activated =>
+      payment?.status == PaymentStatus.approved && session?.status == 'ACTIVE';
   final VehicleGateway vehicles;
   final PaymentGateway payments;
   final PaymentIntentStore store;
@@ -159,6 +161,7 @@ class PaymentsController extends ChangeNotifier {
       throw invalidParking;
     }
     spaceCode = location.code;
+    zoneName = locations.zoneOf(location)?.name;
     final items = await vehicles.list();
     vehicle = items
         .where(
@@ -230,6 +233,22 @@ class PaymentsController extends ChangeNotifier {
     if (_disposed) return;
     // Query the parking state; never derive activation locally from a UI action.
     await _session(value.sessionId);
+    try {
+      final locations = await catalog.load();
+      final location = locations.spaces
+          .where((s) => s.id == session!.spaceId)
+          .firstOrNull;
+      if (location != null) {
+        spaceCode = location.code;
+        zoneName = locations.zoneOf(location)?.name;
+      }
+      final items = await vehicles.list();
+      vehicle = items
+          .where((v) => v.id == session!.vehicleId && v.userId == owner)
+          .firstOrNull;
+    } catch (_) {
+      /* Confirmed financial/session state remains authoritative if metadata is unavailable. */
+    }
     phase = PaymentPhase.result;
   }
 

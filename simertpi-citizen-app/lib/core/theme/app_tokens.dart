@@ -12,6 +12,9 @@ abstract final class AppColors {
   static const input = Color(0xFFF5F7FA);
   static const outline = Color(0xFFCDD6DB);
   static const skeleton = Color(0xFFE5EBEE);
+  static const available = Color(0xFF167344);
+  static const endingSoon = Color(0xFF8A6400);
+  static const occupied = Color(0xFFA32835);
   static const danger = Color(0xFFA32835);
 }
 

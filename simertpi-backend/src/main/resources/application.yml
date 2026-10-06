@@ -68,6 +68,9 @@ simertpi:
     access-ttl: ${SIMERTPI_AUTH_ACCESS_TTL:15m}
     refresh-ttl: ${SIMERTPI_AUTH_REFRESH_TTL:30d}
   parking:
+    availability:
+      # UX threshold, not a municipal duration/tolerance rule.
+      ending-soon-seconds: ${SIMERTPI_ENDING_SOON_SECONDS:600}
     rules:
       time-zone: ${SIMERTPI_PARKING_TIME_ZONE:America/Guayaquil}
   control:

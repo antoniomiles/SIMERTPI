@@ -103,3 +103,15 @@ PostgreSQL 16.15 Testcontainers. No cambio funcional en contratos de pagos.
 Físico pendiente después de redeploy: vehículo, zonas/listado/mapa, code/QR,
 cotización y PENDING_PAYMENT. Pendientes pueden bloquear plazas hasta resolución;
 timeout CP11 sigue sin activarse automáticamente. No reset/borrado de datos.
+
+## Actualización CP23.1 — mapa y disponibilidad DEV
+
+El seed ahora completa las nueve coordenadas DEV cuando ambas están NULL.
+Son DEMO / DEV / NO OFICIALES, no levantamiento municipal ni plazas físicas verificadas.
+No reemplaza coordenadas informadas. No se carga en QA/UAT/PROD.
+Tabla y fuentes de contexto: [checkpoint-23-1.md](checkpoint-23-1.md).
+La disponibilidad se consulta mediante GET /api/v1/parking-spaces/availability
+autenticado CITIZEN. active sigue siendo habilitación; no equivale a libre.
+SIMERTPI_ENDING_SOON_SECONDS (default 600) es un umbral UX configurable, no ordenanza.
+Las tarifas/horarios anteriores siguen siendo exclusivamente datos técnicos DEV.
+PARAMETRIZACIÓN NORMATIVA PENDIENTE DE FUENTE VERIFICADA.

@@ -76,7 +76,7 @@ void main() {
         };
         await gate.future;
       } else if (path.endsWith('/parking-sessions/user/fixture-citizen')) {
-        r.response.write(jsonEncode([saved]));
+        r.response.write(jsonEncode(saved == null ? [] : [saved]));
       } else {
         r.response.statusCode = 404;
       }
@@ -139,6 +139,8 @@ void main() {
         r.response.write(
           jsonEncode({'id': 'tariff', 'code': 'TEST-T', 'active': true}),
         );
+      } else if (path == '/api/v1/parking-sessions/user/fixture-citizen') {
+        r.response.write('[]');
       } else if (path == '/api/v1/parking/sessions') {
         posts++;
         body = jsonDecode(await utf8.decoder.bind(r).join()) as Map;

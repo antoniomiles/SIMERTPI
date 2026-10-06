@@ -216,7 +216,7 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
-        expect(find.text('¿Dónde vas a estacionar?'), findsOneWidget);
+        expect(find.text('¿Qué deseas hacer?'), findsOneWidget);
         expect(find.text('TEST-123'), findsNothing);
         await tester.pumpWidget(
           await screen(
@@ -334,7 +334,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
-    expect(find.text('No tienes vehículos registrados.'), findsOneWidget);
+    expect(find.text('ESTACIONAR'), findsOneWidget);
     await tester.runAsync(() async {
       final boundary =
           boundaryKey.currentContext!.findRenderObject()!

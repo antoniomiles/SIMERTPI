@@ -69,10 +69,9 @@ void main() {
       expect(fake.calls, 1);
       fake.pending!.complete();
       await tester.pumpAndSettle();
-      expect(find.text('¿Dónde vas a estacionar?'), findsOneWidget);
+      expect(find.text('¿Qué deseas hacer?'), findsOneWidget);
       expect(
-        Navigator.of(tester.element(find.text('¿Dónde vas a estacionar?')))
-            .canPop(),
+        Navigator.of(tester.element(find.text('¿Qué deseas hacer?'))).canPop(),
         false,
       );
       await tester.ensureVisible(find.byTooltip('Cerrar sesión'));
@@ -83,7 +82,7 @@ void main() {
         Navigator.of(tester.element(find.text('Inicia sesión'))).canPop(),
         false,
       );
-      expect(find.text('¿Dónde vas a estacionar?'), findsNothing);
+      expect(find.text('¿Qué deseas hacer?'), findsNothing);
     },
   );
   testWidgets(
@@ -110,14 +109,14 @@ void main() {
     (tester) async {
       await tester.pumpWidget(authTestApp(auth, route: AppRoute.home));
       expect(find.text('Inicia sesión'), findsOneWidget);
-      expect(find.text('¿Dónde vas a estacionar?'), findsNothing);
+      expect(find.text('¿Qué deseas hacer?'), findsNothing);
       await auth.login('citizen', 'fixture-password');
       await tester.pumpAndSettle();
-      expect(find.text('¿Dónde vas a estacionar?'), findsOneWidget);
+      expect(find.text('¿Qué deseas hacer?'), findsOneWidget);
       await auth.logout(expired: true);
       await tester.pumpAndSettle();
       expect(find.textContaining('Tu sesión ya no es válida'), findsOneWidget);
-      expect(find.text('¿Dónde vas a estacionar?'), findsNothing);
+      expect(find.text('¿Qué deseas hacer?'), findsNothing);
     },
   );
   testWidgets(
@@ -160,7 +159,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(fake.calls, 1);
       expect(await auth.store.read(), isNotNull);
-      expect(find.text('¿Dónde vas a estacionar?'), findsOneWidget);
+      expect(find.text('¿Qué deseas hacer?'), findsOneWidget);
     },
   );
   for (final size in [const Size(320, 640), const Size(640, 320)]) {

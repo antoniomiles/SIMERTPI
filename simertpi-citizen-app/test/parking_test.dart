@@ -150,7 +150,12 @@ Future<Widget> page(ParkingController c) async {
     child: MaterialApp(
       theme: AppTheme.light,
       home: ParkingPage(selected: c.space, controller: c),
-      onGenerateRoute: (s) => AppRouter.generate(s, scope.auth),
+      onGenerateRoute: (s) => s.name == AppRoute.payments.path
+          ? MaterialPageRoute<void>(
+              settings: s,
+              builder: (_) => const Scaffold(body: Text('Pago preparado')),
+            )
+          : AppRouter.generate(s, scope.auth),
     ),
   );
 }
@@ -236,7 +241,7 @@ void main() {
     final c = controller(FakeParking(), catalog: cat);
     await c.load();
     expect(c.canSubmit, false);
-    expect(c.message, contains('habilitada'));
+    expect(c.message, contains('no está disponible'));
     c.dispose();
     final p = FakeParking()..open = false;
     final closed = controller(p);
@@ -399,16 +404,18 @@ void main() {
     await tester.pumpWidget(await page(c));
     await tester.pumpAndSettle();
     expect(find.text('TEST-123'), findsWidgets);
+    await tester.tap(find.text('Continuar'));
+    await tester.pumpAndSettle();
     expect(find.textContaining('USD 0.31'), findsOneWidget);
     await tester.ensureVisible(find.text('Revisar resumen'));
     await tester.tap(find.text('Revisar resumen'));
     await tester.pumpAndSettle();
-    expect(find.text('Resumen de la solicitud'), findsOneWidget);
-    await tester.ensureVisible(find.text('Preparar solicitud'));
-    await tester.tap(find.text('Preparar solicitud'));
+    expect(find.text('Resumen del estacionamiento'), findsOneWidget);
+    await tester.ensureVisible(find.text('Continuar al pago'));
+    await tester.tap(find.text('Continuar al pago'));
     await tester.pumpAndSettle();
-    expect(find.text('Solicitud pendiente de pago'), findsOneWidget);
-    expect(find.textContaining('aprobado'), findsOneWidget);
+    expect(find.text('Pago preparado'), findsOneWidget);
+    expect(c.receipt!.status, 'PENDING_PAYMENT');
     c.dispose();
   });
   testWidgets(
@@ -444,6 +451,9 @@ void main() {
         await tester.pumpWidget(await page(c));
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
+        await tester.ensureVisible(find.text('Continuar'));
+        await tester.tap(find.text('Continuar'));
+        await tester.pumpAndSettle();
         await tester.ensureVisible(find.byType(TextFormField));
         await tester.tap(find.byType(TextFormField));
         await tester.enterText(find.byType(TextFormField), '16');

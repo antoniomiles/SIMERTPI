@@ -39,6 +39,47 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {"simertpi.payments.provider=SANDBOX_STUB", "simertpi.payments.sandbox.enabled=true"})
 class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupport.AbstractPostgresIntegrationTest {
+    @Test void availabilityHasNoOccupantDataAndTracksOperationalTransitions() throws Exception {
+        String base="http://localhost:"+port+"/api/v1/parking-spaces/availability";
+        assertThat(restTemplate.getForEntity(base,String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        var own=restTemplate.withBasicAuth("citizen-a-"+fixture.tag,"integration-password");
+        var created=post("citizen-a-"+fixture.tag,"AVAILABILITY",fixture.spaceA,fixture.vehicleA);
+        UUID id=UUID.fromString(objectMapper.readTree(created.getBody()).get("id").asText());
+        for(String state:java.util.List.of("PENDING_PAYMENT","ACTIVE","EXTENDED","EXPIRED","MAX_TIME_REACHED","COMPLETED","CANCELLED")) {
+            jdbc.update("UPDATE parking.parking_sessions SET status=?,expected_end_at=CURRENT_TIMESTAMP+INTERVAL '30 minutes' WHERE id=?",state,id);
+            var body=objectMapper.readTree(own.getForObject(base,String.class));
+            JsonNode view=null; for(var node:body) if(node.get("parkingSpaceId").asText().equals(fixture.spaceA.toString())) view=node;
+            assertThat(view).isNotNull();
+            boolean free=java.util.List.of("COMPLETED","CANCELLED").contains(state);
+            assertThat(view.get("selectable").asBoolean()).isEqualTo(free);
+            assertThat(view.get("operationalStatus").asText()).isEqualTo(free?"AVAILABLE":"OCCUPIED");
+            assertThat(view.has("vehicleId")||view.has("userId")||view.has("sessionId")||view.has("paymentId")).isFalse();
+            if(state.equals("PENDING_PAYMENT")) assertThat(view.get("expectedEndAt").isNull()).isTrue();
+        }
+        jdbc.update("UPDATE parking.parking_sessions SET status='ACTIVE',expected_end_at=CURRENT_TIMESTAMP+INTERVAL '5 minutes' WHERE id=?",id);
+        var views=objectMapper.readTree(own.getForObject(base,String.class));
+        for(var view:views) if(view.get("parkingSpaceId").asText().equals(fixture.spaceA.toString())) assertThat(view.get("operationalStatus").asText()).isEqualTo("ENDING_SOON");
+        jdbc.update("UPDATE parking.parking_spaces SET active=false WHERE id=?",fixture.spaceA);
+        views=objectMapper.readTree(own.getForObject(base,String.class));
+        for(var view:views) if(view.get("parkingSpaceId").asText().equals(fixture.spaceA.toString())) assertThat(view.get("operationalStatus").asText()).isEqualTo("DISABLED");
+    }
+    @Test void vehicleExclusionAllowsAnotherVehicleAndSerializesSameVehicle() throws Exception {
+        String owner="citizen-a-"+fixture.tag;
+        var first=post(owner,"VEHICLE-FIRST",fixture.spaceA,fixture.vehicleA);
+        UUID id=UUID.fromString(objectMapper.readTree(first.getBody()).get("id").asText());
+        for(String state:java.util.List.of("PENDING_PAYMENT","ACTIVE","EXTENDED","EXPIRED","MAX_TIME_REACHED")) {
+            jdbc.update("UPDATE parking.parking_sessions SET status=? WHERE id=?",state,id);
+            assertThat(post(owner,"VEHICLE-"+state,fixture.spaceB,fixture.vehicleA).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        }
+        assertThat(post(owner,"VEHICLE-OTHER",fixture.spaceB,fixture.vehicleA2).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        jdbc.update("UPDATE parking.parking_sessions SET status='COMPLETED',ended_at=CURRENT_TIMESTAMP WHERE id=?",id);
+        var pool=Executors.newFixedThreadPool(2); var gate=new CountDownLatch(1);
+        try {
+            var a=pool.submit(()->{gate.await();return post(owner,"VEHICLE-RACE-A",fixture.spaceC,fixture.vehicleA);});
+            var b=pool.submit(()->{gate.await();return post(owner,"VEHICLE-RACE-B",fixture.spaceD,fixture.vehicleA);});gate.countDown();
+            assertThat(java.util.List.of(a.get().getStatusCode(),b.get().getStatusCode())).containsExactlyInAnyOrder(HttpStatus.CREATED,HttpStatus.CONFLICT);
+        } finally {pool.shutdownNow();}
+    }
     @Autowired ec.gob.simertpi.application.payments.PaymentService lifecyclePayments;
 
     @Test void citizenExtensionQuoteDispatchReplayApprovalAndClosePreserveHistory() throws Exception {
@@ -244,6 +285,7 @@ class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupp
         assertThat(occupied.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(sessionRepository.countByParkingSpaceId(fixture.spaceA)).isEqualTo(1);
 
+        jdbc.update("UPDATE parking.parking_sessions SET status='CANCELLED', ended_at=CURRENT_TIMESTAMP WHERE user_id IN (?, ?)", fixture.userA, fixture.userB);
         ResponseEntity<String> scopedA = post(userA, "KEY-USER-SCOPE", fixture.spaceD, fixture.vehicleA);
         ResponseEntity<String> scopedB = post(userB, "KEY-USER-SCOPE", fixture.spaceE, fixture.vehicleB);
         assertThat(scopedA.getStatusCode()).isEqualTo(HttpStatus.CREATED);
@@ -251,6 +293,7 @@ class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupp
         assertThat(objectMapper.readTree(scopedA.getBody()).get("id").asText())
                 .isNotEqualTo(objectMapper.readTree(scopedB.getBody()).get("id").asText());
 
+        jdbc.update("UPDATE parking.parking_sessions SET status='CANCELLED', ended_at=CURRENT_TIMESTAMP WHERE user_id IN (?, ?)", fixture.userA, fixture.userB);
         CountDownLatch sameKeyGate = new CountDownLatch(1);
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
@@ -271,6 +314,7 @@ class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupp
                     .isEqualTo(objectMapper.readTree(sameTwo.getBody()).get("id").asText());
             assertThat(sessionRepository.countByParkingSpaceId(fixture.spaceB)).isEqualTo(1);
 
+            jdbc.update("UPDATE parking.parking_sessions SET status='CANCELLED', ended_at=CURRENT_TIMESTAMP WHERE user_id IN (?, ?)", fixture.userA, fixture.userB);
             CountDownLatch spaceGate = new CountDownLatch(1);
             Future<ResponseEntity<String>> spaceOne = executor.submit(() -> {
                 spaceGate.await();

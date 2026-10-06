@@ -98,7 +98,24 @@ class ApiClient {
           ? returned
           : id;
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        await response.drain<void>().timeout(readTimeout);
+        String? safeCode;
+        if (response.statusCode == 409) {
+          try {
+            final error = jsonDecode(
+              await utf8.decoder.bind(response).join().timeout(readTimeout),
+            );
+            const allowed = {
+              'VEHICLE_OCCUPIED',
+              'SPACE_UNAVAILABLE',
+              'SPACE_DISABLED',
+            };
+            if (error is Map && allowed.contains(error['code'])) {
+              safeCode = error['code'] as String;
+            }
+          } catch (_) {}
+        } else {
+          await response.drain<void>().timeout(readTimeout);
+        }
         if (response.statusCode == 401 && authenticated && retryUnauthorized) {
           final recovered =
               await onUnauthorized?.call(extra['Authorization']) ?? false;
@@ -132,6 +149,7 @@ class ApiClient {
               ? FailureKind.unavailable
               : FailureKind.rejected,
           correlationId: effectiveId,
+          code: safeCode,
         );
       }
       final text = await utf8.decoder
