@@ -159,10 +159,8 @@ public class ParkingSessionService {
                 .orElseThrow(() -> new ResourceNotFoundException("Parking session not found"));
         User user = findAuthenticatedUser(username);
         requireOwnerOrOperator(session, user);
-        if (!hasStaffRole(user) && !"COMPLETED".equals(session.getStatus())
-                && ("EXPIRED".equals(session.getStatus()) || "MAX_TIME_REACHED".equals(session.getStatus())
-                    || (("ACTIVE".equals(session.getStatus()) || "EXTENDED".equals(session.getStatus()))
-                        && !session.getExpectedEndAt().isAfter(OffsetDateTime.now())))) {
+        if ((!hasStaffRole(user) || user.getId().equals(session.getUserId())) && !"COMPLETED".equals(session.getStatus())
+                && !rules.lifecycle(session, java.time.Instant.now(), 0).closeAllowed()) {
             throw new ec.gob.simertpi.api.ParkingConflictException("PARKING_TIME_EXPIRED");
         }
         return close(sessionId);

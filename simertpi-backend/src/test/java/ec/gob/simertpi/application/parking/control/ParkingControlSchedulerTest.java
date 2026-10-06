@@ -32,24 +32,28 @@ class ParkingControlSchedulerTest {
         ParkingSession active = new ParkingSession();
         ParkingSession extended = new ParkingSession();
         ParkingSession expired = new ParkingSession();
+        ParkingSession maximum = new ParkingSession();
         active.setId(UUID.randomUUID());
         extended.setId(UUID.randomUUID());
         expired.setId(UUID.randomUUID());
+        maximum.setId(UUID.randomUUID());
 
         List<String> expectedStatuses = List.of(
                 "ACTIVE",
                 "EXTENDED",
-                "EXPIRED"
+                "EXPIRED",
+                "MAX_TIME_REACHED"
         );
 
         when(parkingSessionRepository.findByStatusIn(expectedStatuses))
-                .thenReturn(List.of(active, extended, expired));
+                .thenReturn(List.of(active, extended, expired, maximum));
 
         parkingControlScheduler.evaluateParkingControls();
 
         verify(parkingControlEvaluationService).evaluate(active.getId());
         verify(parkingControlEvaluationService).evaluate(extended.getId());
         verify(parkingControlEvaluationService).evaluate(expired.getId());
+        verify(parkingControlEvaluationService).evaluate(maximum.getId());
     }
 
     @Test
@@ -58,7 +62,7 @@ class ParkingControlSchedulerTest {
         ParkingSession next = new ParkingSession();
         failed.setId(UUID.randomUUID());
         next.setId(UUID.randomUUID());
-        List<String> statuses = List.of("ACTIVE", "EXTENDED", "EXPIRED");
+        List<String> statuses = List.of("ACTIVE", "EXTENDED", "EXPIRED", "MAX_TIME_REACHED");
         when(parkingSessionRepository.findByStatusIn(statuses)).thenReturn(List.of(failed, next));
         org.mockito.Mockito.doThrow(new IllegalStateException("broken session"))
                 .when(parkingControlEvaluationService).evaluate(failed.getId());
@@ -75,7 +79,8 @@ class ParkingControlSchedulerTest {
         List<String> expectedStatuses = List.of(
                 "ACTIVE",
                 "EXTENDED",
-                "EXPIRED"
+                "EXPIRED",
+                "MAX_TIME_REACHED"
         );
 
         when(parkingSessionRepository.findByStatusIn(expectedStatuses))

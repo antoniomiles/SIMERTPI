@@ -8,6 +8,7 @@ abstract final class AppColors {
   static const action = Color(0xFF0D6EFD);
   static const successSurface = Color(0xFFE8F7EE);
   static const warningSurface = Color(0xFFFFF5D9);
+  static const criticalSurface = Color(0xFFFAD9DD);
   static const dangerSurface = Color(0xFFFDECEC);
   static const surface = Colors.white;
   static const ink = Color(0xFF141F2E);

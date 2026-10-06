@@ -41,7 +41,7 @@ public class MobileExtensionController {
             Authentication auth) {
         parking.assertSessionOwner(id,auth.getName());
         var session=parking.findById(id);
-        if (!java.util.Set.of("ACTIVE","EXTENDED").contains(session.getStatus()))
+        if (!java.util.Set.of("ACTIVE","EXTENDED","EXPIRED","MAX_TIME_REACHED").contains(session.getStatus()))
             throw new IllegalArgumentException("Session is not eligible for extension");
         return rules.evaluateExtension(session,additionalMinutes,Instant.now());
     }
@@ -49,7 +49,7 @@ public class MobileExtensionController {
     public java.util.List<ParkingRulesResult> options(@PathVariable UUID id, Authentication auth) {
         parking.assertSessionOwner(id, auth.getName());
         var session = parking.findById(id);
-        if (!java.util.Set.of("ACTIVE", "EXTENDED").contains(session.getStatus())) return java.util.List.of();
+        if (!java.util.Set.of("ACTIVE", "EXTENDED", "EXPIRED", "MAX_TIME_REACHED").contains(session.getStatus())) return java.util.List.of();
         Instant now = Instant.now();
         var policy = rules.evaluateExtension(session, null, now);
         return ParkingDurationOptions.quotes(policy, minutes -> rules.evaluateExtension(session, minutes, now));

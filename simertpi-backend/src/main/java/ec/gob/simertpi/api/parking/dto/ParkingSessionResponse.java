@@ -22,5 +22,6 @@ public record ParkingSessionResponse(
         String qrCode,
         String plate,
         String tariffName,
-        Integer durationMinutes
+        Integer durationMinutes,
+        ec.gob.simertpi.application.parking.rules.SessionLifecycle.View operational
 ) {}

@@ -56,6 +56,8 @@ class HttpBasicSecurityTest {
     @MockitoBean private ParkingSpaceRepository parkingSpaceRepository;
     @MockitoBean private VehicleRepository vehicleRepository;
     @MockitoBean private TariffRepository tariffRepository;
+    @MockitoBean private ec.gob.simertpi.application.parking.rules.ParkingRulesService rules;
+    @MockitoBean private ec.gob.simertpi.application.parking.ParkingAvailabilityService availability;
 
     private UUID userId;
     private UUID vehicleId;
@@ -89,6 +91,8 @@ class HttpBasicSecurityTest {
         session.setStartedAt(OffsetDateTime.now());
         session.setExpectedEndAt(session.getStartedAt().plusMinutes(60));
         session.setStatus("PENDING_PAYMENT");
+        when(rules.lifecycle(any(),any(),org.mockito.ArgumentMatchers.anyLong())).thenReturn(
+                new ec.gob.simertpi.application.parking.rules.SessionLifecycle.View("PENDING_PAYMENT",java.time.Instant.now(),null,false,false));
         session.setTotalAmount(BigDecimal.ZERO);
         session.setCreatedAt(session.getStartedAt());
         session.setUpdatedAt(session.getStartedAt());

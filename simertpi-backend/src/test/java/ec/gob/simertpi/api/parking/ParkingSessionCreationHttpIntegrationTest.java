@@ -131,10 +131,12 @@ class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupp
         assertThat(own.postForEntity(base+"/close",null,String.class).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(restTemplate.withBasicAuth("citizen-b-"+fixture.tag,"integration-password").postForEntity(base+"/close",null,String.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         for(String status:java.util.List.of("EXPIRED","MAX_TIME_REACHED")) {
-            jdbc.update("UPDATE parking.parking_sessions SET status=?,ended_at=NULL WHERE id=?",status,id);
+            jdbc.update("UPDATE parking.parking_sessions SET status=?,ended_at=NULL,expected_end_at=CURRENT_TIMESTAMP-INTERVAL '11 minutes',started_at=CURRENT_TIMESTAMP-INTERVAL '71 minutes' WHERE id=?",status,id);
             assertThat(own.postForEntity(base+"/close",null,String.class).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
             assertThat(sessionRepository.findById(id).orElseThrow().getEndedAt()).isNull();
-            assertThat(own.getForEntity(base+"/extensions/quote?additionalMinutes=30",String.class).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+            var quoteResult=own.getForEntity(base+"/extensions/quote?additionalMinutes=30",String.class);
+            assertThat(quoteResult.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(objectMapper.readTree(quoteResult.getBody()).get("extensionAllowed").asBoolean()).isFalse();
             assertThat(own.getForEntity(base+"/extensions/options",String.class).getBody()).isEqualTo("[]");
         }
     }
@@ -206,6 +208,173 @@ class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupp
 
     private Fixture fixture;
 
+    private UUID graceSession(int contracted, int overdue) throws Exception {
+        UUID id=UUID.fromString(objectMapper.readTree(post("citizen-a-"+fixture.tag,"GRACE-"+contracted+"-"+overdue,fixture.spaceA,fixture.vehicleA).getBody()).get("id").asText());
+        jdbc.update("UPDATE parking.parking_sessions SET status='EXPIRED',expected_end_at=CURRENT_TIMESTAMP-(? * INTERVAL '1 minute'),started_at=CURRENT_TIMESTAMP-((?+?) * INTERVAL '1 minute') WHERE id=?",overdue,contracted,overdue,id);
+        return id;
+    }
+    private void inspectorRole() {
+        jdbc.update("INSERT INTO identity.user_roles(user_id,role_id) SELECT ?,id FROM identity.roles WHERE code='INSPECTOR'",fixture.userB);
+    }
+    private ResponseEntity<String> warning(UUID id,String key,String text) {
+        var headers=new HttpHeaders();headers.setBasicAuth("citizen-b-"+fixture.tag,"integration-password");
+        headers.setContentType(MediaType.APPLICATION_JSON);headers.set("Idempotency-Key",key);
+        return restTemplate.postForEntity("http://localhost:"+port+"/api/v1/parking-sessions/"+id+"/verbal-warnings",new HttpEntity<>(Map.of("observation",text),headers),String.class);
+    }
+    @Test void withinGraceQuoteAndCloseKeepOriginalContractUntilConfirmedDeparture() throws Exception {
+        UUID id=graceSession(60,5); var own=restTemplate.withBasicAuth("citizen-a-"+fixture.tag,"integration-password");
+        String base="http://localhost:"+port+"/api/v1/parking-sessions/"+id;
+        var before=sessionRepository.findById(id).orElseThrow();
+        var view=objectMapper.readTree(own.getForObject(base,String.class)).get("operational");
+        assertThat(view.get("state").asText()).isEqualTo("EXPIRED_IN_GRACE");
+        assertThat(view.get("closeAllowed").asBoolean()).isTrue();
+        var quote=objectMapper.readTree(own.getForObject(base+"/extensions/quote?additionalMinutes=30",String.class));
+        assertThat(quote.get("extensionAllowed").asBoolean()).isTrue();
+        assertThat(sessionRepository.findById(id).orElseThrow().getExpectedEndAt()).isEqualTo(before.getExpectedEndAt());
+        assertThat(own.postForEntity(base+"/close",null,String.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(sessionRepository.findById(id).orElseThrow().getStatus()).isEqualTo("COMPLETED");
+    }
+    @Test void municipalWarningIsDurableOwnedIdempotentAndUnlocksOnlyThisExpiry() throws Exception {
+        UUID id=graceSession(180,11); String base="http://localhost:"+port+"/api/v1/parking-sessions/"+id;
+        var own=restTemplate.withBasicAuth("citizen-a-"+fixture.tag,"integration-password");
+        var original=sessionRepository.findById(id).orElseThrow();
+        jdbc.update("INSERT INTO identity.user_roles(user_id,role_id) SELECT ?,id FROM identity.roles WHERE code='INSPECTOR'",fixture.userA);
+        var selfHeaders=new HttpHeaders();selfHeaders.set("Idempotency-Key","SELF-WARNING");
+        assertThat(own.postForEntity(base+"/verbal-warnings",new HttpEntity<>(Map.of("observation","Actuación escrita."),selfHeaders),String.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(own.postForEntity(base+"/close",null,String.class).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        jdbc.update("DELETE FROM identity.user_roles WHERE user_id=? AND role_id IN (SELECT id FROM identity.roles WHERE code='INSPECTOR')",fixture.userA);
+        assertThat(warning(id,"WARN","Actuación verbal realizada.").getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(own.postForEntity(base+"/close",null,String.class).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(objectMapper.readTree(own.getForObject(base,String.class)).get("operational").get("state").asText()).isEqualTo("GRACE_EXCEEDED");
+        assertThat(own.getForObject(base+"/extensions/options",String.class)).isEqualTo("[]");
+        assertThat(post("citizen-b-"+fixture.tag,"OTHER-SPACE",fixture.spaceA,fixture.vehicleB).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(post("citizen-a-"+fixture.tag,"OTHER-VEHICLE",fixture.spaceB,fixture.vehicleA).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        inspectorRole();
+        var pool=Executors.newFixedThreadPool(2);var gate=new CountDownLatch(1);
+        try {
+            var a=pool.submit(()->{gate.await();return warning(id,"WARN","Actuación verbal realizada.");});
+            var b=pool.submit(()->{gate.await();return warning(id,"WARN","Actuación verbal realizada.");});gate.countDown();
+            assertThat(a.get().getStatusCode()).isEqualTo(HttpStatus.OK); assertThat(b.get().getStatusCode()).isEqualTo(HttpStatus.OK);
+        } finally {pool.shutdownNow();}
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM enforcement.verbal_warnings WHERE parking_session_id=?",Integer.class,id)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT inspector_id FROM enforcement.verbal_warnings WHERE parking_session_id=?",UUID.class,id)).isEqualTo(fixture.userB);
+        assertThat(jdbc.queryForObject("SELECT recorded_at<=CURRENT_TIMESTAMP AND recorded_at>CURRENT_TIMESTAMP-INTERVAL '1 minute' FROM enforcement.verbal_warnings WHERE parking_session_id=?",Boolean.class,id)).isTrue();
+        assertThat(warning(id,"OTHER","Otra actuación.").getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(warning(id,"WARN","Texto cambiado.").getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        var view=objectMapper.readTree(own.getForObject(base,String.class)).get("operational");
+        assertThat(view.get("state").asText()).isEqualTo("REGULARIZATION_ALLOWED");assertThat(view.get("closeAllowed").asBoolean()).isTrue();
+        var offers=objectMapper.readTree(own.getForObject(base+"/extensions/options",String.class));
+        assertThat(offers.size()).isEqualTo(2);assertThat(offers.get(0).get("requestedDurationMinutes").asInt()).isEqualTo(30);assertThat(offers.get(1).get("requestedDurationMinutes").asInt()).isEqualTo(60);
+        assertThat(sessionRepository.findById(id).orElseThrow().getStartedAt()).isEqualTo(original.getStartedAt());
+        jdbc.update("UPDATE parking.parking_sessions SET expected_end_at=expected_end_at+INTERVAL '1 minute' WHERE id=?",id);
+        assertThat(objectMapper.readTree(own.getForObject(base,String.class)).get("operational").get("state").asText()).isEqualTo("GRACE_EXCEEDED");
+        jdbc.update("UPDATE parking.parking_sessions SET expected_end_at=? WHERE id=?",original.getExpectedEndAt(),id);
+        assertThat(own.postForEntity(base+"/close",null,String.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM enforcement.verbal_warnings WHERE parking_session_id=?",Integer.class,id)).isEqualTo(1);
+    }
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings={"", "   ", "<script>alert(1)</script>"})
+    void warningRejectsInvalidPlainText(String text) throws Exception {
+        UUID id=graceSession(60,11);inspectorRole();
+        assertThat(warning(id,"INVALID",text).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+    @Test void warningRejectsEarlyNonexistentAndOversizedRequests() throws Exception {
+        UUID id=graceSession(60,5);inspectorRole();
+        assertThat(warning(id,"EARLY","Actuación real.").getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(warning(id,"LONG","x".repeat(501)).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(warning(UUID.randomUUID(),"MISSING","Actuación real.").getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints={180,210,240})
+    void warningDoesNotResetContinuousMaximum(int contracted) throws Exception {
+        UUID id=graceSession(contracted,11);inspectorRole();
+        assertThat(warning(id,"MAXIMUM","Se comunica el vencimiento.").getStatusCode()).isEqualTo(HttpStatus.OK);
+        var own=restTemplate.withBasicAuth("citizen-a-"+fixture.tag,"integration-password");String base="http://localhost:"+port+"/api/v1/parking-sessions/"+id;
+        var offers=objectMapper.readTree(own.getForObject(base+"/extensions/options",String.class));
+        assertThat(offers.size()).isEqualTo((240-contracted)/30);
+        if(contracted==210) assertThat(offers.get(0).get("requestedDurationMinutes").asInt()).isEqualTo(30);
+        if(contracted==180) assertThat(offers.get(1).get("requestedDurationMinutes").asInt()).isEqualTo(60);
+        var state=objectMapper.readTree(own.getForObject(base,String.class)).get("operational");
+        assertThat(state.get("state").asText()).isEqualTo(contracted==240?"MAX_TIME_REACHED":"REGULARIZATION_ALLOWED");
+        assertThat(state.get("extensionEligible").asBoolean()).isEqualTo(contracted<240);
+        assertThat(state.get("closeAllowed").asBoolean()).isTrue();
+        assertThat(own.postForEntity(base+"/close",null,String.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+        var available=objectMapper.readTree(own.getForObject("http://localhost:"+port+"/api/v1/parking-spaces/availability",String.class));
+        for(var space:available) if(space.get("parkingSpaceId").asText().equals(fixture.spaceA.toString()))
+            assertThat(space.get("selectable").asBoolean()).isTrue();
+        assertThat(post("citizen-a-"+fixture.tag,"AFTER-WARNING-CLOSE",fixture.spaceA,fixture.vehicleA).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+    }
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints={5,11})
+    void expiredExtensionRequiresGraceOrRealWarningAndConfirmedPayment(int overdue) throws Exception {
+        UUID id=graceSession(60,overdue);
+        if(overdue==11) { inspectorRole(); assertThat(warning(id,"EXTENSION-WARNING","Se comunica la obligación de regularizar.").getStatusCode()).isEqualTo(HttpStatus.OK); }
+        var original=sessionRepository.findById(id).orElseThrow();
+        var own=restTemplate.withBasicAuth("citizen-a-"+fixture.tag,"integration-password");String base="http://localhost:"+port+"/api/v1/parking-sessions/"+id;
+        var q=objectMapper.readTree(own.getForObject(base+"/extensions/quote?additionalMinutes=30",String.class));
+        var request=Map.of("additionalMinutes",30,"paymentMethod","TEST","idempotencyKey","GRACE-EXTENSION", "expectedAmount",q.get("calculatedAmount").decimalValue(),"expectedEndAt",q.get("expiresAt").asText());
+        var result=own.postForEntity(base+"/extensions/mobile",request,String.class);assertThat(result.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        UUID extensionPayment=UUID.fromString(objectMapper.readTree(result.getBody()).get("paymentId").asText());
+        assertThat(sessionRepository.findById(id).orElseThrow().getStatus()).isEqualTo("EXPIRED");
+        assertThat(sessionRepository.findById(id).orElseThrow().getExpectedEndAt()).isEqualTo(original.getExpectedEndAt());
+        assertThat(own.postForEntity(base+"/close",null,String.class).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        // Established CP12 fixture confirms final approval separately from sandbox dispatch acknowledgment.
+        lifecyclePayments.approve(extensionPayment,"GRACE-FIXTURE-APPROVED");
+        assertThat(lifecyclePayments.findById(extensionPayment).getStatus()).isEqualTo("APPROVED");
+        var current=sessionRepository.findById(id).orElseThrow();
+        assertThat(current.getStatus()).isEqualTo("EXTENDED");assertThat(current.getStartedAt()).isEqualTo(original.getStartedAt());
+        assertThat(current.getExpectedEndAt()).isEqualTo(original.getExpectedEndAt().plusMinutes(30));
+        var replay=own.postForEntity(base+"/extensions/mobile",request,String.class);assertThat(replay.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(sessionRepository.findById(id).orElseThrow().getExpectedEndAt()).isEqualTo(current.getExpectedEndAt());
+        assertThat(post("citizen-b-"+fixture.tag,"STILL-OCCUPIED",fixture.spaceA,fixture.vehicleB).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    @Test void threeRealExtensionsAccumulateSixtyToTwoFortyWithoutReset() throws Exception {
+        UUID id=graceSession(60,5);
+        var original=sessionRepository.findById(id).orElseThrow();
+        var own=restTemplate.withBasicAuth("citizen-a-"+fixture.tag,"integration-password");
+        String base="http://localhost:"+port+"/api/v1/parking-sessions/"+id;
+        for(int total:new int[]{120,180,240}) {
+            var q=objectMapper.readTree(own.getForObject(base+"/extensions/quote?additionalMinutes=60",String.class));
+            assertThat(q.get("extensionAllowed").asBoolean()).isTrue();
+            var request=Map.of("additionalMinutes",60,"paymentMethod","TEST","idempotencyKey","ACCUMULATED-"+total,
+                "expectedAmount",q.get("calculatedAmount").decimalValue(),"expectedEndAt",q.get("expiresAt").asText());
+            var result=own.postForEntity(base+"/extensions/mobile",request,String.class);
+            assertThat(result.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+            lifecyclePayments.approve(UUID.fromString(objectMapper.readTree(result.getBody()).get("paymentId").asText()),"ACCUMULATION-FIXTURE");
+            var current=sessionRepository.findById(id).orElseThrow();
+            assertThat(current.getStartedAt()).isEqualTo(original.getStartedAt());
+            assertThat(java.time.Duration.between(current.getStartedAt(),current.getExpectedEndAt()).toMinutes()).isEqualTo(total);
+            assertThat(own.postForEntity(base+"/extensions/mobile",request,String.class).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+            assertThat(sessionRepository.findById(id).orElseThrow().getExpectedEndAt()).isEqualTo(current.getExpectedEndAt());
+        }
+        assertThat(own.getForEntity(base+"/extensions/options",String.class).getBody()).isEqualTo("[]");
+        assertThat(objectMapper.readTree(own.getForObject(base+"/extensions/quote?additionalMinutes=30",String.class)).get("extensionAllowed").asBoolean()).isFalse();
+        assertThat(sessionRepository.findById(id).orElseThrow().getExtensionCount()).isEqualTo(3);
+    }
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings={"EXPIRED","MAX_TIME_REACHED"})
+    void warningAtOneEightyAllowsOnlyRemainingHourAndApprovalReachesTwoForty(String persisted) throws Exception {
+        UUID id=graceSession(180,11); inspectorRole();
+        jdbc.update("UPDATE parking.parking_sessions SET status=? WHERE id=?",persisted,id);
+        var before=sessionRepository.findById(id).orElseThrow();
+        assertThat(warning(id,"LAST-HOUR","Se comunica la obligación de regularizar.").getStatusCode()).isEqualTo(HttpStatus.OK);
+        var own=restTemplate.withBasicAuth("citizen-a-"+fixture.tag,"integration-password");
+        String base="http://localhost:"+port+"/api/v1/parking-sessions/"+id;
+        var q=objectMapper.readTree(own.getForObject(base+"/extensions/quote?additionalMinutes=60",String.class));
+        assertThat(q.get("extensionAllowed").asBoolean()).isTrue();
+        var request=Map.of("additionalMinutes",60,"paymentMethod","TEST","idempotencyKey","LAST-HOUR-PAYMENT",
+            "expectedAmount",q.get("calculatedAmount").decimalValue(),"expectedEndAt",q.get("expiresAt").asText());
+        var response=own.postForEntity(base+"/extensions/mobile",request,String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(sessionRepository.findById(id).orElseThrow().getStatus()).isEqualTo("EXPIRED");
+        lifecyclePayments.approve(UUID.fromString(objectMapper.readTree(response.getBody()).get("paymentId").asText()),"LAST-HOUR-FIXTURE");
+        var after=sessionRepository.findById(id).orElseThrow();
+        assertThat(after.getStartedAt()).isEqualTo(before.getStartedAt());
+        assertThat(java.time.Duration.between(after.getStartedAt(),after.getExpectedEndAt()).toMinutes()).isEqualTo(240);
+        assertThat(own.getForEntity(base+"/extensions/options",String.class).getBody()).isEqualTo("[]");
+    }
+
     @BeforeEach
     void setUp() {
         fixture = new Fixture();
@@ -240,6 +409,7 @@ class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupp
     @AfterEach
     void cleanUp() {
         if (fixture == null) return;
+        jdbc.update("DELETE FROM enforcement.verbal_warnings WHERE parking_session_id IN (SELECT id FROM parking.parking_sessions WHERE user_id IN (?, ?))", fixture.userA, fixture.userB);
         jdbc.update("DELETE FROM audit.idempotency_keys WHERE user_id IN (?, ?)", fixture.userA, fixture.userB);
         jdbc.update("DELETE FROM notification.notifications WHERE user_id IN (?, ?)", fixture.userA, fixture.userB);
         jdbc.update("DELETE FROM parking.parking_control_events WHERE user_id IN (?, ?)", fixture.userA, fixture.userB);

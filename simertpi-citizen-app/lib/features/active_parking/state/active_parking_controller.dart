@@ -54,14 +54,16 @@ class ActiveParkingController extends ChangeNotifier {
       final all = await gateway.mine(owner);
       if (all.any((s) => s.owner != owner)) throw invalidParking;
       if (_disposed) return;
+      for (final session in all) {
+        session.anchor(now());
+      }
       sessions = all
           .where((s) => openParkingStates.contains(s.status))
           .toList();
       extensionOptions = {};
       if (gateway is DurationOptionsGateway) {
         for (final session in sessions) {
-          if (!{'ACTIVE', 'EXTENDED'}.contains(session.status) ||
-              !session.expectedEndAt.isAfter(now())) {
+          if (!session.extensionAllowed(now())) {
             continue;
           }
           try {
@@ -106,11 +108,13 @@ class ActiveParkingController extends ChangeNotifier {
     emit();
     try {
       selected = await gateway.session(id);
+      selected!.anchor(now());
       if (selected!.owner != owner) throw invalidParking;
       intent = await store.read();
       if (intent != null) {
         if (intent!['owner'] != owner) throw invalidParking;
         selected = await gateway.session(intent!['sessionId'] as String);
+        selected!.anchor(now());
         if (selected!.owner != owner) throw invalidParking;
         if (intent!['paymentId'] != null) {
           await _payment(intent!['paymentId'] as String);
@@ -119,7 +123,7 @@ class ActiveParkingController extends ChangeNotifier {
         }
         return;
       }
-      if (!{'ACTIVE', 'EXTENDED'}.contains(selected!.status)) return;
+      if (!selected!.extensionAllowed(now())) return;
       final policy = await gateway.quote(id, null);
       final minutes = policy.minimum;
       if (minutes != null && minutes > 0) {
@@ -171,8 +175,7 @@ class ActiveParkingController extends ChangeNotifier {
       intent == null &&
       quote?.quoted == true &&
       selected != null &&
-      {'ACTIVE', 'EXTENDED'}.contains(selected!.status) &&
-      selected!.expectedEndAt.isAfter(now());
+      selected!.extensionAllowed(now());
   Future<void> confirmExtension() async {
     if (!canExtend) return;
     busy = true;
@@ -230,6 +233,7 @@ class ActiveParkingController extends ChangeNotifier {
     }
     payment = p;
     selected = await gateway.session(p.sessionId);
+    selected!.anchor(now());
     if (selected!.owner != owner || selected!.id != p.sessionId) {
       throw invalidParking;
     }
@@ -278,6 +282,7 @@ class ActiveParkingController extends ChangeNotifier {
     emit();
     try {
       final current = await gateway.session(id);
+      current.anchor(now());
       if (current.owner != owner || current.id != id) throw invalidParking;
       if (current.status == 'COMPLETED') {
         sessions.removeWhere((s) => s.id == id);
@@ -285,10 +290,7 @@ class ActiveParkingController extends ChangeNotifier {
         return true;
       }
       if (!openParkingStates.contains(current.status) ||
-          current.status == 'EXPIRED' ||
-          current.status == 'MAX_TIME_REACHED' ||
-          ({'ACTIVE', 'EXTENDED'}.contains(current.status) &&
-              !current.expectedEndAt.isAfter(now()))) {
+          !current.closeAllowed(now())) {
         throw invalidParking;
       }
       final result = await gateway.close(id);

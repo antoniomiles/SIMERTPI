@@ -19,6 +19,7 @@ class ParkingRulesServiceTest {
     StreetRepository streets;
     ZoneRepository zones;
     ParkingRulesService service;
+    ec.gob.simertpi.application.enforcement.VerbalWarningStore warnings;
     UUID zoneId, spaceId;
     Instant at = Instant.parse("2026-10-05T15:00:00Z");
     Tariff tariff;
@@ -30,7 +31,8 @@ class ParkingRulesServiceTest {
         schedules = mock(ScheduleRepository.class); holidays = mock(HolidayRepository.class);
         tariffs = mock(TariffRepository.class); spaces = mock(ParkingSpaceRepository.class);
         streets = mock(StreetRepository.class); zones = mock(ZoneRepository.class);
-        service = new ParkingRulesService(new ParkingCalendarService(schedules, holidays), tariffs, spaces, streets, zones, "America/Guayaquil");
+        warnings=mock(ec.gob.simertpi.application.enforcement.VerbalWarningStore.class);
+        service = new ParkingRulesService(new ParkingCalendarService(schedules, holidays), tariffs, spaces, streets, zones, "America/Guayaquil", warnings);
         schedule = new Schedule(); schedule.setId(UUID.randomUUID()); schedule.setZoneId(zoneId); schedule.setDayOfWeek((short)1);
         schedule.setStartTime(LocalTime.of(9,0)); schedule.setEndTime(LocalTime.of(18,0));
         when(schedules.findByZoneIdAndDayOfWeekAndActiveTrue(eq(zoneId), anyShort())).thenReturn(List.of(schedule));
@@ -112,11 +114,17 @@ class ParkingRulesServiceTest {
     @Test void queryBySpaceOrQrMatches() { assertThat(service.evaluate(null,"QR-TEST",at,60)).isEqualTo(evaluate(60)); }
     @Test void extensionWithinAccumulatedMaximum() { var r=service.evaluateExtension(session,90,at); assertThat(r.extensionAllowed()).isTrue(); assertThat(r.expiresAt()).isEqualTo(session.getStartedAt().plusMinutes(180).toInstant()); }
     @Test void extensionBeyondAccumulatedMaximum() { assertThat(service.evaluateExtension(session,91,at).reasonCode()).isEqualTo("MAX_CONTINUOUS_EXCEEDED"); }
-    @Test void elapsedContractNeverAllowsExtensionEvenWithinGrace() {
+    @Test void graceBoundaryBlocksWithoutWarning() {
         session.setExpectedEndAt(at.minusSeconds(7*60).atOffset(ZoneOffset.UTC));
-        assertThat(service.evaluateExtension(session,30,at).reasonCode()).isEqualTo("PARKING_TIME_EXPIRED");
+        assertThat(service.evaluateExtension(session,30,at).reasonCode()).isEqualTo("SESSION_NOT_EXTENSIBLE");
         session.setExpectedEndAt(at.minusSeconds(7*60+1).atOffset(ZoneOffset.UTC));
-        assertThat(service.evaluateExtension(session,30,at).reasonCode()).isEqualTo("PARKING_TIME_EXPIRED");
+        assertThat(service.evaluateExtension(session,30,at).reasonCode()).isEqualTo("SESSION_NOT_EXTENSIBLE");
+    }
+    @Test void expiredWithinGraceCanExtendWithoutMovingOriginalStart() {
+        session.setStatus("EXPIRED"); session.setExpectedEndAt(at.minusSeconds(60).atOffset(ZoneOffset.UTC));
+        var start=session.getStartedAt(); var end=session.getExpectedEndAt();
+        assertThat(service.evaluateExtension(session,30,at).extensionAllowed()).isTrue();
+        assertThat(session.getStartedAt()).isEqualTo(start); assertThat(session.getExpectedEndAt()).isEqualTo(end);
     }
     @Test void doesNotSellAcrossClosingTime() { assertThat(service.evaluate(spaceId,null,Instant.parse("2026-10-05T22:30:00Z"),60).reasonCode()).isEqualTo("DURATION_OUTSIDE_OPERATION_HOURS"); }
     @Test void timezoneDeterminesCalendarDate() {

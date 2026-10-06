@@ -26,6 +26,7 @@ class _ActiveParkingPanelState extends State<ActiveParkingPanel>
     with WidgetsBindingObserver {
   Timer? timer;
   bool opening = false;
+  int syncSeconds = 0;
   final refreshed = <String>{};
   @override
   void initState() {
@@ -40,9 +41,22 @@ class _ActiveParkingPanelState extends State<ActiveParkingPanel>
       if (!mounted) return;
       final c = widget.controller;
       for (final s in c.sessions) {
-        final key = '${s.id}:${s.expectedEndAt.toIso8601String()}';
-        if (!s.expectedEndAt.isAfter(c.now()) && !refreshed.contains(key)) {
+        final boundary = s.nextTransitionAt ?? s.expectedEndAt;
+        final key = '${s.id}:${boundary.toIso8601String()}';
+        if (!boundary.isAfter(s.serverNow(c.now())) &&
+            !refreshed.contains(key)) {
           refreshed.add(key);
+          c.load();
+        }
+      }
+      if (++syncSeconds >= 60) {
+        syncSeconds = 0;
+        if (c.sessions.any(
+          (s) => {
+            'GRACE_EXCEEDED',
+            'MAX_TIME_REACHED',
+          }.contains(s.temporalState(c.now())),
+        )) {
           c.load();
         }
       }
@@ -153,41 +167,42 @@ class _ActiveParkingPanelState extends State<ActiveParkingPanel>
     ActiveParkingController c,
     ParkingReceipt s,
   ) {
-    final left = s.expectedEndAt.difference(c.now()).inSeconds;
+    final left = s.expectedEndAt.difference(s.serverNow(c.now())).inSeconds;
     final location = c.locations?.spaces
         .where((v) => v.id == s.spaceId)
         .firstOrNull;
-    final expired = s.status == 'EXPIRED' || left <= 0;
-    final maximum = s.status == 'MAX_TIME_REACHED';
-    final soon =
-        !expired &&
-        !maximum &&
-        (location?.endingSoonSeconds != null
-            ? left <= location!.endingSoonSeconds!
-            : location?.operationalStatus == 'ENDING_SOON');
-    final color = expired || maximum
+    final phase = s.temporalState(
+      c.now(),
+      warningSeconds: location?.endingSoonSeconds,
+    );
+    final maximum = phase == 'MAX_TIME_REACHED';
+    final expired = !{'ACTIVE', 'ENDING_SOON'}.contains(phase);
+    final soon = phase == 'ENDING_SOON';
+    final color = expired
         ? AppColors.occupied
         : soon
         ? AppColors.endingSoon
         : AppColors.available;
-    final label = maximum
-        ? 'Tiempo máximo alcanzado'
-        : expired
-        ? 'Tiempo de estacionamiento vencido'
-        : soon
-        ? 'Próximo a vencer'
-        : 'Estacionamiento activo';
+    final label = switch (phase) {
+      'MAX_TIME_REACHED' => 'Tiempo máximo alcanzado',
+      'GRACE_EXCEEDED' => 'Período de gracia finalizado',
+      'REGULARIZATION_ALLOWED' => 'Regulariza tu estacionamiento',
+      'EXPIRED_IN_GRACE' ||
+      'EXPIRED_PENDING_SYNC' => 'Tu tiempo de estacionamiento terminó',
+      'ENDING_SOON' => 'Próximo a vencer',
+      _ => 'Estacionamiento activo',
+    };
     final extend =
-        !maximum &&
-        !expired &&
         !c.busy &&
         !c.stale &&
-        {'ACTIVE', 'EXTENDED'}.contains(s.status) &&
+        s.extensionAllowed(c.now()) &&
         (c.gateway is! DurationOptionsGateway ||
             c.extensionOptions[s.id]?.isNotEmpty == true);
-    final close = !c.busy && !c.stale && (!expired && !maximum);
+    final close = !c.busy && !c.stale && s.closeAllowed(c.now());
     return OperationalCard(
-      color: expired || maximum
+      color: phase == 'GRACE_EXCEEDED'
+          ? AppColors.criticalSurface
+          : expired || maximum
           ? AppColors.dangerSurface
           : soon
           ? AppColors.warningSurface
@@ -251,7 +266,11 @@ class _ActiveParkingPanelState extends State<ActiveParkingPanel>
                         Text(
                           maximum
                               ? 'Has cumplido el tiempo máximo permitido en este espacio.\nDebes mover tu vehículo a otro espacio.'
-                              : 'El tiempo contratado ha finalizado.',
+                              : phase == 'GRACE_EXCEEDED'
+                              ? 'El tiempo permitido ha sido excedido. Un controlador municipal podrá registrar la actuación correspondiente.'
+                              : phase == 'REGULARIZATION_ALLOWED'
+                              ? 'Se ha registrado la actuación correspondiente.'
+                              : 'Extiende tu tiempo o finaliza tu estacionamiento.',
                           style: TextStyle(color: color),
                         )
                       else ...[
@@ -311,10 +330,7 @@ class _ActiveParkingPanelState extends State<ActiveParkingPanel>
                   return Row(children: buttons);
                 },
               ),
-            if (expired && !maximum && !extend && !c.loading)
-              const Text(
-                'No es posible extender una sesión vencida. Solicita asistencia para resolverla.',
-              ),
+
             if (maximum)
               const Text(
                 'El límite continuo impide extender este estacionamiento.',

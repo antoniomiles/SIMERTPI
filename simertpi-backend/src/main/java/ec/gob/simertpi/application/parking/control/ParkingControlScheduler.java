@@ -23,7 +23,8 @@ public class ParkingControlScheduler {
     private static final List<String> EVALUABLE_STATUSES = List.of(
             "ACTIVE",
             "EXTENDED",
-            "EXPIRED"
+            "EXPIRED",
+            "MAX_TIME_REACHED"
     );
 
     private final ParkingSessionRepository parkingSessionRepository;

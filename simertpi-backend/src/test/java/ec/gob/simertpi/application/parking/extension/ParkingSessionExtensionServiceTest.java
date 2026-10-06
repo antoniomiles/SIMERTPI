@@ -44,15 +44,16 @@ class ParkingSessionExtensionServiceTest {
     private ParkingSessionExtensionService service;
 
     @Test
-    void shouldRejectExpiredExtensionEvenDuringOperationalGrace() {
+    void expiredExtensionMustRevalidateRulesBeforePayment() {
         var now = OffsetDateTime.now();
         for (int overdue : java.util.List.of(5,11)) {
             var session=createSession("EXPIRED",now.minusHours(1),now.minusMinutes(overdue));
             when(parkingSessionRepository.findByIdForUpdate(session.getId())).thenReturn(Optional.of(session));
+            when(rules.evaluateExtension(eq(session),eq(30),any())).thenThrow(new IllegalArgumentException("SESSION_NOT_EXTENSIBLE"));
             assertThrows(IllegalArgumentException.class,()->service.requestExtension(session.getId(),30,
                 "TEST_PROVIDER","TEST_METHOD","EXPIRED-"+overdue));
         }
-        verifyNoInteractions(paymentService, rules);
+        verifyNoInteractions(paymentService);
         verify(sessionExtensionRepository,never()).save(any(SessionExtension.class));
     }
 
@@ -69,6 +70,9 @@ class ParkingSessionExtensionServiceTest {
         when(parkingSessionRepository.findByIdForUpdate(session.getId()))
                 .thenReturn(Optional.of(session));
 
+        when(rules.evaluateExtension(eq(session),eq(30),any()))
+                .thenReturn(quote(session,false,"SESSION_NOT_EXTENSIBLE",30));
+
         IllegalArgumentException exception = assertThrows(
                 IllegalArgumentException.class,
                 () -> service.requestExtension(
@@ -81,7 +85,7 @@ class ParkingSessionExtensionServiceTest {
         );
 
         assertEquals(
-                "Parking session has reached maximum continuous parking time",
+                "SESSION_NOT_EXTENSIBLE",
                 exception.getMessage()
         );
 

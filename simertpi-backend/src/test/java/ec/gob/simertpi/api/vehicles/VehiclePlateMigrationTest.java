@@ -27,7 +27,7 @@ class VehiclePlateMigrationTest extends AbstractPostgresIntegrationTest {
             UUID a = UUID.randomUUID(), b = UUID.randomUUID();
             jdbc.update("INSERT INTO identity.vehicles(id,user_id,plate) VALUES (?,?,'tbe1234')", a, owner);
             jdbc.update("INSERT INTO identity.vehicles(id,user_id,plate) VALUES (?,?,'TBE1234')", b, other);
-            var latest = Flyway.configure().dataSource(dataSource).load();
+            var latest = Flyway.configure().dataSource(dataSource).target("31").load();
             if (collision) {
                 assertThatThrownBy(latest::migrate).hasStackTraceContaining("active associations collide for an owner");
                 assertThat(jdbc.queryForObject("SELECT plate FROM identity.vehicles WHERE id=?", String.class, a)).isEqualTo("tbe1234");

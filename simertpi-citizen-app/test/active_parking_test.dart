@@ -253,7 +253,7 @@ void main() {
       expect(
         find.text(
           state == 'EXPIRED'
-              ? 'Tiempo de estacionamiento vencido'
+              ? 'Tu tiempo de estacionamiento terminó'
               : state == 'MAX_TIME_REACHED'
               ? 'Tiempo máximo alcanzado'
               : 'Estacionamiento activo',

@@ -29,17 +29,22 @@ public class ParkingSessionController {
     private final ParkingSpaceRepository parkingSpaceRepository;
     private final VehicleRepository vehicleRepository;
     private final TariffRepository tariffRepository;
+    private final ec.gob.simertpi.application.parking.rules.ParkingRulesService rules;
+    private final ec.gob.simertpi.application.parking.ParkingAvailabilityService availability;
 
     public ParkingSessionController(ParkingSessionService parkingSessionService,
                                     IdempotentParkingSessionCreationService idempotentCreationService,
                                     ParkingSpaceRepository parkingSpaceRepository,
                                     VehicleRepository vehicleRepository,
-                                    TariffRepository tariffRepository) {
+                                    TariffRepository tariffRepository,
+                                    ec.gob.simertpi.application.parking.rules.ParkingRulesService rules,
+                                    ec.gob.simertpi.application.parking.ParkingAvailabilityService availability) {
         this.parkingSessionService = parkingSessionService;
         this.idempotentCreationService = idempotentCreationService;
         this.parkingSpaceRepository = parkingSpaceRepository;
         this.vehicleRepository = vehicleRepository;
         this.tariffRepository = tariffRepository;
+        this.rules=rules; this.availability=availability;
     }
 
     @PostMapping("/parking/sessions")
@@ -70,7 +75,7 @@ public class ParkingSessionController {
                 session.getTotalAmount(), session.getExtensionCount(), session.getCreatedAt(),
                 session.getUpdatedAt(), space.getCode(), space.getQrCode(), vehicle.getPlate(),
                 tariff.getName(), (int) java.time.Duration.between(session.getStartedAt(),
-                session.getExpectedEndAt()).toMinutes());
+                session.getExpectedEndAt()).toMinutes(), operational(session));
     }
 
     @PostMapping
@@ -163,7 +168,18 @@ public class ParkingSessionController {
                 session.getTotalAmount(),
                 session.getExtensionCount(),
                 session.getCreatedAt(),
-                session.getUpdatedAt(), null, null, null, null, null
+                session.getUpdatedAt(), null, null, null, null, null, operational(session)
         );
+    }
+    private ec.gob.simertpi.application.parking.rules.SessionLifecycle.View operational(ParkingSession session) {
+        var view=rules.lifecycle(session,java.time.Instant.now(),availability.endingSoonSeconds());
+        boolean extend=view.extensionEligible();
+        if (extend) {
+            var tariff=tariffRepository.findById(session.getTariffId()).orElse(null);
+            extend=tariff!=null && tariff.getMinMinutes()!=null
+                    && rules.evaluateExtension(session,tariff.getMinMinutes(),view.evaluatedAt()).extensionAllowed();
+        }
+        return new ec.gob.simertpi.application.parking.rules.SessionLifecycle.View(view.state(),view.evaluatedAt(),
+                view.nextTransitionAt(),extend,view.closeAllowed());
     }
 }

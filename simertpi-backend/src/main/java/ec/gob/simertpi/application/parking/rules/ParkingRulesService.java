@@ -22,12 +22,14 @@ public class ParkingRulesService {
     private final StreetRepository streets;
     private final ZoneRepository zones;
     private final ZoneId timeZone;
+    private final ec.gob.simertpi.application.enforcement.VerbalWarningStore warnings;
 
     public ParkingRulesService(ParkingCalendarService calendar, TariffRepository tariffs,
             ParkingSpaceRepository spaces, StreetRepository streets, ZoneRepository zones,
-            @Value("${simertpi.parking.rules.time-zone}") String timeZone) {
+            @Value("${simertpi.parking.rules.time-zone}") String timeZone,
+            ec.gob.simertpi.application.enforcement.VerbalWarningStore warnings) {
         this.calendar = calendar; this.tariffs = tariffs; this.spaces = spaces;
-        this.streets = streets; this.zones = zones; this.timeZone = ZoneId.of(timeZone);
+        this.streets = streets; this.zones = zones; this.timeZone = ZoneId.of(timeZone); this.warnings=warnings;
     }
     public ParkingRulesResult evaluate(UUID spaceId, String qrCode, Instant at, Integer minutes) {
         if ((spaceId == null) == (qrCode == null || qrCode.isBlank()))
@@ -84,8 +86,7 @@ public class ParkingRulesService {
         var quote = evaluateSpace(space, at, minutes, retained);
         String reason = quote.reasonCode();
         Instant expires = null;
-        if (!java.util.Set.of("ACTIVE", "EXTENDED").contains(session.getStatus() == null ? "" : session.getStatus())) reason = "SESSION_NOT_EXTENSIBLE";
-        else if (session.getExpectedEndAt() == null || !at.isBefore(session.getExpectedEndAt().toInstant())) reason = "PARKING_TIME_EXPIRED";
+        if (!lifecycle(session, at, 0).extensionEligible()) reason = "SESSION_NOT_EXTENSIBLE";
         else if (retained == null) reason = "NO_ACTIVE_TARIFF";
         else if (minutes == null || minutes <= 0 || session.getStartedAt() == null || session.getExpectedEndAt() == null) reason = "INVALID_DURATION";
         else if (quote.operational()) {
@@ -93,7 +94,6 @@ public class ParkingRulesService {
             Duration total = Duration.between(session.getStartedAt().toInstant(), expires);
             if (total.isNegative() || total.compareTo(Duration.ofMinutes(quote.maximumContinuousMinutes())) > 0) reason = "MAX_CONTINUOUS_EXCEEDED";
             else if (!expires.isAfter(at)) reason = "EXTENSION_END_NOT_FUTURE";
-            else if (at.isAfter(session.getExpectedEndAt().toInstant().plus(Duration.ofMinutes(quote.gracePeriodMinutes())))) reason = "EXTENSION_GRACE_EXCEEDED";
             else if (expires.isAfter(quote.evaluatedAt().toLocalDate().atTime(quote.applicableSchedule().endTime()).atZone(timeZone).toInstant())) reason = "DURATION_OUTSIDE_OPERATION_HOURS";
         }
         return new ParkingRulesResult(quote.zoneId(), quote.spaceId(), quote.evaluatedAt(), quote.chargeable(),
@@ -146,4 +146,10 @@ public class ParkingRulesService {
                 amount, minutes, billed, expires, resolved, reason, t == null ? null : t.getId());
     }
     public record SessionPolicy(Integer maximumContinuousMinutes, Integer gracePeriodMinutes, String reasonCode) { }
+    public SessionLifecycle.View lifecycle(ParkingSession session, Instant at, long threshold) {
+        var policy=sessionPolicy(session);
+        boolean warned=session.getExpectedEndAt()!=null && session.getId()!=null
+                && warnings.forExpiry(session.getId(),session.getExpectedEndAt()).isPresent();
+        return SessionLifecycle.project(session,policy.maximumContinuousMinutes(),policy.gracePeriodMinutes(),warned,at,threshold);
+    }
 }

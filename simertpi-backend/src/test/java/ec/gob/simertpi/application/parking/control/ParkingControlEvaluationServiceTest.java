@@ -66,7 +66,7 @@ class ParkingControlEvaluationServiceTest {
 
     @Test
     void usesEveryExcessBandAndGraceBoundary() {
-        assertOverdueBand(10, "GRACE_PERIOD");
+        assertOverdueBand(10, "AMONESTACION");
         assertOverdueBand(11, "EXCESS_11_30");
         assertOverdueBand(30, "EXCESS_11_30");
         assertOverdueBand(31, "EXCESS_31_60");
@@ -91,9 +91,9 @@ class ParkingControlEvaluationServiceTest {
     }
 
     @Test
-    void marksMaximumTimeOnceAndDoesNotAlsoMarkExpiry() {
+    void maximumPurchasedTimeStillFollowsExpirationAndGrace() {
         OffsetDateTime now = OffsetDateTime.parse("2026-10-02T10:00:00Z");
-        ParkingSession session = session("ACTIVE", now.minusMinutes(240), now.minusMinutes(20));
+        ParkingSession session = session("ACTIVE", now.minusMinutes(260), now.minusMinutes(20));
         when(rules.sessionPolicy(session)).thenReturn(new ec.gob.simertpi.application.parking.rules.ParkingRulesService.SessionPolicy(240, 10, "RULES_RESOLVED"));
         when(events.insertIfAbsent(any(), any(), any(), any(), any(), anyString(), any(), anyInt())).thenReturn(1);
 
@@ -101,7 +101,15 @@ class ParkingControlEvaluationServiceTest {
 
         assertEquals("MAX_TIME_REACHED", session.getStatus());
         verify(events).insertIfAbsent(any(), eq(session.getId()), any(), any(), any(), eq("MAX_TIME_REACHED"), eq(now), eq(0));
-        verify(events, never()).insertIfAbsent(any(), any(), any(), any(), any(), eq("EXPIRATION"), any(), anyInt());
+        verify(events).insertIfAbsent(any(), any(), any(), any(), any(), eq("EXPIRATION"), any(), anyInt());
+    }
+    @Test void elapsedFourHoursDoesNotCreateUnpurchasedMaximum() {
+        var end=OffsetDateTime.parse("2026-10-02T10:00:00Z");
+        var session=session("EXPIRED",end.minusHours(3),end);
+        when(rules.sessionPolicy(session)).thenReturn(new ec.gob.simertpi.application.parking.rules.ParkingRulesService.SessionPolicy(240,10,"RULES_RESOLVED"));
+        service.evaluate(session,end.plusHours(2));
+        assertEquals("EXPIRED",session.getStatus());
+        verify(events,never()).insertIfAbsent(any(),any(),any(),any(),any(),eq("MAX_TIME_REACHED"),any(),anyInt());
     }
 
     @Test

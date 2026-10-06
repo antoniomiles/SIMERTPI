@@ -87,14 +87,9 @@ public class ParkingSessionExtensionService {
             }
         }
 
-        if (STATUS_MAX_TIME_REACHED.equals(session.getStatus())) {
-            throw new IllegalArgumentException(
-                    "Parking session has reached maximum continuous parking time"
-            );
-        }
-
         if (!STATUS_ACTIVE.equals(session.getStatus())
-                && !STATUS_EXTENDED.equals(session.getStatus())) {
+                && !STATUS_EXTENDED.equals(session.getStatus()) && !"EXPIRED".equals(session.getStatus())
+                && !STATUS_MAX_TIME_REACHED.equals(session.getStatus())) {
             throw new IllegalArgumentException(
                     "Parking session is not eligible for extension"
             );
@@ -118,6 +113,12 @@ public class ParkingSessionExtensionService {
 
         var quote = rules.evaluateExtension(session, additionalMinutes, now.toInstant());
         if (!quote.extensionAllowed()) throw new IllegalArgumentException(quote.reasonCode());
+        // Old elapsed-time MAX indicators must not contradict a server-authorized contract-capacity quote.
+        if (STATUS_MAX_TIME_REACHED.equals(session.getStatus())) {
+            session.setStatus(session.getExpectedEndAt().isAfter(now) ? STATUS_ACTIVE : "EXPIRED");
+            session.setUpdatedAt(now);
+            parkingSessionRepository.save(session);
+        }
         OffsetDateTime previousExpectedEndAt = session.getExpectedEndAt();
         OffsetDateTime newExpectedEndAt = quote.expiresAt().atOffset(previousExpectedEndAt.getOffset());
         BigDecimal extensionAmount = quote.calculatedAmount();

@@ -166,7 +166,10 @@ class ParkingReceipt {
       tariffId = data['tariffId'] as String?,
       status = requiredText(data, 'status'),
       startedAt = DateTime.parse(requiredText(data, 'startedAt')),
-      expectedEndAt = DateTime.parse(requiredText(data, 'expectedEndAt')) {
+      expectedEndAt = DateTime.parse(requiredText(data, 'expectedEndAt')),
+      operational = data['operational'] is Map
+          ? Map<String, dynamic>.from(data['operational'] as Map)
+          : null {
     if (!RegExp(r'(Z|[+-]\d{2}:\d{2})$')
             .hasMatch(requiredText(data, 'startedAt')) ||
         !RegExp(r'(Z|[+-]\d{2}:\d{2})$')
@@ -189,6 +192,59 @@ class ParkingReceipt {
   final String id, owner, spaceId, vehicleId, status;
   final String? tariffId;
   final DateTime startedAt, expectedEndAt;
+  final Map<String, dynamic>? operational;
+  DateTime? _receivedAt;
+  void anchor(DateTime localNow) => _receivedAt = localNow;
+  DateTime serverNow(DateTime localNow) {
+    final value = operational?['evaluatedAt'];
+    return value is String && _receivedAt != null
+        ? DateTime.parse(value).add(localNow.difference(_receivedAt!))
+        : localNow;
+  }
+
+  DateTime? get nextTransitionAt => operational?['nextTransitionAt'] is String
+      ? DateTime.parse(operational!['nextTransitionAt'] as String)
+      : null;
+  String temporalState(DateTime localNow, {int? warningSeconds}) {
+    final at = serverNow(localNow);
+    final phase = operational?['state'] as String?;
+    if (phase == 'MAX_TIME_REACHED' ||
+        (operational == null && status == 'MAX_TIME_REACHED')) {
+      return 'MAX_TIME_REACHED';
+    }
+    if (phase == 'EXPIRED_IN_GRACE') {
+      return nextTransitionAt != null && !at.isBefore(nextTransitionAt!)
+          ? 'GRACE_EXCEEDED'
+          : phase!;
+    }
+    if (phase == 'REGULARIZATION_ALLOWED') {
+      return phase!;
+    }
+    if (phase == 'GRACE_EXCEEDED') return phase!;
+    if (!expectedEndAt.isAfter(at) || status == 'EXPIRED') {
+      return 'EXPIRED_PENDING_SYNC';
+    }
+    if (warningSeconds != null &&
+        expectedEndAt.difference(at).inSeconds <= warningSeconds) {
+      return 'ENDING_SOON';
+    }
+    return phase == 'ENDING_SOON' ? phase! : 'ACTIVE';
+  }
+
+  bool extensionAllowed(DateTime at) => operational != null
+      ? operational!['extensionEligible'] == true &&
+            {
+              'ACTIVE',
+              'ENDING_SOON',
+              'EXPIRED_IN_GRACE',
+              'REGULARIZATION_ALLOWED',
+            }.contains(temporalState(at))
+      : {'ACTIVE', 'EXTENDED'}.contains(status) && expectedEndAt.isAfter(at);
+  bool closeAllowed(DateTime at) => operational != null
+      ? operational!['closeAllowed'] == true &&
+            temporalState(at) != 'GRACE_EXCEEDED' &&
+            temporalState(at) != 'EXPIRED_PENDING_SYNC'
+      : {'ACTIVE', 'EXTENDED'}.contains(status) && expectedEndAt.isAfter(at);
   bool matches(ParkingIntent i) =>
       owner == i.owner &&
       spaceId == i.spaceId &&

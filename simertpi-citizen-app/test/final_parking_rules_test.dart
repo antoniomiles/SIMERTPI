@@ -96,7 +96,7 @@ void main() {
     clock = end;
     await tester.pump(const Duration(seconds: 1));
     await tester.pump();
-    expect(find.text('Tiempo de estacionamiento vencido'), findsOneWidget);
+    expect(find.text('Tu tiempo de estacionamiento terminó'), findsOneWidget);
     expect(find.text('Extender'), findsNothing);
     expect(find.text('Finalizar'), findsNothing);
     await tester.pumpWidget(const SizedBox());

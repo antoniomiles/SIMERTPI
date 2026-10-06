@@ -311,7 +311,7 @@ void main() {
         expect(
           find.text(
             seconds == 0
-                ? 'Tiempo de estacionamiento vencido'
+                ? 'Tu tiempo de estacionamiento terminó'
                 : seconds <= 600
                 ? 'Próximo a vencer'
                 : 'Estacionamiento activo',

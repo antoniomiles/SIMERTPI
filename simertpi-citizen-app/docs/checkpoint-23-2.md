@@ -59,3 +59,8 @@ Duraciones y precios vienen del contrato agrupado backend; la referencia configu
 SuccessCelebration reutiliza CustomPainter/AnimationController durante dos segundos únicamente en éxito inicial y extensión confirmada. Reduce motion omite las partículas; el check y navegación permanecen accesibles. Sin dependencias nuevas.
 
 Los resultados 440/219 corresponden a la validación anterior; los resultados finales se informan en el reporte final y logs cp232-final-*. Ningún commit, stage, push, deploy ni instalación realizados.
+
+
+## Corrección CP23.2.1
+
+La política anterior de bloqueo total de EXPIRED queda reemplazada por [CP23.2.1](checkpoint-23-2-1.md). Se conservan tarifa, ofertas, horarios y composición visual.

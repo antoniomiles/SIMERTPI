@@ -69,7 +69,6 @@ public class ParkingControlEvaluationService {
 
         var policy = rules.sessionPolicy(session);
         evaluateMaximumContinuousTime(session, now, policy.maximumContinuousMinutes());
-        if (MAX_TIME_REACHED.equals(session.getStatus())) return "MAX_TIME_REACHED";
         if (now.isBefore(session.getExpectedEndAt())) return policy.reasonCode();
 
         Duration overdue = Duration.between(session.getExpectedEndAt(), now);
@@ -84,7 +83,7 @@ public class ParkingControlEvaluationService {
 
         // Missing policy never implies zero grace or permission to sanction.
         if (!"RULES_RESOLVED".equals(policy.reasonCode())) return policy.reasonCode();
-        if (overdue.compareTo(Duration.ofMinutes(policy.gracePeriodMinutes())) <= 0) {
+        if (overdue.compareTo(Duration.ofMinutes(policy.gracePeriodMinutes())) < 0) {
             record(session, "GRACE_PERIOD", (int) overdueMinutes, now);
             return "GRACE_PERIOD";
         }
@@ -98,8 +97,9 @@ public class ParkingControlEvaluationService {
 
     private void evaluateMaximumContinuousTime(ParkingSession session, OffsetDateTime now, Integer maximumMinutes) {
         if (session.getStartedAt() == null || maximumMinutes == null) return;
-        long elapsed = Duration.between(session.getStartedAt(), now).toMinutes();
-        long remaining = maximumMinutes - elapsed;
+        Duration contracted = Duration.between(session.getStartedAt(), session.getExpectedEndAt());
+        if (contracted.compareTo(Duration.ofMinutes(maximumMinutes)) < 0) return;
+        long remaining = Duration.between(now, session.getExpectedEndAt()).toMinutes();
         if (remaining > MAX_TIME_WARNING_MINUTES) return;
         if (remaining > 0) {
             record(session, "MAX_TIME_WARNING", 0, now);

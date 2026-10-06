@@ -4,6 +4,8 @@ Baseline: `develop / e77e692`, CP23.1 versionado. El gate inicial no encontró c
 
 ## Referencias y alcance
 
+La política anterior de bloqueo total de EXPIRED queda reemplazada por [CP23.2.1](checkpoint-23-2-1.md): gracia interna, actuación verbal humana y regularización por vencimiento. Tarifa, opciones y horarios no cambian.
+
 Autoridad visual: `simertpi-citizen-app/docs/reference/boceto.jpeg` (12 paneles). Se inspeccionaron además las 21 capturas WhatsApp del 5 de octubre y el video `WhatsApp Video 2026-10-05 at 21.49.08.mp4`, mediante fotogramas de revisión. No se usan estas imágenes como assets de la aplicación.
 
 La implementación conserva CP18.1, CP20.1, CP21–CP23 y Vehicle lifecycle/V31. No incluye CP24, proveedores nuevos, instalación, despliegue ni operaciones Git de escritura.
