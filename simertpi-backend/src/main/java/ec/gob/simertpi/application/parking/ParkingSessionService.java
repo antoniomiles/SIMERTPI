@@ -29,6 +29,8 @@ import java.util.Set;
 @Service
 @Transactional
 public class ParkingSessionService {
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private ec.gob.simertpi.application.notifications.NotificationGenerationService notifications;
     @org.springframework.beans.factory.annotation.Autowired(required=false) private ec.gob.simertpi.application.operations.OperationalMetrics metrics;
 
 
@@ -149,7 +151,11 @@ public class ParkingSessionService {
         session.setStatus("COMPLETED");
         session.setUpdatedAt(now);
 
-        return parkingSessionRepository.save(session);
+        ParkingSession closed=parkingSessionRepository.save(session);
+        if(notifications!=null) notifications.generate(session.getUserId(),"PARKING_COMPLETED",
+                ec.gob.simertpi.application.notifications.NotificationEventIds.stable("PARKING_SESSION",session.getId(),"PARKING_COMPLETED",now),
+                null,"PARKING_SESSION",session.getId(),now,java.util.Map.of());
+        return closed;
     }
 
     @Transactional

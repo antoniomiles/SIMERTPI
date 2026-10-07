@@ -44,7 +44,7 @@ public class ParkingAvailabilityService {
                 r.getBigDecimal("latitude"),r.getBigDecimal("longitude"),now,effectiveThreshold));
     }
     public long endingSoonSeconds() {
-        Long reminderSeconds = jdbc.queryForObject("SELECT max(minutes_before)::bigint * 60 FROM configuration.notification_rules WHERE event_type='EXPIRATION' AND enabled=true AND minutes_before>0 AND valid_from<=CURRENT_TIMESTAMP AND (valid_to IS NULL OR valid_to>=CURRENT_TIMESTAMP)", Long.class);
+        Long reminderSeconds = jdbc.queryForObject("SELECT max(minutes_before)::bigint * 60 FROM configuration.notification_rules WHERE event_type IN ('EXPIRATION','PARKING_ENDING_SOON') AND enabled=true AND minutes_before>0 AND valid_from<=CURRENT_TIMESTAMP AND (valid_to IS NULL OR valid_to>=CURRENT_TIMESTAMP)", Long.class);
         return reminderSeconds == null ? threshold : reminderSeconds;
     }
     public static Availability project(UUID id, UUID street, UUID zone, String code, boolean active,

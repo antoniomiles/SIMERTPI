@@ -11,6 +11,8 @@ import java.util.UUID;
 
 @Service
 public class VerbalWarningService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private ec.gob.simertpi.application.notifications.NotificationGenerationService notifications;
     private final InspectorAuthorizationService authorization;
     private final ParkingSessionRepository sessions;
     private final ParkingRulesService rules;
@@ -47,6 +49,9 @@ public class VerbalWarningService {
             throw new ParkingConflictException("VERBAL_WARNING_NOT_ALLOWED");
         var existing=store.forExpiry(sessionId,session.getExpectedEndAt());
         if (existing.isPresent()) throw new ParkingConflictException("VERBAL_WARNING_ALREADY_RECORDED");
-        return store.insert(sessionId,inspector.getId(),session.getExpectedEndAt(),text,key);
+        var warning=store.insert(sessionId,inspector.getId(),session.getExpectedEndAt(),text,key);
+        notifications.generate(session.getUserId(),"VERBAL_WARNING",warning.id(),null,
+                "PARKING_SESSION",sessionId,warning.recordedAt(),java.util.Map.of());
+        return warning;
     }
 }

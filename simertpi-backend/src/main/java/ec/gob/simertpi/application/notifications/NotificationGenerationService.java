@@ -18,6 +18,8 @@ import java.util.UUID;
 @Service
 public class NotificationGenerationService {
     @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private org.springframework.jdbc.core.JdbcTemplate jdbc;
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
     private ec.gob.simertpi.application.operations.OperationalMetrics metrics;
     private void metric(ec.gob.simertpi.application.operations.OperationalMetrics.Event event) { if(metrics!=null)metrics.event(event); }
 
@@ -42,6 +44,7 @@ public class NotificationGenerationService {
                         Map<String, ?> values) {
         User recipient = users.findById(userId).filter(User::isEnabled).orElse(null);
         if (recipient == null) return 0;
+        lockLogicalEvent(userId, eventType, sourceEventId);
         int created = 0;
         for (NotificationRule rule : rules.findActiveForEventAt(eventType, eventAt)) {
             created += createForRule(recipient, rule, eventType, sourceEventId, outboxEventId,
@@ -55,8 +58,14 @@ public class NotificationGenerationService {
                              UUID outboxEventId, String referenceType, UUID referenceId,
                              OffsetDateTime createdAt, Map<String, ?> values) {
         User recipient = users.findById(userId).filter(User::isEnabled).orElse(null);
+        if (recipient != null) lockLogicalEvent(userId, eventType, sourceEventId);
         return recipient == null ? 0 : createForRule(recipient, rule, eventType, sourceEventId,
                 outboxEventId, referenceType, referenceId, createdAt, values);
+    }
+
+    private void lockLogicalEvent(UUID userId, String type, UUID source) {
+        if (jdbc != null && source != null) jdbc.queryForList(
+                "SELECT pg_advisory_xact_lock(hashtextextended(?,0))", userId+":"+type+":"+source);
     }
 
     private int createForRule(User recipient, NotificationRule rule, String eventType, UUID sourceEventId,

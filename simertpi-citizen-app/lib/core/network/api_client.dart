@@ -9,7 +9,7 @@ import '../logging/app_log.dart';
 const correlationHeader = 'X-Correlation-ID';
 final _safeCorrelation = RegExp(r'^[A-Za-z0-9._:-]{1,128}$');
 
-enum ApiMethod { get, post, put, delete }
+enum ApiMethod { get, post, put, patch, delete }
 
 class ApiResponse {
   const ApiResponse(this.statusCode, this.body, this.correlationId);

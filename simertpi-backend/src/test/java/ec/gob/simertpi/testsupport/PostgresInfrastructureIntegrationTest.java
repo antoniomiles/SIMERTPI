@@ -29,8 +29,8 @@ class PostgresInfrastructureIntegrationTest extends AbstractPostgresIntegrationT
             assertThat(connection.getCatalog()).isEqualTo("simertpi_test");
         }
         flyway.validate();
-        assertThat(flyway.info().current().getVersion().toString()).isEqualTo("32");
-        assertThat(flyway.info().applied()).hasSize(32);
+        assertThat(flyway.info().current().getVersion().toString()).isEqualTo("33");
+        assertThat(flyway.info().applied()).hasSize(33);
         assertThat(flyway.info().pending()).isEmpty();
     }
 

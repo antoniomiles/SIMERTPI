@@ -1,3 +1,6 @@
+import '../citizen_activity/activity_pages.dart';
+import '../citizen_activity/profile_page.dart';
+import '../citizen_activity/activity_service.dart';
 import '../../core/widgets/citizen_navigation.dart';
 import '../../core/widgets/operational_ui.dart';
 import '../../core/config/app_config.dart';
@@ -15,7 +18,6 @@ import '../../app/bootstrap/bootstrap.dart';
 import '../../app/router/app_router.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../core/theme/app_typography.dart';
-import '../../core/widgets/app_feedback.dart';
 import '../vehicles/data/vehicle_service.dart';
 import '../vehicles/state/vehicles_controller.dart';
 
@@ -33,10 +35,28 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   VehiclesController? _vehicles;
   ActiveParkingController? _active;
   int tab = 0, mapRefresh = 0;
+  int unreadCount = 0;
+  int inboxRefresh = 0;
+  ActivityService? activity;
+  Future<void> refreshUnread() async {
+    final scope = AppScope.of(context);
+    final owner = scope.auth.userId;
+    try {
+      final value = await activity?.unread();
+      if (mounted &&
+          value != null &&
+          scope.auth.isAuthenticated &&
+          owner == scope.auth.userId) {
+        setState(() => unreadCount = value);
+        AppScope.of(context).unreadNotifications?.value = value;
+      }
+    } catch (_) {}
+  }
+
   bool mapOpened = false;
   String? greeting;
   ValueNotifier<int>? _parkingConfirmed, _citizenTab;
@@ -45,6 +65,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _confirmed() {
+    refreshUnread();
     if (!mounted) return;
     setState(() {
       tab = 0;
@@ -58,13 +79,16 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     tab = widget.initialTab;
     mapOpened = tab == 1;
   }
 
   void _tab(int value) {
+    refreshUnread();
     setState(() {
       tab = value;
+      if (value == 2) inboxRefresh++;
       if (value == 1) {
         mapOpened = true;
         mapRefresh++;
@@ -80,6 +104,7 @@ class _HomePageState extends State<HomePage> {
   Future<void> _launch(AppRoute route) async {
     await Navigator.pushNamed(context, route.path);
     if (mounted) {
+      refreshUnread();
       _active?.load();
       _vehicles?.load();
       setState(() => mapRefresh++);
@@ -91,6 +116,8 @@ class _HomePageState extends State<HomePage> {
     super.didChangeDependencies();
     if (_active != null) return;
     final scope = AppScope.of(context);
+    activity = ActivityService(scope.api);
+    refreshUnread();
     _citizenTab = scope.citizenTab;
     _citizenTab?.value = tab;
     _citizenTab?.addListener(_requestedTab);
@@ -136,7 +163,13 @@ class _HomePageState extends State<HomePage> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) refreshUnread();
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _parkingConfirmed?.removeListener(_confirmed);
     _citizenTab?.removeListener(_requestedTab);
     if (widget.controller == null) _vehicles?.dispose();
@@ -256,10 +289,7 @@ class _HomePageState extends State<HomePage> {
                           SizedBox(
                             width: width,
                             child: OperationalCard(
-                              onTap: () => AppSnackbar.show(
-                                context,
-                                'Historial estará disponible próximamente.',
-                              ),
+                              onTap: () => _launch(AppRoute.history),
                               child: Row(
                                 children: [
                                   const Icon(
@@ -271,15 +301,7 @@ class _HomePageState extends State<HomePage> {
                                     child: Column(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
-                                      children: [
-                                        Text('Historial'),
-                                        Text(
-                                          'Próximamente',
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .bodySmall,
-                                        ),
-                                      ],
+                                      children: [Text('Historial')],
                                     ),
                                   ),
                                 ],
@@ -352,29 +374,20 @@ class _HomePageState extends State<HomePage> {
                   refreshToken: mapRefresh,
                 )
               : const SizedBox(),
-          const Scaffold(
-            body: SafeArea(
-              child: Center(
-                child: Padding(
-                  padding: AppSpace.page,
-                  child: Text('Notificaciones estará disponible próximamente.'),
-                ),
-              ),
-            ),
+          ActivityListPage(
+            resource: 'inbox',
+            refreshToken: inboxRefresh,
+            gateway: activity,
+            onRead: refreshUnread,
           ),
-          const Scaffold(
-            body: SafeArea(
-              child: Center(
-                child: Padding(
-                  padding: AppSpace.page,
-                  child: Text('Perfil estará disponible próximamente.'),
-                ),
-              ),
-            ),
-          ),
+          CitizenProfilePage(gateway: activity, onNotifications: () => _tab(2)),
         ],
       ),
-      bottomNavigationBar: CitizenNavigation(selected: tab, onSelected: _tab),
+      bottomNavigationBar: CitizenNavigation(
+        selected: tab,
+        onSelected: _tab,
+        unreadCount: unreadCount,
+      ),
     ),
   );
 }

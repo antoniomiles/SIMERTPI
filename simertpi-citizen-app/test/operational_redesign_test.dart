@@ -350,18 +350,12 @@ void main() {
             find.descendant(of: nav, matching: find.text('Notificaciones')),
           );
           await tester.pumpAndSettle();
-          expect(
-            find.text('Notificaciones estará disponible próximamente.'),
-            findsOneWidget,
-          );
+          expect(find.text('Notificaciones'), findsWidgets);
           await tester.tap(
             find.descendant(of: nav, matching: find.text('Perfil')),
           );
           await tester.pumpAndSettle();
-          expect(
-            find.text('Perfil estará disponible próximamente.'),
-            findsOneWidget,
-          );
+          expect(find.text('Perfil'), findsWidgets);
           await tester.binding.handlePopRoute();
           await tester.pumpAndSettle();
           expect(find.text('¿Qué deseas hacer?'), findsOneWidget);

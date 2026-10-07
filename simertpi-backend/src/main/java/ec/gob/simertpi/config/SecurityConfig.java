@@ -74,6 +74,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.DELETE, "/api/v1/permits/{id}")
                     .hasAuthority("SIMERTPI_ADMIN")
                 .requestMatchers("/api/v1/permits/**").denyAll()
+                .requestMatchers("/api/v1/citizen/**", "/api/v1/notifications/inbox", "/api/v1/notifications/inbox/**", "/api/v1/notifications/unread-count").hasAuthority("CITIZEN")
                 .requestMatchers(HttpMethod.GET, "/api/v1/notifications/mine")
                     .hasAuthority("CITIZEN")
                 .requestMatchers(HttpMethod.PATCH, "/api/v1/notifications/*/read")

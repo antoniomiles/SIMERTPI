@@ -17,6 +17,7 @@ class AppScope extends InheritedWidget {
     this.api,
     this.parkingConfirmed,
     this.citizenTab,
+    this.unreadNotifications,
     required this.auth,
     required super.child,
   });
@@ -24,6 +25,7 @@ class AppScope extends InheritedWidget {
   final ApiClient? api;
   final ValueNotifier<int>? parkingConfirmed;
   final ValueNotifier<int>? citizenTab;
+  final ValueNotifier<int>? unreadNotifications;
   final AuthController auth;
   static AppScope of(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<AppScope>()!;
@@ -45,11 +47,16 @@ class _BootstrapState extends State<Bootstrap> {
   AppConfig? _config;
   AuthController? _auth;
   final _citizenTab = ValueNotifier<int>(0);
+  final _unreadNotifications = ValueNotifier<int>(0);
   final _parkingConfirmed = ValueNotifier<int>(0);
   @override
   void initState() {
     super.initState();
     _configure();
+  }
+
+  void _authChanged() {
+    if (!(_auth?.isAuthenticated ?? false)) _unreadNotifications.value = 0;
   }
 
   void _configure() {
@@ -75,6 +82,7 @@ class _BootstrapState extends State<Bootstrap> {
           '${_config!.environment.name}:${_config!.apiBaseUrl}',
         ),
       );
+      _auth!.addListener(_authChanged);
     } on FormatException {
       /* Fail closed; never render raw configuration. */
     }
@@ -86,6 +94,7 @@ class _BootstrapState extends State<Bootstrap> {
     _auth?.dispose();
     _parkingConfirmed.dispose();
     _citizenTab.dispose();
+    _unreadNotifications.dispose();
     super.dispose();
   }
 
@@ -96,6 +105,7 @@ class _BootstrapState extends State<Bootstrap> {
           api: _api,
           parkingConfirmed: _parkingConfirmed,
           citizenTab: _citizenTab,
+          unreadNotifications: _unreadNotifications,
           auth: _auth!,
           child: SimertpiApp(auth: _auth!),
         )

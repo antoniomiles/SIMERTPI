@@ -22,10 +22,11 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
             INSERT INTO notification.notifications
                 (id, user_id, notification_type, channel, title, message, reference_type,
                  reference_id, status, source_event_id, outbox_event_id, rule_id, recipient,
-                 attempt_count, created_at, updated_at)
+                 attempt_count, created_at, updated_at, contract_end_at)
             VALUES (:id, :userId, :type, :channel, :title, :message, :referenceType,
                     :referenceId, 'PENDING', :sourceEventId, :outboxEventId, :ruleId,
-                    :recipient, 0, :now, :now)
+                    :recipient, 0, :now, :now,
+                    (SELECT expected_end_at FROM parking.parking_sessions WHERE id=:referenceId AND :referenceType='PARKING_SESSION'))
             ON CONFLICT (source_event_id, user_id, channel, rule_id)
                 WHERE source_event_id IS NOT NULL AND rule_id IS NOT NULL
             DO NOTHING

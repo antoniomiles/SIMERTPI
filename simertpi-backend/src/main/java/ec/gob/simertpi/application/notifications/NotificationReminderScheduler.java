@@ -16,6 +16,8 @@ import java.util.Map;
 
 @Component
 public class NotificationReminderScheduler {
+    @org.springframework.beans.factory.annotation.Autowired
+    private ec.gob.simertpi.application.parking.ParkingAvailabilityService availability;
     private final NotificationRuleRepository rules;
     private final ParkingSessionRepository sessions;
     private final JpaPermitRepository permits;
@@ -38,16 +40,16 @@ public class NotificationReminderScheduler {
     }
 
     private void scheduleParkingExpirations(OffsetDateTime now) {
-        List<NotificationRule> activeRules = reminderRules("EXPIRATION", now);
+        List<NotificationRule> activeRules = rules.findActiveForEventAt("PARKING_ENDING_SOON", now);
         if (activeRules.isEmpty()) return;
         for (ParkingSession session : sessions.findByStatusIn(List.of("ACTIVE", "EXTENDED"))) {
             if (session.getExpectedEndAt() == null || !session.getExpectedEndAt().isAfter(now)) continue;
             for (NotificationRule rule : activeRules) {
-                OffsetDateTime dueAt = session.getExpectedEndAt().minusMinutes(rule.getMinutesBefore());
-                if (rule.getMinutesBefore() > 0 && !now.isBefore(dueAt)) {
+                OffsetDateTime dueAt = session.getExpectedEndAt().minusSeconds(availability.endingSoonSeconds());
+                if (!now.isBefore(dueAt)) {
                     var eventId = NotificationEventIds.stable("PARKING_SESSION", session.getId(),
                             "EXPIRATION", session.getExpectedEndAt());
-                    generation.createForRule(session.getUserId(), rule, "EXPIRATION", eventId, null,
+                    generation.createForRule(session.getUserId(), rule, "PARKING_ENDING_SOON", eventId, null,
                             "PARKING_SESSION", session.getId(), now,
                             Map.of("parkingSessionId", session.getId(), "expectedEndAt", session.getExpectedEndAt(),
                                     "minutesBefore", rule.getMinutesBefore()));

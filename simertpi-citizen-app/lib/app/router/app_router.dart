@@ -1,3 +1,4 @@
+import '../../features/citizen_activity/activity_pages.dart';
 import '../../features/active_parking/presentation/active_parking_panel.dart';
 import '../../features/active_parking/state/active_parking_controller.dart';
 import '../../features/payments/presentation/payments_page.dart';
@@ -29,6 +30,7 @@ enum AppRoute {
   startParking('/start-parking'),
   notifications('/notifications'),
   profile('/profile'),
+  history('/history'),
   vehicles('/vehicles'),
   discovery('/discovery'),
   qr('/qr'),
@@ -72,6 +74,7 @@ abstract final class AppRouter {
                       controller: settings.arguments as ActiveParkingController,
                     )
                   : const HomePage(),
+            AppRoute.history => const ActivityListPage(resource: 'history'),
             AppRoute.home => const HomePage(),
             AppRoute.map => const HomePage(initialTab: 1),
             AppRoute.notifications => const HomePage(initialTab: 2),

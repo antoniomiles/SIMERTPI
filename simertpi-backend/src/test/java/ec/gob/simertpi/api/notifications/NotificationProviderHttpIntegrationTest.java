@@ -122,7 +122,33 @@ class NotificationProviderHttpIntegrationTest extends ec.gob.simertpi.testsuppor
  @Test void deviceDisabledDuringSendIsNotReactivated(){var d=device("WEB");doAnswer(inv->{settings.disable(username,d.id());return NotificationProviderResult.failure(NotificationProviderResult.Status.INVALID_DESTINATION,"SANDBOX",false,"INVALID_DESTINATION");}).when(provider).send(any());UUID n=notification("PUSH",false);process();assertThat(status(n)).isEqualTo("INVALID_DESTINATION");assertThat(settings.devices(username).getFirst().active()).isFalse();assertThat(audit("NOTIFICATION_DEVICE_DISABLED",d.id())).isEqualTo(1);assertThat(audit("NOTIFICATION_DESTINATION_DISABLED",d.id())).isZero();}
  @Test void staleProcessingRecoversWithStableIdempotencyReference(){UUID n=notification("EMAIL",false);UUID id=deliveryId(n);jdbc.update("UPDATE notification.deliveries SET status='PROCESSING',attempts=1,processing_token=?,last_attempt_at=? WHERE id=?",UUID.randomUUID(),OffsetDateTime.now().minusMinutes(10),id);dispatcher.recoverStale(OffsetDateTime.now());assertThat(status(n)).isEqualTo("TEMPORARY_FAILURE");dispatcher.processDue(OffsetDateTime.now().plusMinutes(1));assertThat(deliveryId(n)).isEqualTo(id);assertThat(status(n)).isEqualTo("DELIVERED");}
  @Test void freshProcessingIsNotRecovered(){UUID n=notification("EMAIL",false);jdbc.update("UPDATE notification.deliveries SET status='PROCESSING',attempts=1,processing_token=?,last_attempt_at=? WHERE notification_id=?",UUID.randomUUID(),OffsetDateTime.now(),n);dispatcher.recoverStale(OffsetDateTime.now());assertThat(status(n)).isEqualTo("PROCESSING");verify(provider,never()).send(any());}
- @Test void flywayValidatesCurrentSchema(){flyway.validate();assertThat(flyway.info().current().getVersion().toString()).isEqualTo("32");}
+ @ParameterizedTest @ValueSource(booleans={false,true}) void extensionSuppressesPendingReminderForPreviousEndAndAllowsNewEnd(boolean generationRaced){
+  UUID vehicle=UUID.randomUUID(),zone=UUID.randomUUID(),street=UUID.randomUUID(),space=UUID.randomUUID(),session=UUID.randomUUID();
+  var now=OffsetDateTime.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+  jdbc.update("INSERT INTO identity.vehicles(id,user_id,plate) VALUES(?,?,?)",vehicle,owner,"CP24"+owner.toString().substring(0,6).toUpperCase(java.util.Locale.ROOT));
+  jdbc.update("INSERT INTO parking.zones(id,code,name) VALUES(?,?,'Fixture')",zone,zone.toString());
+  jdbc.update("INSERT INTO parking.streets(id,zone_id,code,name) VALUES(?,?,?,'Fixture')",street,zone,street.toString());
+  jdbc.update("INSERT INTO parking.parking_spaces(id,street_id,code,qr_code,space_number) VALUES(?,?,?,?,'1')",space,street,space.toString(),space.toString());
+  jdbc.update("INSERT INTO parking.parking_sessions(id,user_id,vehicle_id,parking_space_id,started_at,expected_end_at,status) VALUES(?,?,?,?,?,?,'ACTIVE')",session,owner,vehicle,space,now.minusMinutes(50),now.plusMinutes(10));
+  try{
+   device("ANDROID");UUID r=rule("PUSH",false);
+   jdbc.update("UPDATE configuration.notification_rules SET event_type='PARKING_ENDING_SOON' WHERE id=?",r);
+   UUID source=NotificationEventIds.stable("PARKING_SESSION",session,"EXPIRATION",now.plusMinutes(10));
+   if(generationRaced)jdbc.update("UPDATE parking.parking_sessions SET expected_end_at=?,status='EXTENDED' WHERE id=?",now.plusMinutes(40),session);
+   generation.generate(owner,"PARKING_ENDING_SOON",source,null,"PARKING_SESSION",session,now,Map.of());
+   UUID old=jdbc.queryForObject("SELECT id FROM notification.notifications WHERE source_event_id=? AND channel='PUSH'",UUID.class,source);
+   if(!generationRaced)jdbc.update("UPDATE parking.parking_sessions SET expected_end_at=?,status='EXTENDED' WHERE id=?",now.plusMinutes(40),session);
+   process();assertThat(status(old)).isEqualTo("SUPPRESSED");verify(provider,never()).send(any());
+   UUID next=NotificationEventIds.stable("PARKING_SESSION",session,"EXPIRATION",now.plusMinutes(40));
+   generation.generate(owner,"PARKING_ENDING_SOON",next,null,"PARKING_SESSION",session,now,Map.of());
+   UUID current=jdbc.queryForObject("SELECT id FROM notification.notifications WHERE source_event_id=? AND channel='PUSH'",UUID.class,next);
+   process();assertThat(status(current)).isEqualTo("DELIVERED");verify(provider,times(1)).send(any());
+  }finally{
+   jdbc.update("DELETE FROM parking.parking_sessions WHERE id=?",session);
+   jdbc.update("DELETE FROM parking.parking_spaces WHERE id=?",space);jdbc.update("DELETE FROM parking.streets WHERE id=?",street);jdbc.update("DELETE FROM parking.zones WHERE id=?",zone);jdbc.update("DELETE FROM identity.vehicles WHERE id=?",vehicle);
+  }
+ }
+ @Test void flywayValidatesCurrentSchema(){flyway.validate();assertThat(flyway.info().current().getVersion().toString()).isEqualTo("33");}
 
  @Test void repeatedEventCreatesOneNotificationAndDelivery(){
   UUID ruleId=rule("EMAIL",false),event=UUID.randomUUID();var rule=ruleRepository.findById(ruleId).orElseThrow();OffsetDateTime now=OffsetDateTime.now();

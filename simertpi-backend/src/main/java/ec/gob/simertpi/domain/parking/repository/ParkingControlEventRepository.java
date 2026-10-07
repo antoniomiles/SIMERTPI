@@ -13,6 +13,7 @@ import java.util.UUID;
 public interface ParkingControlEventRepository
         extends JpaRepository<ParkingControlEvent, UUID> {
 
+    @Query(value="SELECT * FROM parking.parking_control_events WHERE parking_session_id=:parkingSessionId AND event_type=:eventType ORDER BY occurred_at DESC,id DESC LIMIT 1", nativeQuery=true)
     Optional<ParkingControlEvent> findByParkingSessionIdAndEventType(
             UUID parkingSessionId,
             String eventType
@@ -24,10 +25,11 @@ public interface ParkingControlEventRepository
     @Query(value = """
             INSERT INTO parking.parking_control_events
               (id, parking_session_id, user_id, vehicle_id, parking_space_id,
-               event_type, occurred_at, minutes_overdue, source, status, created_at, updated_at)
+               event_type, occurred_at, minutes_overdue, source, status, created_at, updated_at, contract_end_at)
             VALUES (:id, :sessionId, :userId, :vehicleId, :spaceId,
-                    :eventType, :occurredAt, :minutesOverdue, 'SYSTEM', 'RECORDED', :occurredAt, :occurredAt)
-            ON CONFLICT (parking_session_id, event_type) DO NOTHING
+                    :eventType, :occurredAt, :minutesOverdue, 'SYSTEM', 'RECORDED', :occurredAt, :occurredAt,
+                    (SELECT expected_end_at FROM parking.parking_sessions WHERE id=:sessionId))
+            ON CONFLICT (parking_session_id, event_type, contract_end_at) DO NOTHING
             """, nativeQuery = true)
     int insertIfAbsent(@Param("id") UUID id,
                        @Param("sessionId") UUID sessionId,

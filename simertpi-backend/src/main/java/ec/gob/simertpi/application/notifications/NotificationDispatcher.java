@@ -84,12 +84,24 @@ public class NotificationDispatcher {
    }
   }
  });}
+ // Revalidate the contractual reference when claiming, including retries.
+ private boolean currentReminder(Map<String,Object> n, OffsetDateTime now){
+  if(!"PARKING_ENDING_SOON".equals(n.get("notification_type")))return true;
+  var rows=jdbc.queryForList("SELECT expected_end_at,status FROM parking.parking_sessions WHERE id=? FOR SHARE",n.get("reference_id"));
+  if(rows.isEmpty()||n.get("contract_end_at")==null)return false;
+  var session=rows.getFirst();
+  return Set.of("ACTIVE","EXTENDED").contains(session.get("status"))
+   && ((java.sql.Timestamp)session.get("expected_end_at")).toInstant().isAfter(now.toInstant())
+   && NotificationEventIds.stable("PARKING_SESSION",(UUID)n.get("reference_id"),"EXPIRATION",
+       ((java.sql.Timestamp)session.get("expected_end_at")).toInstant().atOffset(java.time.ZoneOffset.UTC)).equals(n.get("source_event_id"))
+   && session.get("expected_end_at").equals(n.get("contract_end_at"));
+ }
  private Claim claim(OffsetDateTime now){
   var rows=jdbc.queryForList("SELECT * FROM notification.deliveries WHERE status IN ('PENDING','TEMPORARY_FAILURE') AND (next_attempt_at IS NULL OR next_attempt_at<=?) ORDER BY created_at,id LIMIT 1 FOR UPDATE SKIP LOCKED",now);
   if(rows.isEmpty())return null;var row=rows.getFirst();UUID id=(UUID)row.get("id");
   var n=jdbc.queryForMap("SELECT n.*,u.enabled AS user_enabled,u.email,u.phone FROM notification.notifications n JOIN identity.users u ON u.id=n.user_id WHERE n.id=?",row.get("notification_id"));
   String terminal=null;Destination destination=null;
-  if(!permitted(n))terminal="SUPPRESSED";
+  if(!currentReminder(n,now)||!permitted(n))terminal="SUPPRESSED";
   else destination=destinations(n).stream().filter(d->d.reference().equals(row.get("destination_reference"))).findFirst().orElse(null);
   if(terminal==null&&destination==null)terminal="NO_DESTINATION";
   int attempts=((Number)row.get("attempts")).intValue();

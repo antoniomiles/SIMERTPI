@@ -29,7 +29,7 @@ class OperationalHttpIntegrationTest extends ec.gob.simertpi.testsupport.Abstrac
  @Test void databaseDownAffectsReadinessButNotLiveness(){doReturn(Health.down().withDetail("secret","fixture-secret").build()).when((HealthIndicator)database).health();assertThat(get("/actuator/health/readiness",false).getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);assertThat(get("/actuator/health/readiness",false).getBody()).doesNotContain("fixture-secret");assertThat(get("/actuator/health/liveness",false).getStatusCode()).isEqualTo(HttpStatus.OK);}
  @ParameterizedTest @ValueSource(strings={"/actuator/metrics","/actuator/prometheus","/actuator/info"}) void operationalEndpointsRequireAdmin(String path){assertThat(get(path,false).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);var admin=get(path,true);assertThat(admin.getStatusCode()).isEqualTo(HttpStatus.OK);assertThat(admin.getBody()).doesNotContain("simertpi_dev_2026","fixture-secret","password");}
  @ParameterizedTest @ValueSource(strings={"env","beans","configprops","heapdump","threaddump","mappings"}) void sensitiveActuatorEndpointsAreClosed(String endpoint){assertThat(get("/actuator/"+endpoint,true).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);}
- @Test void flywayValidatesCurrentSchema(){flyway.validate();assertThat(flyway.info().current().getVersion().toString()).isEqualTo("32");}
+ @Test void flywayValidatesCurrentSchema(){flyway.validate();assertThat(flyway.info().current().getVersion().toString()).isEqualTo("33");}
 
  @org.springframework.boot.test.context.TestConfiguration static class TestConfig {
   @org.springframework.context.annotation.Bean TestErrorController testErrorController(){return new TestErrorController();}

@@ -52,7 +52,7 @@ public class ParkingControlEvaluationService {
 
     @Transactional
     public String evaluate(UUID sessionId, OffsetDateTime now) {
-        ParkingSession session = sessions.findById(sessionId).orElse(null);
+        ParkingSession session = sessions.findByIdForUpdate(sessionId).orElse(null);
         if (session != null) {
             return evaluate(session, now);
         }
@@ -130,12 +130,17 @@ public class ParkingControlEvaluationService {
         event.setOccurredAt(at);
         event.setMinutesOverdue(overdue);
 
-        UUID sourceEventId = "EXPIRATION".equals(type)
-                ? NotificationEventIds.stable("PARKING_SESSION", session.getId(), type, session.getExpectedEndAt())
-                : eventId;
-        notificationGeneration.generate(session.getUserId(), type, sourceEventId, null,
-                "PARKING_CONTROL_EVENT", eventId, at,
-                Map.of("parkingSessionId", session.getId(), "status", session.getStatus(),
-                        "minutesOverdue", overdue));
+        // Legacy AMONESTACION is an automatic control fact, never a human warning.
+        String citizenType = switch (type) {
+            case "EXPIRATION" -> "PARKING_TIME_EXPIRED";
+            case "AMONESTACION" -> "PARKING_GRACE_EXCEEDED";
+            case "MAX_TIME_REACHED" -> "MAX_TIME_REACHED";
+            default -> null;
+        };
+        if (citizenType == null) return; // Technical excess bands are not citizen messages.
+        UUID sourceEventId = NotificationEventIds.stable("PARKING_SESSION", session.getId(),
+                "PARKING_TIME_EXPIRED".equals(citizenType)?"EXPIRATION":citizenType, session.getExpectedEndAt());
+        notificationGeneration.generate(session.getUserId(), citizenType, sourceEventId, null,
+                "PARKING_SESSION", session.getId(), at, Map.of("parkingSessionId", session.getId()));
     }
 }

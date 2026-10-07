@@ -526,7 +526,7 @@ class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupp
         jdbc.update("UPDATE parking.parking_sessions SET status = 'ACTIVE', started_at = ?, expected_end_at = ? WHERE id = ?",
                 end.minusMinutes(60), end, sessionId);
         OffsetDateTime ruleStart = end.minusDays(1);
-        jdbc.update("INSERT INTO configuration.notification_rules(id, code, event_type, channel, minutes_before, enabled, title_template, message_template, valid_from, created_at, updated_at) VALUES (?, ?, 'EXPIRATION', 'PUSH', 0, true, ?, ?, ?, ?, ?)",
+        jdbc.update("INSERT INTO configuration.notification_rules(id, code, event_type, channel, minutes_before, enabled, title_template, message_template, valid_from, created_at, updated_at) VALUES (?, ?, 'PARKING_TIME_EXPIRED', 'PUSH', 0, true, ?, ?, ?, ?, ?)",
                 UUID.randomUUID(), "LIFECYCLE-" + fixture.tag, "Sesión expirada", "El tiempo contratado terminó",
                 ruleStart, ruleStart, ruleStart);
 
@@ -541,9 +541,9 @@ class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupp
                 Integer.class, sessionId)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.parking_control_events WHERE parking_session_id = ? AND event_type = 'EXCESS_11_30'",
                 Integer.class, sessionId)).isEqualTo(1);
-        Integer activeExpirationRules = jdbc.queryForObject("SELECT count(*) FROM configuration.notification_rules WHERE event_type = 'EXPIRATION' AND enabled = true AND valid_from <= ? AND (valid_to IS NULL OR valid_to >= ?)",
+        Integer activeExpirationRules = jdbc.queryForObject("SELECT count(*) FROM configuration.notification_rules WHERE event_type = 'PARKING_TIME_EXPIRED' AND enabled = true AND valid_from <= ? AND (valid_to IS NULL OR valid_to >= ?)",
                 Integer.class, evaluationTime.plusMinutes(1), evaluationTime.plusMinutes(1));
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM notification.notifications WHERE user_id = ? AND notification_type = 'EXPIRATION'",
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notification.notifications WHERE user_id = ? AND notification_type = 'PARKING_TIME_EXPIRED'",
                 Integer.class, fixture.userA)).isEqualTo(activeExpirationRules);
 
         ResponseEntity<String> whileOccupied = post("citizen-b-" + fixture.tag, "LIFECYCLE-2",

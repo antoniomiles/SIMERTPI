@@ -143,12 +143,12 @@ class NotificationHttpPostgresIntegrationTest extends ec.gob.simertpi.testsuppor
             Future<Integer> first = executor.submit(() -> concurrentGenerate(sharedEventId, now, ready, start));
             Future<Integer> second = executor.submit(() -> concurrentGenerate(sharedEventId, now, ready, start));
             ready.await(); start.countDown();
-            assertThat(first.get() + second.get()).isEqualTo(1);
+            assertThat(first.get() + second.get()).isEqualTo(2);
         } finally {
             executor.shutdownNow();
         }
         assertThat(jdbc.queryForObject("SELECT count(*) FROM notification.notifications WHERE source_event_id = ?",
-                Integer.class, sharedEventId)).isEqualTo(1);
+                Integer.class, sharedEventId)).isEqualTo(2);
     }
 
     private int concurrentGenerate(UUID eventId, OffsetDateTime at, CountDownLatch ready, CountDownLatch start) throws Exception {
