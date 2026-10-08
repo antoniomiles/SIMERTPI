@@ -123,13 +123,13 @@ class CitizenActivityIntegrationTest extends AbstractPostgresIntegrationTest {
         mvc.perform(get("/api/v1/notifications/inbox/"+id).with(user(otherName).authorities(()->"CITIZEN"))).andExpect(status().isNotFound());
         assertThat(service.unread(otherName).unreadCount()).isZero();
     }
-    @Test void inboxPaginationAndUnreadCountDoNotDownloadAllOrExposeInternalFields() throws Exception {
+    @Test void inboxPaginationAndUnreadCountDoNotDownloadAllOrExposeDeliveryFields() throws Exception {
         for(int i=0;i<4;i++)envelope(UUID.randomUUID(),"IN_APP","PAYMENT_APPROVED");
         assertThat(service.inbox(name,2,0).hasMore()).isTrue();assertThat(service.inbox(name,2,2).hasMore()).isFalse();
         mvc.perform(get("/api/v1/notifications/unread-count").with(user(name).authorities(()->"CITIZEN"))).andExpect(jsonPath("$.unreadCount").value(4));
         mvc.perform(get("/api/v1/notifications/inbox").with(user(name).authorities(()->"CITIZEN")))
                 .andExpect(jsonPath("$.items[0].channel").doesNotExist()).andExpect(jsonPath("$.items[0].sourceEventId").doesNotExist())
-                .andExpect(jsonPath("$.items[0].eventType").doesNotExist()).andExpect(jsonPath("$.items[0].referenceId").doesNotExist());
+                .andExpect(jsonPath("$.items[0].eventType").value("PAYMENT_APPROVED")).andExpect(jsonPath("$.items[0].referenceId").doesNotExist());
     }
     @Test void paginationLimitsAreEnforced() {
         assertThatThrownBy(()->service.history(name,101,0)).isInstanceOf(ec.gob.simertpi.api.InvalidRequestException.class);
@@ -164,6 +164,19 @@ class CitizenActivityIntegrationTest extends AbstractPostgresIntegrationTest {
         var items=service.inbox(name,20,0).items();assertThat(items).hasSize(2);
         assertThat(items).extracting(CitizenActivityService.InboxItem::message).allSatisfy(text->assertThat(text).doesNotContain("10","hasta","inspector"));
         assertThat(jdbc.queryForObject("SELECT count(*) FROM notification.deliveries d JOIN notification.notifications n ON n.id=d.notification_id WHERE n.user_id=?",Integer.class,owner)).isZero();
+    }
+    @Test void inboxDetailExposesOnlyItsOwnedSafeParkingReferenceForNavigation() throws Exception {
+        UUID source=UUID.randomUUID();
+        UUID notification=UUID.randomUUID();
+        jdbc.update("INSERT INTO notification.notifications(id,user_id,source_event_id,notification_type,channel,title,message,reference_type,reference_id) VALUES(?,?,?,'PARKING_ENDING_SOON','IN_APP','Próximo a vencer','Tu tiempo está próximo a finalizar.','PARKING_SESSION',?)",
+                notification,owner,source,session);
+        UUID logical=jdbc.queryForObject("SELECT id FROM notification.inbox_items WHERE user_id=? AND event_type='PARKING_ENDING_SOON' AND source_event_id=?",UUID.class,owner,source);
+        mvc.perform(get("/api/v1/notifications/inbox/"+logical).with(user(name).authorities(()->"CITIZEN")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.eventType").value("PARKING_ENDING_SOON"))
+                .andExpect(jsonPath("$.referenceType").value("PARKING_SESSION"))
+                .andExpect(jsonPath("$.referenceId").value(session.toString()));
+        mvc.perform(get("/api/v1/notifications/inbox/"+logical).with(user(otherName).authorities(()->"CITIZEN")))
+                .andExpect(status().isNotFound());
     }
     @Test void preferencesRemainOwnAndDoNotAllowInAppOptOut() throws Exception {
         mvc.perform(put("/api/v1/notifications/preferences").with(user(name).authorities(()->"CITIZEN"))

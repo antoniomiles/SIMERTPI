@@ -174,17 +174,33 @@ class _NotificationPreferencesPageState
     setState(() => requestingPermission = true);
     final state = permissionState == PushPermissionState.systemSettingsRequired
         ? await push.openSystemSettings().then((_) => push.refreshPermission())
-        : await push.requestPermission();
+        : await push.requestPermission(registerImmediately: false);
     if (mounted) {
       setState(() {
         permissionState = state;
         requestingPermission = false;
       });
       if (state == PushPermissionState.granted) {
-        AppSnackbar.show(
-          context,
-          'Notificaciones activadas en este dispositivo.',
-        );
+        try {
+          final current = values ?? await widget.gateway.preferences();
+          current['PUSH'] = true;
+          await widget.gateway.savePreferences(current);
+          values = current;
+          await push.sync();
+          if (mounted) {
+            AppSnackbar.show(
+              context,
+              'Notificaciones activadas en este dispositivo.',
+            );
+          }
+        } catch (_) {
+          if (mounted) {
+            AppSnackbar.show(
+              context,
+              'No pudimos guardar la preferencia. Inténtalo nuevamente.',
+            );
+          }
+        }
       }
     }
   }
@@ -217,7 +233,10 @@ class _NotificationPreferencesPageState
     });
     try {
       await widget.gateway.savePreferences(values!);
-      if (mounted) AppSnackbar.show(context, 'Preferencias guardadas.');
+      if (values!['PUSH'] == true) await widget.pushLifecycle?.sync();
+      if (mounted) {
+        AppSnackbar.show(context, 'Preferencias guardadas.');
+      }
     } catch (e) {
       if (mounted) {
         setState(

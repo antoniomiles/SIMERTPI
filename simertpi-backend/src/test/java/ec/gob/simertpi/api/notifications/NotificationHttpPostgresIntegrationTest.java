@@ -151,6 +151,27 @@ class NotificationHttpPostgresIntegrationTest extends ec.gob.simertpi.testsuppor
                 Integer.class, sharedEventId)).isEqualTo(2);
     }
 
+    @Test
+    void approvedInitialPaymentProjectsOneParkingStartedEventWithAuthoritativeDetails() {
+        OffsetDateTime now = OffsetDateTime.now();
+        insertPaymentFixture(now);
+        UUID outboxId = UUID.randomUUID();
+        String payload = "{\"paymentId\":\"" + fixture.paymentId + "\",\"parkingSessionId\":\"" +
+                fixture.sessionId + "\",\"status\":\"APPROVED\",\"amount\":\"1.00\",\"currency\":\"USD\"}";
+        jdbc.update("INSERT INTO audit.outbox_events(id, aggregate_type, aggregate_id, event_type, payload, status, occurred_at, created_at, updated_at) VALUES (?, 'PAYMENT', ?, 'PARKING_STARTED', ?, 'PENDING', ?, ?, ?)",
+                outboxId, fixture.paymentId, payload, now, now, now);
+
+        outboxProcessor.processPending();
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notification.inbox_items WHERE event_type='PARKING_STARTED' AND user_id=?",
+                Integer.class, fixture.ownerId)).isEqualTo(1);
+        var item = jdbc.queryForMap("SELECT message,reference_type,reference_id FROM notification.inbox_items WHERE event_type='PARKING_STARTED' AND user_id=?",
+                fixture.ownerId);
+        assertThat(item.get("message").toString()).contains("60 minutos", "USD 1.00");
+        assertThat(item.get("reference_type")).isEqualTo("PARKING_SESSION");
+        assertThat(item.get("reference_id")).isEqualTo(fixture.sessionId);
+    }
+
     private int concurrentGenerate(UUID eventId, OffsetDateTime at, CountDownLatch ready, CountDownLatch start) throws Exception {
         ready.countDown(); start.await();
         return generation.generate(fixture.ownerId, "PAYMENT_DECLINED", eventId, null,

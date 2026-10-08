@@ -57,6 +57,25 @@ class PaymentServiceTest {
     private PaymentService service;
 
     @Test
+    void initialApprovedPaymentEmitsParkingStartedOnlyAfterActivation() {
+        OffsetDateTime now = OffsetDateTime.now();
+        ParkingSession session = createSession("PENDING_PAYMENT", now, now.plusMinutes(60), 240);
+        Payment payment = createPayment(session.getId());
+        when(paymentRepository.findById(payment.getId())).thenReturn(Optional.of(payment));
+        when(parkingSessionRepository.findByIdForUpdate(session.getId())).thenReturn(Optional.of(session));
+        when(sessionExtensionRepository.findByPaymentId(payment.getId())).thenReturn(Optional.empty());
+        when(parkingSessionRepository.save(any(ParkingSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Payment result = service.approve(payment.getId(), "TX-START-001");
+
+        assertEquals("APPROVED", result.getStatus());
+        assertEquals("ACTIVE", session.getStatus());
+        verify(paymentEventPublisher).publish(payment, "PARKING_STARTED");
+        verify(paymentEventPublisher, never()).publish(payment, "PAYMENT_APPROVED");
+    }
+
+    @Test
     void shouldApproveExtensionDuringGracePeriod() {
         OffsetDateTime now = OffsetDateTime.now();
 

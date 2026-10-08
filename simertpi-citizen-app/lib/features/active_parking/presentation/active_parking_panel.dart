@@ -13,6 +13,7 @@ import '../../../core/widgets/app_feedback.dart';
 import '../../../core/widgets/app_skeleton.dart';
 import '../../parking/data/parking_contract.dart';
 import '../../payments/data/payment_contract.dart';
+import '../../payments/presentation/payments_page.dart';
 import '../state/active_parking_controller.dart';
 
 class ActiveParkingPanel extends StatefulWidget {
@@ -388,6 +389,14 @@ class _ExtensionPageState extends State<ExtensionPage> {
           ),
         ),
       );
+      if (c.intent != null && mounted) {
+        await Navigator.push<void>(
+          context,
+          MaterialPageRoute<void>(
+            builder: (_) => PaymentsPage(extensionController: c),
+          ),
+        );
+      }
     } finally {
       confirming = false;
     }
@@ -477,9 +486,15 @@ class _ExtensionPageState extends State<ExtensionPage> {
                         _ => 'El resultado está por confirmar. Consulta antes de repetir.',
                       }),
                     if (c.intent != null && !c.busy)
-                      AsyncButton(
-                        label: 'Consultar resultado',
-                        onPressed: c.checkExtension,
+                      PrimaryButton(
+                        label: 'Continuar al pago',
+                        onPressed: () => Navigator.push<void>(
+                          context,
+                          MaterialPageRoute<void>(
+                            builder: (_) =>
+                                PaymentsPage(extensionController: c),
+                          ),
+                        ),
                       ),
                     if (c.busy)
                       const Center(child: CircularProgressIndicator()),

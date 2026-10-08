@@ -95,11 +95,17 @@ abstract final class AppRouter {
                       selected: settings.arguments! as IdentifiedSpace,
                     )
                   : const DiscoveryPage(),
-            AppRoute.payments => PaymentsPage(
-              sessionId: settings.arguments is String
-                  ? settings.arguments! as String
-                  : null,
-            ),
+            AppRoute.payments =>
+              settings.arguments is ActiveParkingController
+                  ? PaymentsPage(
+                      extensionController:
+                          settings.arguments! as ActiveParkingController,
+                    )
+                  : PaymentsPage(
+                      sessionId: settings.arguments is String
+                          ? settings.arguments! as String
+                          : null,
+                    ),
             AppRoute.showcase => const showcase.HomePage(),
             AppRoute.components => const ComponentsPage(),
             AppRoute.states => const StatesPage(),

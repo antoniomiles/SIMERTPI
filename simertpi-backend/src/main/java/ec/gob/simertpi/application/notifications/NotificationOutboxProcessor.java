@@ -25,7 +25,7 @@ public class NotificationOutboxProcessor {
     private static final Logger log = LoggerFactory.getLogger(NotificationOutboxProcessor.class);
     private static final Set<String> EVENT_TYPES = Set.of("PERMIT_CREATED", "PERMIT_CANCELLED", "PERMIT_EXPIRED",
             "PAYMENT_CREATED", "PAYMENT_APPROVED", "PAYMENT_DECLINED", "PAYMENT_FAILED", "PAYMENT_CANCELLED_TIMEOUT",
-            "PARKING_EXTENSION_CONFIRMED");
+            "PARKING_EXTENSION_CONFIRMED", "PARKING_STARTED");
     private final org.springframework.transaction.support.TransactionTemplate tx;
     private final ec.gob.simertpi.application.reconciliation.RecoveryConfiguration config;
     private final ec.gob.simertpi.application.reconciliation.ReconciliationFindings findings;
@@ -140,6 +140,21 @@ public class NotificationOutboxProcessor {
                 if (payment == null) return;
                 ParkingSession session = sessions.findById(payment.getParkingSessionId()).orElse(null);
                 if (session == null) return;
+                if ("PARKING_STARTED".equals(event.eventType())) {
+                    if (!"APPROVED".equals(payment.getStatus()) || !"ACTIVE".equals(session.getStatus())
+                            || session.getStartedAt() == null || session.getExpectedEndAt() == null) return;
+                    var end = session.getExpectedEndAt().atZoneSameInstant(java.time.ZoneId.of("America/Guayaquil"));
+                    values.put("contractedMinutes", java.time.Duration.between(session.getStartedAt(), session.getExpectedEndAt()).toMinutes());
+                    values.put("expectedEndTime", java.time.format.DateTimeFormatter.ofPattern("HH:mm").format(end));
+                    values.put("amount", payment.getAmount());
+                    values.put("currency", payment.getCurrency());
+                    referenceType = "PARKING_SESSION";
+                    referenceId = session.getId();
+                    userId = session.getUserId();
+                    generation.generate(userId, event.eventType(), sourceEventId, event.id(),
+                            referenceType, referenceId, event.occurredAt(), values);
+                    return;
+                }
                 if ("PARKING_EXTENSION_CONFIRMED".equals(event.eventType())) {
                     if (!"APPROVED".equals(payment.getStatus())) return;
                     var extensionRows = jdbc.query("""
@@ -157,6 +172,8 @@ public class NotificationOutboxProcessor {
                     values.put("additionalMinutes", extension.additionalMinutes());
                     values.put("newExpectedEndTime", java.time.format.DateTimeFormatter.ofPattern("HH:mm").format(end));
                     values.put("newExpectedEndAt", extension.newExpectedEndAt());
+                    values.put("amount", payment.getAmount());
+                    values.put("currency", payment.getCurrency());
                     referenceType = "PARKING_SESSION";
                     referenceId = session.getId();
                     userId = session.getUserId();

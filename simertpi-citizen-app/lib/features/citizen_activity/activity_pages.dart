@@ -33,11 +33,13 @@ class ActivityListPage extends StatefulWidget {
     required this.resource,
     this.gateway,
     this.onRead,
+    this.onOpenParking,
     this.refreshToken = 0,
   });
   final String resource;
   final ActivityGateway? gateway;
   final VoidCallback? onRead;
+  final ValueChanged<String>? onOpenParking;
   final int refreshToken;
   @override
   State<ActivityListPage> createState() => _ActivityListPageState();
@@ -90,7 +92,11 @@ class _ActivityListPageState extends State<ActivityListPage>
       widget.onRead?.call();
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => ActivityDetailPage(history: history, data: data),
+          builder: (_) => ActivityDetailPage(
+            history: history,
+            data: data,
+            onOpenParking: widget.onOpenParking,
+          ),
         ),
       );
     } catch (e) {
@@ -239,9 +245,11 @@ class ActivityDetailPage extends StatelessWidget {
     super.key,
     required this.history,
     required this.data,
+    this.onOpenParking,
   });
   final bool history;
   final CitizenData data;
+  final ValueChanged<String>? onOpenParking;
   @override
   Widget build(BuildContext context) {
     final row = history ? ActivityService.object(data['session']) : data;
@@ -311,6 +319,15 @@ class ActivityDetailPage extends StatelessWidget {
                       Text(row['message'] as String? ?? ''),
                       const SizedBox(height: 16),
                       Text(activityDate(row['createdAt'])),
+                      if (row['referenceType'] == 'PARKING_SESSION' &&
+                          row['referenceId'] is String &&
+                          onOpenParking != null)
+                        FilledButton.icon(
+                          onPressed: () =>
+                              onOpenParking!(row['referenceId'] as String),
+                          icon: const Icon(Icons.local_parking),
+                          label: const Text('Ver estacionamiento'),
+                        ),
                     ],
             ),
           ),

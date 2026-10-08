@@ -154,7 +154,9 @@ public class ParkingSessionService {
         ParkingSession closed=parkingSessionRepository.save(session);
         if(notifications!=null) notifications.generate(session.getUserId(),"PARKING_COMPLETED",
                 ec.gob.simertpi.application.notifications.NotificationEventIds.stable("PARKING_SESSION",session.getId(),"PARKING_COMPLETED",now),
-                null,"PARKING_SESSION",session.getId(),now,java.util.Map.of());
+                null,"PARKING_SESSION",session.getId(),now,java.util.Map.of(
+                        "endedAt", now.atZoneSameInstant(java.time.ZoneId.of("America/Guayaquil"))
+                                .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))));
         return closed;
     }
 

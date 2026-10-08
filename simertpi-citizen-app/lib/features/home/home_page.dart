@@ -1,12 +1,14 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import '../citizen_activity/activity_pages.dart';
 import '../citizen_activity/profile_page.dart';
 import '../citizen_activity/activity_service.dart';
 import '../../core/widgets/citizen_navigation.dart';
 import '../../core/widgets/operational_ui.dart';
+import '../../core/widgets/app_feedback.dart';
 import '../../core/config/app_config.dart';
 import '../../core/network/api_client.dart';
+import '../../core/push/push_lifecycle.dart';
 import '../discovery/presentation/discovery_page.dart';
 import '../active_parking/data/active_parking_service.dart';
 import '../active_parking/state/active_parking_controller.dart';
@@ -62,6 +64,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool mapOpened = false;
   bool _initialTabApplied = false;
   String? greeting;
+  bool _pushOnboardingStarted = false;
   ValueNotifier<int>? _parkingConfirmed, _citizenTab;
   ValueNotifier<String?>? _parkingSessionTarget;
   void _parkingTargetChanged() {
@@ -73,6 +76,86 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     unawaited(_resolveParkingTarget(target));
   }
 
+  Future<void> _showPushOnboarding() async {
+    if (!mounted || _pushOnboardingStarted) return;
+    _pushOnboardingStarted = true;
+    final scope = AppScope.of(context);
+    final push = scope.pushLifecycle;
+    final owner = scope.auth.userId;
+    if (push == null || owner == null || !await push.shouldShowOnboarding()) {
+      return;
+    }
+    Map<String, bool> preferences;
+    try {
+      preferences = await activity!.preferences();
+    } catch (_) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+    if (preferences['PUSH'] == true) {
+      await push.markOnboardingSeen();
+      return;
+    }
+    final activate = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Activa tus notificaciones'),
+        content: const Text(
+          'Recibe avisos cuando inicies un estacionamiento, cuando tu tiempo esté por vencer, cuando finalice y cuando confirmes una extensión.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Ahora no'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Activar notificaciones'),
+          ),
+        ],
+      ),
+    );
+    await push.markOnboardingSeen();
+    if (activate != true ||
+        !mounted ||
+        !scope.auth.isAuthenticated ||
+        scope.auth.userId != owner) {
+      return;
+    }
+    final permission = await push.requestPermission(registerImmediately: false);
+    if (permission != PushPermissionState.granted ||
+        !mounted ||
+        scope.auth.userId != owner) {
+      if (permission == PushPermissionState.systemSettingsRequired && mounted) {
+        AppSnackbar.show(
+          context,
+          'Puedes habilitar las notificaciones desde Perfil y los ajustes del teléfono.',
+        );
+      }
+      return;
+    }
+    try {
+      await activity!.savePreferences({...preferences, 'PUSH': true});
+      await push.sync();
+      if (mounted) {
+        AppSnackbar.show(
+          context,
+          'Notificaciones activadas en este dispositivo.',
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        AppSnackbar.show(
+          context,
+          'No pudimos guardar la preferencia. Puedes intentarlo desde Perfil.',
+        );
+      }
+    }
+  }
+
   Future<void> _resolveParkingTarget(String target) async {
     final active = _active;
     if (active == null) return;
@@ -82,7 +165,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     if (!mounted || !AppScope.of(context).auth.isAuthenticated) return;
     AppScope.of(context).pushLifecycle?.completeParkingTarget(target);
-    if (!active.sessions.any((session) => session.id == target)) _tab(2);
+    if (!active.sessions.any((session) => session.id == target)) {
+      try {
+        final detail = await activity!.detail('history', target);
+        if (!mounted || !AppScope.of(context).auth.isAuthenticated) return;
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => ActivityDetailPage(history: true, data: detail),
+          ),
+        );
+      } catch (_) {
+        if (mounted) _tab(2);
+      }
+    }
   }
 
   void _requestedTab() {
@@ -91,7 +186,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   void _confirmed() {
     refreshUnread();
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     setState(() {
       tab = 0;
       mapRefresh++;
@@ -180,6 +277,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           dev: scope.config.environment == AppEnvironment.dev,
         );
     _active!.load();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _showPushOnboarding());
     scope.api
         ?.request(ApiMethod.get, 'users/mine')
         .then((r) {
@@ -418,6 +516,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             refreshToken: inboxRefresh,
             gateway: activity,
             onRead: refreshUnread,
+            onOpenParking: (id) {
+              Navigator.of(context).pop();
+              _parkingSessionTarget!.value = id;
+              _parkingTargetChanged();
+            },
           ),
           CitizenProfilePage(gateway: activity, onNotifications: () => _tab(2)),
         ],

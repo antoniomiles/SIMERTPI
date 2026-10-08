@@ -24,6 +24,8 @@ class GuardedFirebaseMessagingService : FlutterFirebaseMessagingService() {
         if (!NotificationManagerCompat.from(this).areNotificationsEnabled()) return
 
         ensureChannel()
+        val eventType = data.getValue("eventType")
+        val copy = PushEventCopy.forEvent(eventType) ?: return
         val notificationId = data.getValue("notificationId")
         val tap = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -38,9 +40,15 @@ class GuardedFirebaseMessagingService : FlutterFirebaseMessagingService() {
         )
         val notification = NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(applicationInfo.icon)
-            .setContentTitle("SIMERTPI")
-            .setContentText("Tienes una actualización en SIMERTPI")
-            .setStyle(NotificationCompat.BigTextStyle().bigText("Tienes una actualización en SIMERTPI"))
+            .setContentTitle(copy.first)
+            .setContentText(copy.second)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(copy.second))
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(NotificationCompat.Builder(this, CHANNEL)
+                .setSmallIcon(applicationInfo.icon)
+                .setContentTitle("SIMERTPI")
+                .setContentText("Tienes una actualización en SIMERTPI")
+                .build())
             .setContentIntent(pending)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
@@ -62,5 +70,17 @@ class GuardedFirebaseMessagingService : FlutterFirebaseMessagingService() {
 
     companion object {
         private const val CHANNEL = "simertpi_updates"
+    }
+}
+
+
+internal object PushEventCopy {
+    fun forEvent(eventType: String): Pair<String, String>? = when (eventType) {
+        "PARKING_STARTED" -> "Estacionamiento iniciado" to "Tu estacionamiento está activo."
+        "PARKING_ENDING_SOON" -> "Próximo a vencer" to "Tu tiempo está próximo a finalizar."
+        "PARKING_TIME_EXPIRED" -> "Tiempo finalizado" to "El tiempo contratado ha finalizado."
+        "PARKING_EXTENSION_CONFIRMED" -> "Extensión confirmada" to "Tu extensión fue confirmada."
+        "PARKING_COMPLETED" -> "Estacionamiento finalizado" to "Tu estacionamiento fue finalizado correctamente."
+        else -> null
     }
 }

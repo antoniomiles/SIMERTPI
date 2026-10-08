@@ -55,11 +55,26 @@ class AuthController extends ChangeNotifier {
       final saved = await store.read();
       if (_disposed || generation != _generation) return;
       if (saved == null) {
+        try {
+          await onBeforeLogout
+              ?.call(remote: false, ownerId: null)
+              .timeout(const Duration(seconds: 3));
+        } catch (_) {
+          message = 'No pudimos cerrar de forma segura las notificaciones anteriores.';
+        }
         phase = AuthPhase.signedOut;
         return;
       }
       if (!saved.refreshExpiresAt.isAfter(_clock().toUtc())) {
-        await _persist(store.clear);
+        try {
+          await onBeforeLogout
+              ?.call(remote: false, ownerId: saved.userId)
+              .timeout(const Duration(seconds: 3));
+          await _persist(store.clear);
+        } catch (_) {
+          // Preserve the prior owner for safe cleanup retry before another login.
+          message = 'No pudimos cerrar de forma segura las notificaciones anteriores.';
+        }
         phase = AuthPhase.signedOut;
         return;
       }
@@ -74,9 +89,13 @@ class AuthController extends ChangeNotifier {
       phase = AuthPhase.signedOut;
       message = 'No pudimos restaurar tu sesión. Ingresa nuevamente.';
       try {
+        await onBeforeLogout
+            ?.call(remote: false, ownerId: null)
+            .timeout(const Duration(seconds: 3));
         await _persist(store.clear);
       } catch (_) {
-        /* Fail closed; never log secure values. */
+        message =
+            'No pudimos cerrar de forma segura las notificaciones anteriores.';
       }
     } finally {
       _busy = false;
@@ -94,11 +113,30 @@ class AuthController extends ChangeNotifier {
     }
     _busy = true;
     final generation = ++_generation;
+    final previous = _session;
     phase = AuthPhase.processing;
     message = null;
-    _session = null;
     _notify();
     try {
+      try {
+        // Clear stale native authorization before every login, including the
+        // first login after restoration found no usable secure session.
+        await onBeforeLogout
+            ?.call(remote: false, ownerId: previous?.userId)
+            .timeout(const Duration(seconds: 3));
+      } catch (_) {
+        if (!_disposed && generation == _generation) {
+          _session = previous;
+          phase = previous == null
+              ? AuthPhase.signedOut
+              : AuthPhase.authenticated;
+          message = 'No pudimos cerrar de forma segura las notificaciones anteriores.';
+        }
+        return false;
+      }
+      await _persist(store.clear);
+      if (_disposed || generation != _generation) return false;
+      _session = null;
       final session = await gateway.login(username.trim(), password);
       if (_disposed || generation != _generation) return false;
       if (!session.accessExpiresAt.isAfter(_clock().toUtc()) ||
@@ -186,7 +224,11 @@ class AuthController extends ChangeNotifier {
             ?.call(remote: remote, ownerId: old.userId)
             .timeout(const Duration(seconds: 3));
       } catch (_) {
-        // A durable device revocation remains queued if this best-effort call fails.
+        // Keep the current account/session in place. In particular, never let
+        // another account log in while native FCM authorization may remain open.
+        message = 'No pudimos cerrar de forma segura las notificaciones de este dispositivo.';
+        _notify();
+        return;
       }
     }
     ++_generation;

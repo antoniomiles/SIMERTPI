@@ -2,10 +2,10 @@ package ec.gob.simertpi.simertpi_citizen_app
 
 import android.app.Application
 
-/** Clears account-bound notification presentation state on every cold process start. */
+/** Restores only a consented, backend-registered device authorization. */
 class SimertpiApplication : Application() {
     override fun onCreate() {
         super.onCreate()
-        SimertpiPushGate.clearAtProcessStart(this)
+        SimertpiPushGate.restoreAtProcessStart(this)
     }
 }

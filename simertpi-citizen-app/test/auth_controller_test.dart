@@ -31,14 +31,70 @@ void main() {
       store: MemorySessionStore(),
       onBeforeLogout: ({required remote, required ownerId}) async {
         callbacks++;
-        expect(ownerId, 'fixture-citizen');
+        expect(ownerId, anyOf(isNull, 'fixture-citizen'));
       },
     );
     await auth.login('citizen', 'fixture-password');
+    expect(callbacks, 1, reason: 'login first clears any stale native owner');
     await Future.wait([auth.logout(), auth.logout()]);
-    expect(callbacks, 1);
+    expect(
+      callbacks,
+      2,
+      reason: 'one additional callback for the coalesced logout',
+    );
     auth.dispose();
   });
+  test(
+    'account switch closes prior push authorization before logging in again',
+    () async {
+      var callbacks = 0;
+      final gateway = FakeAuthGateway();
+      final auth = AuthController(
+        gateway,
+        store: MemorySessionStore(),
+        onBeforeLogout: ({required remote, required ownerId}) async {
+          callbacks++;
+          expect(remote, false);
+          expect(ownerId, anyOf(isNull, 'fixture-citizen'));
+        },
+      );
+      expect(await auth.login('citizen-a', 'fixture-password'), true);
+      expect(await auth.login('citizen-b', 'fixture-password'), true);
+      expect(callbacks, 2);
+      expect(gateway.calls, 2);
+      expect(auth.isAuthenticated, true);
+      await auth.logout();
+      expect(callbacks, 3);
+      auth.dispose();
+    },
+  );
+  test(
+    'failed native gate invalidation blocks logout and account switch',
+    () async {
+      var failClose = false;
+      final gateway = FakeAuthGateway();
+      final auth = AuthController(
+        gateway,
+        store: MemorySessionStore(),
+        onBeforeLogout: ({required remote, required ownerId}) async {
+          if (failClose) throw StateError('native gate persistence failed');
+        },
+      );
+      expect(await auth.login('citizen-a', 'fixture-password'), true);
+      failClose = true;
+      await auth.logout(remote: false);
+      expect(auth.isAuthenticated, true);
+      expect(auth.userId, 'fixture-citizen');
+      expect(await auth.login('citizen-b', 'fixture-password'), false);
+      expect(gateway.calls, 1);
+      expect(auth.isAuthenticated, true);
+      failClose = false;
+      expect(await auth.login('citizen-b', 'fixture-password'), true);
+      expect(gateway.calls, 2);
+      await auth.logout();
+      auth.dispose();
+    },
+  );
   test('Blank input is rejected without HTTP', () async {
     final fake = FakeAuthGateway();
     final auth = AuthController(fake, store: MemorySessionStore());
@@ -54,6 +110,7 @@ void main() {
     final first = auth.login('citizen', 'fixture-password');
     expect(auth.phase, AuthPhase.processing);
     expect(await auth.login('citizen', 'fixture-password'), false);
+    await Future<void>.delayed(const Duration(milliseconds: 1));
     expect(fake.calls, 1);
     fake.pending!.complete();
     expect(await first, true);

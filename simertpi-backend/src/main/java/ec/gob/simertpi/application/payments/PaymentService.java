@@ -244,7 +244,9 @@ public class PaymentService {
 
         Payment saved = paymentRepository.save(payment);
         updateLatestAttempt(payment, "APPROVED", providerTransactionId, null);
-        eventPublisher.publish(payment, "PAYMENT_APPROVED");
+        // This event is emitted only after the initial payment is approved and
+        // the parking session is activated in this same transaction.
+        eventPublisher.publish(payment, "PARKING_STARTED");
         return saved;
     }
     @Transactional

@@ -33,8 +33,11 @@ class PushNavigationTarget {
     if (notificationId is! String ||
         !_uuid.hasMatch(notificationId) ||
         !{
+          'PARKING_STARTED',
           'PARKING_ENDING_SOON',
+          'PARKING_TIME_EXPIRED',
           'PARKING_EXTENSION_CONFIRMED',
+          'PARKING_COMPLETED',
         }.contains(eventType) ||
         resourceType != 'PARKING_SESSION' ||
         resourceId is! String ||
@@ -51,7 +54,11 @@ class PushNavigationTarget {
 }
 
 abstract interface class PushRuntime {
-  Future<void> setPresentationGate(String? ownerId, {required bool enabled});
+  Future<void> setPresentationGate(
+    String? ownerId, {
+    required bool enabled,
+    String? backendDeviceId,
+  });
   Future<void> activate();
   Future<void> setAutoInitEnabled(bool enabled);
   Future<PushPermissionState> permission();
@@ -77,6 +84,8 @@ abstract interface class PushDeviceStore {
   Future<void> completePendingRevocation(String ownerId, String deviceId);
   Future<void> saveDevice(String id, String token, String ownerId);
   Future<void> markPermissionRequested(String ownerId);
+  Future<bool> onboardingSeen(String ownerId);
+  Future<void> markOnboardingSeen(String ownerId);
   Future<void> clearActive();
 }
 
@@ -89,6 +98,7 @@ class PendingPushRevocation {
 abstract interface class PushDeviceApi {
   Future<String> register(String token);
   Future<void> disable(String id);
+  Future<bool> pushPreferenceEnabled();
   Future<int> unreadCount();
 }
 
@@ -117,6 +127,19 @@ class NotificationDeviceApi implements PushDeviceApi {
   }
 
   @override
+  Future<bool> pushPreferenceEnabled() async {
+    final rows = (await client.request(
+      ApiMethod.get,
+      'notifications/preferences',
+    )).body;
+    if (rows is! List) return false;
+    for (final row in rows) {
+      if (row is Map && row['channel'] == 'PUSH') return row['enabled'] == true;
+    }
+    return false;
+  }
+
+  @override
   Future<int> unreadCount() async {
     final body = (await client.request(
       ApiMethod.get,
@@ -140,6 +163,8 @@ class SecurePushDeviceStore implements PushDeviceStore {
   String _askedKey(String owner) =>
       '$_prefix.permission-requested.${base64Url.encode(utf8.encode(owner))}';
   String get _revocationsKey => '$_prefix.pending-revocations';
+  String _onboardingKey(String owner) =>
+      '$_prefix.onboarding-seen.${base64Url.encode(utf8.encode(owner))}';
   String _consentKey(String owner) =>
       '$_prefix.consent.${base64Url.encode(utf8.encode(owner))}';
   @override
@@ -151,6 +176,12 @@ class SecurePushDeviceStore implements PushDeviceStore {
   @override
   Future<bool> permissionWasRequested(String ownerId) async =>
       await _storage.read(key: _askedKey(ownerId)) == 'true';
+  @override
+  Future<bool> onboardingSeen(String ownerId) async =>
+      await _storage.read(key: _onboardingKey(ownerId)) == 'true';
+  @override
+  Future<void> markOnboardingSeen(String ownerId) =>
+      _storage.write(key: _onboardingKey(ownerId), value: 'true');
   @override
   Future<bool> consentGranted(String ownerId) async =>
       await _storage.read(key: _consentKey(ownerId)) == 'true';
@@ -248,6 +279,8 @@ class PushDeviceLifecycle {
   StreamSubscription<void>? _foreground;
   StreamSubscription<PushNavigationTarget?>? _opened;
   PushNavigationTarget? _pendingTarget;
+  String? _lastTapId;
+  DateTime? _lastTapAt;
   bool _syncing = false, _disposed = false, _initialRead = false;
 
   void start() {
@@ -279,6 +312,14 @@ class PushDeviceLifecycle {
       await _refreshUnread();
       return;
     }
+    final now = DateTime.now();
+    if (_lastTapId == target.notificationId &&
+        _lastTapAt != null &&
+        now.difference(_lastTapAt!) < const Duration(seconds: 2)) {
+      return;
+    }
+    _lastTapId = target.notificationId;
+    _lastTapAt = now;
     _pendingTarget = target;
     if (isAuthenticated()) await _deliverPendingTarget();
   }
@@ -329,7 +370,24 @@ class PushDeviceLifecycle {
     return permissionState;
   }
 
-  Future<PushPermissionState> requestPermission() async {
+  Future<bool> shouldShowOnboarding() async {
+    final owner = ownerId();
+    return owner != null &&
+        isAuthenticated() &&
+        !await store.onboardingSeen(owner) &&
+        !await store.consentGranted(owner);
+  }
+
+  Future<void> markOnboardingSeen() async {
+    final owner = ownerId();
+    if (owner != null && isAuthenticated()) {
+      await store.markOnboardingSeen(owner);
+    }
+  }
+
+  Future<PushPermissionState> requestPermission({
+    bool registerImmediately = true,
+  }) async {
     final requestedOwner = ownerId();
     if (requestedOwner == null || !isAuthenticated()) {
       return PushPermissionState.unavailable;
@@ -343,9 +401,11 @@ class PushDeviceLifecycle {
           currentOwner == requestedOwner &&
           isAuthenticated()) {
         await store.grantConsent(requestedOwner);
-        await runtime.setAutoInitEnabled(true);
-        await _readInitialTap();
-        await sync();
+        if (registerImmediately) {
+          await runtime.setAutoInitEnabled(true);
+          await _readInitialTap();
+          await sync();
+        }
       } else {
         await runtime.setAutoInitEnabled(false);
         if (state == PushPermissionState.denied) {
@@ -402,6 +462,18 @@ class PushDeviceLifecycle {
       await runtime.deactivate();
       return;
     }
+    bool preferenceEnabled;
+    try {
+      preferenceEnabled = await api.pushPreferenceEnabled();
+    } catch (_) {
+      preferenceEnabled = false;
+    }
+    if (!preferenceEnabled) {
+      await runtime.setPresentationGate(null, enabled: false);
+      await _disableCurrent();
+      await runtime.deactivate();
+      return;
+    }
     await runtime.activate();
     await runtime.setAutoInitEnabled(true);
     await _readInitialTap();
@@ -429,6 +501,17 @@ class PushDeviceLifecycle {
     if (_disposed || _syncing || !isAuthenticated()) return;
     final owner = ownerId();
     if (owner == null || !await store.consentGranted(owner)) return;
+    try {
+      if (!await api.pushPreferenceEnabled()) {
+        await runtime.setPresentationGate(null, enabled: false);
+        await _disableCurrent();
+        await runtime.deactivate();
+        return;
+      }
+    } catch (_) {
+      await runtime.setPresentationGate(null, enabled: false);
+      return;
+    }
     _syncing = true;
     try {
       if (await runtime.permission() != PushPermissionState.granted) {
@@ -469,7 +552,11 @@ class PushDeviceLifecycle {
       await store.saveDevice(id, token, owner);
       // Only a successful authenticated registration may open Android's gate.
       if (isAuthenticated() && ownerId() == owner) {
-        await runtime.setPresentationGate(owner, enabled: true);
+        await runtime.setPresentationGate(
+          owner,
+          enabled: true,
+          backendDeviceId: id,
+        );
       }
       // A successful authenticated registration can transfer the token/device
       // to this owner. That backend response supersedes an old owner's queued
@@ -518,12 +605,9 @@ class PushDeviceLifecycle {
   Future<void> logout({required bool remote, required String? ownerId}) async {
     // Close the local presentation gate before remote revocation or Firebase
     // token deletion, either of which can fail while the old server row lives.
-    try {
-      await runtime.setPresentationGate(null, enabled: false);
-    } catch (_) {
-      // Native process startup clears the persisted gate as a second fail-closed
-      // boundary; this does not claim that backend revocation succeeded.
-    }
+    // Do not continue clearing the authenticated owner if native invalidation
+    // was not acknowledged: a later cold FCM process could otherwise restore it.
+    await runtime.setPresentationGate(null, enabled: false);
     final id = await store.deviceId();
     final registeredOwner = await store.registeredOwnerId();
     final owner = registeredOwner ?? ownerId;

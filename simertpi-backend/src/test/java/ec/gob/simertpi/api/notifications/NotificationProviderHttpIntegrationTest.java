@@ -136,12 +136,12 @@ class NotificationProviderHttpIntegrationTest extends ec.gob.simertpi.testsuppor
    jdbc.update("UPDATE configuration.notification_rules SET event_type='PARKING_ENDING_SOON' WHERE id=?",r);
    UUID source=NotificationEventIds.stable("PARKING_SESSION",session,"EXPIRATION",now.plusMinutes(10));
    if(generationRaced)jdbc.update("UPDATE parking.parking_sessions SET expected_end_at=?,status='EXTENDED' WHERE id=?",now.plusMinutes(40),session);
-   generation.generate(owner,"PARKING_ENDING_SOON",source,null,"PARKING_SESSION",session,now,Map.of());
+   generation.generate(owner,"PARKING_ENDING_SOON",source,null,"PARKING_SESSION",session,now,Map.of("minutesBefore",10,"minutesRemaining",10));
    UUID old=jdbc.queryForObject("SELECT id FROM notification.notifications WHERE source_event_id=? AND channel='PUSH'",UUID.class,source);
    if(!generationRaced)jdbc.update("UPDATE parking.parking_sessions SET expected_end_at=?,status='EXTENDED' WHERE id=?",now.plusMinutes(40),session);
    process();assertThat(status(old)).isEqualTo("SUPPRESSED");verify(provider,never()).send(any());
    UUID next=NotificationEventIds.stable("PARKING_SESSION",session,"EXPIRATION",now.plusMinutes(40));
-   generation.generate(owner,"PARKING_ENDING_SOON",next,null,"PARKING_SESSION",session,now,Map.of());
+   generation.generate(owner,"PARKING_ENDING_SOON",next,null,"PARKING_SESSION",session,now,Map.of("minutesBefore",10,"minutesRemaining",10));
    UUID current=jdbc.queryForObject("SELECT id FROM notification.notifications WHERE source_event_id=? AND channel='PUSH'",UUID.class,next);
    process();assertThat(status(current)).isEqualTo("DELIVERED");verify(provider,times(1)).send(any());
   }finally{
@@ -149,12 +149,12 @@ class NotificationProviderHttpIntegrationTest extends ec.gob.simertpi.testsuppor
    jdbc.update("DELETE FROM parking.parking_spaces WHERE id=?",space);jdbc.update("DELETE FROM parking.streets WHERE id=?",street);jdbc.update("DELETE FROM parking.zones WHERE id=?",zone);jdbc.update("DELETE FROM identity.vehicles WHERE id=?",vehicle);
   }
  }
- @Test void flywayValidatesCurrentSchema(){flyway.validate();assertThat(flyway.info().current().getVersion().toString()).isEqualTo("34");}
+ @Test void flywayValidatesCurrentSchema(){flyway.validate();assertThat(flyway.info().current().getVersion().toString()).isEqualTo("35");}
 
  @Test void approvedExtensionCreatesOneLogicalInboxItemAndPerDevicePushes(){
   device("ANDROID");device("IOS");UUID source=UUID.randomUUID();OffsetDateTime now=OffsetDateTime.now(); UUID outbox=outbox("PARKING_EXTENSION_CONFIRMED",source);
   int generated=generation.generate(owner,"PARKING_EXTENSION_CONFIRMED",source,outbox,
-   "PARKING_SESSION",UUID.randomUUID(),now,Map.of("additionalMinutes",30,"newExpectedEndTime","13:30"));
+   "PARKING_SESSION",UUID.randomUUID(),now,Map.of("additionalMinutes",30,"newExpectedEndTime","13:30","amount","0.13","currency","USD"));
   assertThat(generated).isEqualTo(2);
   assertThat(jdbc.queryForObject("SELECT count(*) FROM notification.inbox_items WHERE user_id=? AND event_type='PARKING_EXTENSION_CONFIRMED' AND source_event_id=?",Integer.class,owner,source)).isEqualTo(1);
   assertThat(jdbc.queryForObject("SELECT count(*) FROM notification.notifications WHERE user_id=? AND notification_type='PARKING_EXTENSION_CONFIRMED' AND source_event_id=? AND channel='PUSH'",Integer.class,owner,source)).isEqualTo(1);
@@ -173,7 +173,7 @@ class NotificationProviderHttpIntegrationTest extends ec.gob.simertpi.testsuppor
 
  @Test void pushPreferenceOffDoesNotCreatePushNotificationsOrDeliveries(){
   settings.preferences(username,Map.of("PUSH",false));device("ANDROID");UUID source=UUID.randomUUID();UUID outbox=outbox("PARKING_EXTENSION_CONFIRMED",source);
-  generation.generate(owner,"PARKING_EXTENSION_CONFIRMED",source,outbox,"PARKING_SESSION",UUID.randomUUID(),OffsetDateTime.now(),Map.of("additionalMinutes",30,"newExpectedEndTime","13:30"));
+  generation.generate(owner,"PARKING_EXTENSION_CONFIRMED",source,outbox,"PARKING_SESSION",UUID.randomUUID(),OffsetDateTime.now(),Map.of("additionalMinutes",30,"newExpectedEndTime","13:30","amount","0.13","currency","USD"));
   assertThat(jdbc.queryForObject("SELECT count(*) FROM notification.notifications WHERE user_id=? AND notification_type='PARKING_EXTENSION_CONFIRMED' AND source_event_id=? AND channel='PUSH'",Integer.class,owner,source)).isZero();
   assertThat(jdbc.queryForObject("SELECT count(*) FROM notification.deliveries d JOIN notification.notifications n ON n.id=d.notification_id WHERE n.user_id=? AND n.notification_type='PARKING_EXTENSION_CONFIRMED' AND n.source_event_id=? AND d.channel='PUSH'",Integer.class,owner,source)).isZero();
   assertThat(jdbc.queryForObject("SELECT count(*) FROM notification.inbox_items WHERE user_id=? AND event_type='PARKING_EXTENSION_CONFIRMED' AND source_event_id=?",Integer.class,owner,source)).isEqualTo(1);

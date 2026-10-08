@@ -191,6 +191,13 @@ class ActiveParkingController extends ChangeNotifier {
     }
   }
 
+  int? get extensionMinutes =>
+      intent?['additionalMinutes'] as int? ?? quote?.minutes;
+  String? get extensionAmount =>
+      intent?['expectedAmount'] as String? ?? quote?.amount;
+  String? get extensionCurrency =>
+      intent?['currency'] as String? ?? quote?.currency;
+
   bool get canExtend =>
       dev &&
       !busy &&
@@ -222,12 +229,27 @@ class ActiveParkingController extends ChangeNotifier {
         'paymentMethod': 'TEST',
         'idempotencyKey': key,
         'expectedAmount': fresh.amount!,
+        'currency': fresh.currency!,
         'expectedEndAt': fresh.expiresAt!,
       };
       await store.write(Map<String, Object>.from(intent!));
-      await _send();
     } catch (e) {
       message = 'No pudimos confirmar la extensión. Consulta su resultado antes de repetir.';
+    } finally {
+      busy = false;
+      emit();
+    }
+  }
+
+  Future<void> startExtensionPayment() async {
+    if (busy || intent == null || payment != null || _disposed) return;
+    busy = true;
+    message = null;
+    emit();
+    try {
+      await _send();
+    } catch (e) {
+      message = paymentError(e);
     } finally {
       busy = false;
       emit();

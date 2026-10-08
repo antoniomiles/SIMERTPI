@@ -85,16 +85,19 @@ class FirebasePushRuntime implements PushRuntime {
   Future<void> setPresentationGate(
     String? ownerId, {
     required bool enabled,
+    String? backendDeviceId,
   }) async {
     final persisted = await _settings.invokeMethod<bool>(
       'setPresentationGate',
       {
         'ownerId': enabled ? ownerId : null,
+        'backendDeviceId': enabled ? backendDeviceId : null,
+        'consentGranted': enabled && backendDeviceId != null,
         'enabled': enabled && ownerId != null,
       },
     );
-    if (enabled && persisted != true) {
-      throw StateError('Native push presentation gate did not persist');
+    if (persisted != true) {
+      throw StateError('Native push presentation gate change did not persist');
     }
   }
 

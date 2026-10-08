@@ -30,8 +30,13 @@ class MainActivity : FlutterActivity() {
                     "setPresentationGate" -> {
                         val args = call.arguments as? Map<*, *>
                         val owner = args?.get("ownerId") as? String
-                        val enabled = args?.get("enabled") == true && !owner.isNullOrBlank()
-                        val persisted = SimertpiPushGate.set(this, owner, enabled)
+                        val deviceId = args?.get("backendDeviceId") as? String
+                        val consentGranted = args?.get("consentGranted") == true
+                        val enabled = args?.get("enabled") == true &&
+                            !owner.isNullOrBlank() && !deviceId.isNullOrBlank() && consentGranted
+                        val persisted = SimertpiPushGate.set(
+                            this, owner, deviceId, consentGranted, enabled,
+                        )
                         if (enabled && !persisted) result.error("GATE_PERSIST_FAILED", "Push presentation remains disabled", null)
                         else result.success(persisted)
                     }

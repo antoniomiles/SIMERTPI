@@ -31,7 +31,8 @@ public class CitizenActivityService {
                           OffsetDateTime startedAt, OffsetDateTime expectedEndAt, OffsetDateTime endedAt,
                           long contractedMinutes, Long occupiedMinutes, List<Money> paidAmounts, String status) { }
     public record HistoryDetail(History session, List<Extension> extensions) { }
-    public record InboxItem(UUID id, String title, String message, OffsetDateTime createdAt, OffsetDateTime readAt) { }
+    public record InboxItem(UUID id, String eventType, String referenceType, UUID referenceId,
+                            String title, String message, OffsetDateTime createdAt, OffsetDateTime readAt) { }
     public record UnreadCount(long unreadCount) { }
     private UUID owner(String username) {
         return users.findByUsername(username).filter(User::isEnabled)
@@ -91,12 +92,12 @@ public class CitizenActivityService {
     public Page<InboxItem> inbox(String username, int limit, int offset) {
         pagination(limit, offset);
         return page(jdbc.query("""
-            SELECT id,title,message,created_at,read_at FROM notification.inbox_items WHERE user_id=?
+            SELECT id,event_type,reference_type,reference_id,title,message,created_at,read_at FROM notification.inbox_items WHERE user_id=?
             ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?
             """, (rs, i) -> inboxRow(rs), owner(username), limit + 1, offset), limit, offset);
     }
     public InboxItem inboxDetail(String username, UUID id) {
-        var rows = jdbc.query("SELECT id,title,message,created_at,read_at FROM notification.inbox_items WHERE user_id=? AND id=?",
+        var rows = jdbc.query("SELECT id,event_type,reference_type,reference_id,title,message,created_at,read_at FROM notification.inbox_items WHERE user_id=? AND id=?",
                 (rs, i) -> inboxRow(rs), owner(username), id);
         if (rows.isEmpty()) throw new ResourceNotFoundException("Notificación no encontrada");
         return rows.getFirst();
@@ -112,7 +113,9 @@ public class CitizenActivityService {
         return new UnreadCount(jdbc.queryForObject("SELECT count(*) FROM notification.inbox_items WHERE user_id=? AND read_at IS NULL", Long.class, owner(username)));
     }
     private InboxItem inboxRow(ResultSet rs) throws SQLException {
-        return new InboxItem(rs.getObject("id", UUID.class), rs.getString("title"), rs.getString("message"),
+        return new InboxItem(rs.getObject("id", UUID.class), rs.getString("event_type"),
+                rs.getString("reference_type"), rs.getObject("reference_id", UUID.class),
+                rs.getString("title"), rs.getString("message"),
                 rs.getObject("created_at", OffsetDateTime.class), rs.getObject("read_at", OffsetDateTime.class));
     }
 }

@@ -15,6 +15,7 @@ class FakeRuntime implements PushRuntime {
   int tokenReads = 0, activations = 0, prompts = 0;
   bool deleted = false, autoInit = false;
   String? presentationOwner;
+  String? presentationDeviceId;
   bool presentationEnabled = false, failDelete = false;
   PushNavigationTarget? initial;
   final tokens = StreamController<String>.broadcast();
@@ -34,8 +35,10 @@ class FakeRuntime implements PushRuntime {
   Future<void> setPresentationGate(
     String? ownerId, {
     required bool enabled,
+    String? backendDeviceId,
   }) async {
     presentationOwner = enabled ? ownerId : null;
+    presentationDeviceId = enabled ? backendDeviceId : null;
     presentationEnabled = enabled && ownerId != null;
   }
 
@@ -93,6 +96,14 @@ class FakeStore implements PushDeviceStore {
   @override
   Future<bool> permissionWasRequested(String owner) async =>
       askedOwners.contains(owner);
+  final onboarding = <String>{};
+  @override
+  Future<bool> onboardingSeen(String owner) async => onboarding.contains(owner);
+  @override
+  Future<void> markOnboardingSeen(String owner) async {
+    onboarding.add(owner);
+  }
+
   @override
   Future<bool> consentGranted(String owner) async => consents.contains(owner);
   @override
@@ -142,6 +153,7 @@ class FakeApi implements PushDeviceApi {
   bool failDisable = false;
   String? registerResult;
   int count = 0;
+  bool pushEnabled = true;
   @override
   Future<String> register(String token) async {
     registrations.add(token);
@@ -154,6 +166,8 @@ class FakeApi implements PushDeviceApi {
     disabled.add(id);
   }
 
+  @override
+  Future<bool> pushPreferenceEnabled() async => pushEnabled;
   @override
   Future<int> unreadCount() async => count;
 }
@@ -190,9 +204,69 @@ void main() {
     expect(api.registrations, ['token-a']);
     expect(runtime.presentationEnabled, isTrue);
     expect(runtime.presentationOwner, ownerA);
+    expect(runtime.presentationDeviceId, 'device-1');
     await lifecycle.dispose();
     await runtime.dispose();
   });
+  test('deferred consent does not read/register token until backend preference is enabled', () async {
+    final runtime = FakeRuntime(), api = FakeApi(), store = FakeStore();
+    final lifecycle = PushDeviceLifecycle(
+      runtime: runtime,
+      api: api,
+      store: store,
+      isAuthenticated: () => true,
+      ownerId: () => ownerA,
+      unreadNotifications: ValueNotifier(0),
+      citizenTab: ValueNotifier(0),
+      parkingSessionTarget: ValueNotifier(null),
+    );
+    expect(
+      await lifecycle.requestPermission(registerImmediately: false),
+      PushPermissionState.granted,
+    );
+    expect(store.consents, contains(ownerA));
+    expect(runtime.autoInit, isFalse);
+    expect(runtime.tokenReads, 0);
+    expect(api.registrations, isEmpty);
+    api.pushEnabled = false;
+    await lifecycle.sync();
+    expect(runtime.tokenReads, 0);
+    expect(api.registrations, isEmpty);
+    api.pushEnabled = true; // Represents successful server preference save.
+    await lifecycle.sync();
+    expect(runtime.tokenReads, 1);
+    expect(api.registrations, ['token-a']);
+    await lifecycle.dispose();
+    await runtime.dispose();
+  });
+
+  test('only supported parking events parse as safe navigation targets', () {
+    for (final type in [
+      'PARKING_STARTED',
+      'PARKING_ENDING_SOON',
+      'PARKING_TIME_EXPIRED',
+      'PARKING_EXTENSION_CONFIRMED',
+      'PARKING_COMPLETED',
+    ]) {
+      final parsed = PushNavigationTarget.parse({
+        'notificationId': notificationId,
+        'eventType': type,
+        'resourceType': 'PARKING_SESSION',
+        'resourceId': sessionId,
+      });
+      expect(parsed?.eventType, type);
+    }
+    expect(
+      PushNavigationTarget.parse({
+        'notificationId': notificationId,
+        'eventType': 'PAYMENT_APPROVED',
+        'resourceType': 'PAYMENT',
+        'resourceId': sessionId,
+      }),
+      isNull,
+    );
+  });
+
   test(
     'denial leaves citizen operations usable and never fetches a token',
     () async {
@@ -329,6 +403,7 @@ void main() {
     expect(store.id, isNull);
     expect(runtime.presentationEnabled, isFalse);
     expect(runtime.presentationOwner, isNull);
+    expect(runtime.presentationDeviceId, isNull);
 
     authenticated = true;
     currentOwner = ownerB;

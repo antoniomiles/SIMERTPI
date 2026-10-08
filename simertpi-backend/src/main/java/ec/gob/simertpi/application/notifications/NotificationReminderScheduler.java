@@ -52,7 +52,9 @@ public class NotificationReminderScheduler {
                     generation.createForRule(session.getUserId(), rule, "PARKING_ENDING_SOON", eventId, null,
                             "PARKING_SESSION", session.getId(), now,
                             Map.of("parkingSessionId", session.getId(), "expectedEndAt", session.getExpectedEndAt(),
-                                    "minutesBefore", rule.getMinutesBefore()));
+                                    "minutesBefore", rule.getMinutesBefore(),
+                                    "minutesRemaining", Math.max(0, (int) Math.ceil(
+                                            java.time.Duration.between(now, session.getExpectedEndAt()).toSeconds() / 60.0))));
                 }
             }
         }
