@@ -30,6 +30,13 @@
 
     <dependencies>
 
+        <!-- FCM server-side provider; credentials are supplied through ADC at runtime. -->
+        <dependency>
+            <groupId>com.google.firebase</groupId>
+            <artifactId>firebase-admin</artifactId>
+            <version>9.11.0</version>
+        </dependency>
+
         <!-- REST API -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

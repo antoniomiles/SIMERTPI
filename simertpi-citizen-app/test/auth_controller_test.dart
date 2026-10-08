@@ -24,6 +24,21 @@ void main() {
       auth.dispose();
     },
   );
+  test('logout callback runs once for repeated logout requests', () async {
+    var callbacks = 0;
+    final auth = AuthController(
+      FakeAuthGateway(),
+      store: MemorySessionStore(),
+      onBeforeLogout: ({required remote, required ownerId}) async {
+        callbacks++;
+        expect(ownerId, 'fixture-citizen');
+      },
+    );
+    await auth.login('citizen', 'fixture-password');
+    await Future.wait([auth.logout(), auth.logout()]);
+    expect(callbacks, 1);
+    auth.dispose();
+  });
   test('Blank input is rejected without HTTP', () async {
     final fake = FakeAuthGateway();
     final auth = AuthController(fake, store: MemorySessionStore());

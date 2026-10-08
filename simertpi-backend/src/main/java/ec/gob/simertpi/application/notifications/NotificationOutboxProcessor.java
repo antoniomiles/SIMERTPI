@@ -24,7 +24,8 @@ import java.util.UUID;
 public class NotificationOutboxProcessor {
     private static final Logger log = LoggerFactory.getLogger(NotificationOutboxProcessor.class);
     private static final Set<String> EVENT_TYPES = Set.of("PERMIT_CREATED", "PERMIT_CANCELLED", "PERMIT_EXPIRED",
-            "PAYMENT_CREATED", "PAYMENT_APPROVED", "PAYMENT_DECLINED", "PAYMENT_FAILED", "PAYMENT_CANCELLED_TIMEOUT");
+            "PAYMENT_CREATED", "PAYMENT_APPROVED", "PAYMENT_DECLINED", "PAYMENT_FAILED", "PAYMENT_CANCELLED_TIMEOUT",
+            "PARKING_EXTENSION_CONFIRMED");
     private final org.springframework.transaction.support.TransactionTemplate tx;
     private final ec.gob.simertpi.application.reconciliation.RecoveryConfiguration config;
     private final ec.gob.simertpi.application.reconciliation.ReconciliationFindings findings;
@@ -139,6 +140,30 @@ public class NotificationOutboxProcessor {
                 if (payment == null) return;
                 ParkingSession session = sessions.findById(payment.getParkingSessionId()).orElse(null);
                 if (session == null) return;
+                if ("PARKING_EXTENSION_CONFIRMED".equals(event.eventType())) {
+                    if (!"APPROVED".equals(payment.getStatus())) return;
+                    var extensionRows = jdbc.query("""
+                        SELECT additional_minutes,new_expected_end_at,status
+                        FROM parking.session_extensions WHERE payment_id=?
+                        """, (rs, row) -> new ExtensionNotice(rs.getInt("additional_minutes"),
+                            rs.getObject("new_expected_end_at", OffsetDateTime.class), rs.getString("status")), payment.getId());
+                    if (extensionRows.size() != 1) return;
+                    var extension = extensionRows.getFirst();
+                    if (!"APPROVED".equals(extension.status())) return;
+                    // The extension row is the immutable authority for this applied extension.
+                    // A later extension may advance the session end before this outbox event is
+                    // dispatched; that must not suppress this distinct successful extension.
+                    var end = extension.newExpectedEndAt().atZoneSameInstant(java.time.ZoneId.of("America/Guayaquil"));
+                    values.put("additionalMinutes", extension.additionalMinutes());
+                    values.put("newExpectedEndTime", java.time.format.DateTimeFormatter.ofPattern("HH:mm").format(end));
+                    values.put("newExpectedEndAt", extension.newExpectedEndAt());
+                    referenceType = "PARKING_SESSION";
+                    referenceId = session.getId();
+                    userId = session.getUserId();
+                    generation.generate(userId, event.eventType(), sourceEventId, event.id(),
+                            referenceType, referenceId, event.occurredAt(), values);
+                    return;
+                }
                 userId = session.getUserId();
                 referenceType = "PAYMENT";
                 values.put("parkingSessionId", session.getId());
@@ -161,4 +186,5 @@ public class NotificationOutboxProcessor {
 
     private record OutboxEvent(UUID id, String aggregateType, UUID aggregateId,
                                String eventType, String payload, OffsetDateTime occurredAt) { }
+    private record ExtensionNotice(int additionalMinutes, OffsetDateTime newExpectedEndAt, String status) { }
 }

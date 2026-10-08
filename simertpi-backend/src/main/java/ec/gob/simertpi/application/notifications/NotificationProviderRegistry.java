@@ -17,6 +17,8 @@ public class NotificationProviderRegistry {
   for(String channel:List.of("PUSH","WHATSAPP","EMAIL")) {
    long count=providers.stream().filter(p->p.channels().contains(channel)&&p.code().equals(configuredCode(channel))).count();
    if(count>1) throw new IllegalStateException("Ambiguous notification provider");
+   if("PUSH".equals(channel)&&"FCM".equals(configuredCode(channel))&&count!=1)
+    throw new IllegalStateException("FCM is selected but the FCM provider is not enabled");
   }
  }
  public Optional<NotificationProvider> resolve(String channel,String code) {

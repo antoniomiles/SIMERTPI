@@ -28,17 +28,18 @@ public class NotificationSettingsService {
   String hash=hash(token);
   jdbc.queryForList("SELECT pg_advisory_xact_lock(hashtextextended(?,0))",hash);
   var existing=jdbc.queryForList("SELECT id,user_id,platform,active FROM notification.devices WHERE token_hash=? FOR UPDATE",hash);
-  UUID id;boolean changed;
+  UUID id;boolean changed;boolean reassigned=false;
   if(existing.isEmpty()){
    id=UUID.randomUUID();changed=true;
    jdbc.update("INSERT INTO notification.devices(id,user_id,platform,token,token_hash) VALUES (?,?,?,?,?)",id,user,platform,token,hash);
   }else{
    var row=existing.getFirst();id=(UUID)row.get("id");
-   if(!user.equals(row.get("user_id"))||!platform.equals(row.get("platform"))) throw new IllegalArgumentException("Device registration conflict");
-   changed=!Boolean.TRUE.equals(row.get("active"));
-   jdbc.update("UPDATE notification.devices SET active=true,disabled_at=null,updated_at=CURRENT_TIMESTAMP,last_seen_at=CURRENT_TIMESTAMP WHERE id=?",id);
+   if(!platform.equals(row.get("platform"))) throw new IllegalArgumentException("Device registration conflict");
+   reassigned=!user.equals(row.get("user_id"));
+   changed=reassigned||!Boolean.TRUE.equals(row.get("active"));
+   jdbc.update("UPDATE notification.devices SET user_id=?,active=true,disabled_at=null,updated_at=CURRENT_TIMESTAMP,last_seen_at=CURRENT_TIMESTAMP WHERE id=?",user,id);
   }
-  if(changed)audit.success("NOTIFICATION_DEVICE_REGISTERED","NOTIFICATION_DEVICE",id,null,Map.of("platform",platform));
+  if(changed)audit.success(reassigned?"NOTIFICATION_DEVICE_REASSIGNED":"NOTIFICATION_DEVICE_REGISTERED","NOTIFICATION_DEVICE",id,null,Map.of("platform",platform));
   return devices(username).stream().filter(d->d.id().equals(id)).findFirst().orElseThrow();
  }
  @Transactional(readOnly=true) public List<DeviceView> devices(String username){

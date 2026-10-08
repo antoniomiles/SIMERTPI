@@ -104,6 +104,7 @@ class OperationalRecoveryPostgresIntegrationTest extends ec.gob.simertpi.testsup
     @AfterEach
     void cleanUp() throws Exception {
         for(String key:objects)storage.delete(key);
+        jdbc.update("DELETE FROM notification.preferences WHERE user_id IN (?,?)",userId,otherUserId);
         jdbc.update("DELETE FROM notification.notifications WHERE user_id IN (?,?)",userId,otherUserId);
         jdbc.update("DELETE FROM configuration.notification_rules WHERE code=?","CP11-"+tag);
         for(UUID id:events)jdbc.update("DELETE FROM audit.outbox_events WHERE id=?",id);
@@ -224,6 +225,7 @@ class OperationalRecoveryPostgresIntegrationTest extends ec.gob.simertpi.testsup
         parallel(outbox::processPending,outbox::processPending);assertThat(attempts(id)).isEqualTo(2);assertThat(audit("OUTBOX_RETRY_EXHAUSTED",id)).isEqualTo(1);
     }
     @Test void concurrentWorkersDoNotDuplicateGeneratedNotification() throws Exception {
+        jdbc.update("INSERT INTO notification.preferences(user_id,channel,enabled) VALUES (?,'PUSH',true) ON CONFLICT(user_id,channel) DO UPDATE SET enabled=true", userId);
         UUID rule=UUID.randomUUID();
         jdbc.update("INSERT INTO configuration.notification_rules(id,code,event_type,channel,minutes_before,enabled,title_template,message_template,valid_from) VALUES(?,?,'PERMIT_CREATED','PUSH',0,true,'Test','Test',CURRENT_TIMESTAMP-INTERVAL '1 day')",rule,"CP11-"+tag);
         UUID id=event("PENDING","{\"beneficiaryUserId\":\""+userId+"\"}");parallel(outbox::processPending,outbox::processPending);

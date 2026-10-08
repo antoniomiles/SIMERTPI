@@ -213,7 +213,10 @@ public class PaymentService {
 
             Payment saved = paymentRepository.save(payment);
             updateLatestAttempt(payment, "APPROVED", providerTransactionId, null);
-            eventPublisher.publish(payment, "PAYMENT_APPROVED");
+            // The extension event is written in the same transaction as the
+            // approved payment and applied session end. Pending/rejected
+            // attempts can therefore never announce a confirmed extension.
+            eventPublisher.publish(payment, "PARKING_EXTENSION_CONFIRMED");
             return saved;
         }
 

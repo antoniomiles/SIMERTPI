@@ -11,10 +11,13 @@ class AuthController extends ChangeNotifier {
     this.gateway, {
     required this.store,
     DateTime Function()? clock,
+    this.onBeforeLogout,
   }) : _clock = clock ?? DateTime.now;
   final AuthGateway gateway;
   final SessionStore store;
   final DateTime Function() _clock;
+  final Future<void> Function({required bool remote, required String? ownerId})?
+  onBeforeLogout;
   AuthPhase phase = AuthPhase.initial;
   String? message;
   MobileSession? _session;
@@ -22,6 +25,8 @@ class AuthController extends ChangeNotifier {
   int _generation = 0;
   Future<bool>? _refreshing;
   Future<void>? _storageWork;
+  Future<void>? _logoutInProgress;
+  bool get isLoggingOut => _logoutInProgress != null;
   bool get isAuthenticated => _session != null;
   String? get userId => _session?.userId;
   // Serialize writes/deletes: logout always clears after any in-flight write.
@@ -160,8 +165,30 @@ class AuthController extends ChangeNotifier {
 
   Future<bool> recoverUnauthorized(String? authorization) async =>
       renew(failedAuthorization: authorization);
-  Future<void> logout({bool expired = false, bool remote = true}) async {
+  Future<void> logout({bool expired = false, bool remote = true}) {
+    final running = _logoutInProgress;
+    if (running != null) return running;
+    final task = _performLogout(expired: expired, remote: remote);
+    _logoutInProgress = task;
+    return task.whenComplete(() {
+      if (identical(_logoutInProgress, task)) _logoutInProgress = null;
+    });
+  }
+
+  Future<void> _performLogout({
+    required bool expired,
+    required bool remote,
+  }) async {
     final old = _session;
+    if (old != null) {
+      try {
+        await onBeforeLogout
+            ?.call(remote: remote, ownerId: old.userId)
+            .timeout(const Duration(seconds: 3));
+      } catch (_) {
+        // A durable device revocation remains queued if this best-effort call fails.
+      }
+    }
     ++_generation;
     _session = null;
     phase = AuthPhase.signedOut;

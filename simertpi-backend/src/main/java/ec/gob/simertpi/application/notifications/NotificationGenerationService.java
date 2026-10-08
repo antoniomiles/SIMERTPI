@@ -74,6 +74,10 @@ public class NotificationGenerationService {
         if (!rule.isEnabled() || !rule.getEventType().equals(eventType)
                 || rule.getValidFrom().isAfter(createdAt)
                 || (rule.getValidTo() != null && rule.getValidTo().isBefore(createdAt))) return 0;
+        if (!rule.isMandatory() && ("PUSH".equals(rule.getChannel()) || "EMAIL".equals(rule.getChannel()))
+                && jdbc != null && !Boolean.TRUE.equals(jdbc.query(
+                        "SELECT enabled FROM notification.preferences WHERE user_id=? AND channel=?",
+                        rs -> rs.next() && rs.getBoolean(1), recipient.getId(), rule.getChannel()))) return 0;
         Map<String, Object> templateValues = new java.util.HashMap<>();
         if (values != null) templateValues.putAll(values);
         templateValues.put("eventType", eventType);

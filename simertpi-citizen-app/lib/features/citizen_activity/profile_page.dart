@@ -6,6 +6,7 @@ import '../../core/errors/app_failure.dart';
 import '../../core/widgets/app_feedback.dart';
 import '../../core/widgets/operational_ui.dart';
 import 'activity_service.dart';
+import '../../core/push/push_lifecycle.dart';
 
 class CitizenProfilePage extends StatefulWidget {
   const CitizenProfilePage({super.key, this.gateway, this.onNotifications});
@@ -108,8 +109,10 @@ class _CitizenProfilePageState extends State<CitizenProfilePage> {
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute<void>(
-                  builder: (_) =>
-                      NotificationPreferencesPage(gateway: gateway!),
+                  builder: (_) => NotificationPreferencesPage(
+                    gateway: gateway!,
+                    pushLifecycle: AppScope.of(context).pushLifecycle,
+                  ),
                 ),
               ),
             ),
@@ -127,8 +130,13 @@ class _CitizenProfilePageState extends State<CitizenProfilePage> {
 }
 
 class NotificationPreferencesPage extends StatefulWidget {
-  const NotificationPreferencesPage({super.key, required this.gateway});
+  const NotificationPreferencesPage({
+    super.key,
+    required this.gateway,
+    this.pushLifecycle,
+  });
   final ActivityGateway gateway;
+  final PushDeviceLifecycle? pushLifecycle;
   @override
   State<NotificationPreferencesPage> createState() =>
       _NotificationPreferencesPageState();
@@ -138,11 +146,47 @@ class _NotificationPreferencesPageState
     extends State<NotificationPreferencesPage> {
   Map<String, bool>? values;
   bool busy = false;
+  bool requestingPermission = false;
+  PushPermissionState permissionState = PushPermissionState.notDetermined;
   String? error;
   @override
   void initState() {
     super.initState();
     load();
+    refreshPermission();
+  }
+
+  Future<void> refreshPermission() async {
+    final push = widget.pushLifecycle;
+    if (push == null) {
+      if (mounted) {
+        setState(() => permissionState = PushPermissionState.unavailable);
+      }
+      return;
+    }
+    final state = await push.refreshPermission();
+    if (mounted) setState(() => permissionState = state);
+  }
+
+  Future<void> enablePushPermission() async {
+    final push = widget.pushLifecycle;
+    if (push == null) return;
+    setState(() => requestingPermission = true);
+    final state = permissionState == PushPermissionState.systemSettingsRequired
+        ? await push.openSystemSettings().then((_) => push.refreshPermission())
+        : await push.requestPermission();
+    if (mounted) {
+      setState(() {
+        permissionState = state;
+        requestingPermission = false;
+      });
+      if (state == PushPermissionState.granted) {
+        AppSnackbar.show(
+          context,
+          'Notificaciones activadas en este dispositivo.',
+        );
+      }
+    }
   }
 
   Future<void> load() async {
@@ -213,7 +257,31 @@ class _NotificationPreferencesPageState
                   : (v) => setState(() => values!['EMAIL'] = v),
             ),
             const InfoCard(
-              'Estos canales estarán disponibles próximamente. Tus preferencias quedarán guardadas. Los avisos dentro de la aplicación permanecen activos.',
+              'SIMERTPI puede avisarte cuando tu estacionamiento esté próximo a finalizar. Los avisos dentro de la aplicación permanecen disponibles aunque rechaces este permiso.',
+            ),
+            Text(switch (permissionState) {
+              PushPermissionState.granted =>
+                'Permiso del dispositivo activado.',
+              PushPermissionState.systemSettingsRequired => 'El permiso está desactivado. Puedes habilitarlo desde los ajustes del dispositivo.',
+              PushPermissionState.denied =>
+                'El permiso del dispositivo está desactivado.',
+              PushPermissionState.notDetermined =>
+                'El permiso del dispositivo aún no se ha solicitado.',
+              PushPermissionState.unavailable => 'Las notificaciones del dispositivo no están configuradas en esta versión.',
+            }, style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed:
+                  requestingPermission ||
+                      permissionState == PushPermissionState.unavailable
+                  ? null
+                  : enablePushPermission,
+              icon: const Icon(Icons.notifications_active_outlined),
+              label: Text(
+                permissionState == PushPermissionState.systemSettingsRequired
+                    ? 'Abrir ajustes del dispositivo'
+                    : 'Activar notificaciones en este dispositivo',
+              ),
             ),
             const SizedBox(height: 16),
             FilledButton(

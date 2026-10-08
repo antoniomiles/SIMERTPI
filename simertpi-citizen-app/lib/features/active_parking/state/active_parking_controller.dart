@@ -26,6 +26,19 @@ class ActiveParkingController extends ChangeNotifier {
   final bool dev;
   final DateTime Function() now;
   List<ParkingReceipt> sessions = [];
+  String? _preferredSessionId;
+  void prioritizeSession(String id) {
+    _preferredSessionId = id;
+    sessions.sort(
+      (a, b) => a.id == id
+          ? -1
+          : b.id == id
+          ? 1
+          : 0,
+    );
+    emit();
+  }
+
   ParkingCatalog? locations;
   List<CitizenVehicle> vehicleItems = [];
   bool loading = false,
@@ -60,6 +73,16 @@ class ActiveParkingController extends ChangeNotifier {
       sessions = all
           .where((s) => openParkingStates.contains(s.status))
           .toList();
+      final preferred = _preferredSessionId;
+      if (preferred != null) {
+        sessions.sort(
+          (a, b) => a.id == preferred
+              ? -1
+              : b.id == preferred
+              ? 1
+              : 0,
+        );
+      }
       extensionOptions = {};
       if (gateway is DurationOptionsGateway) {
         for (final session in sessions) {

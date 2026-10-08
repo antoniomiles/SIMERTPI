@@ -33,7 +33,7 @@ class CitizenInboxMigrationIntegrationTest extends AbstractPostgresIntegrationTe
             UUID period=ec.gob.simertpi.application.notifications.NotificationEventIds.stable("PARKING_SESSION",session,"EXPIRATION",java.time.OffsetDateTime.parse("2026-10-06T11:00:00Z"));
             jdbc.update("INSERT INTO notification.notifications(id,user_id,source_event_id,notification_type,channel,title,message,reference_type,reference_id,rule_id) VALUES(?,?,?,'EXPIRATION','PUSH','Aviso previo','Aviso previo','PARKING_SESSION',?,?)",UUID.randomUUID(),owner,period,session,rule);
             var flyway=Flyway.configure().dataSource(data).load();flyway.migrate();flyway.validate();
-            assertThat(flyway.info().current().getVersion().toString()).isEqualTo("33");
+            assertThat(flyway.info().current().getVersion().toString()).isEqualTo("34");
             assertThat(jdbc.queryForObject("SELECT count(*) FROM notification.notifications",Integer.class)).isEqualTo(4);
             assertThat(jdbc.queryForObject("SELECT count(*) FROM notification.inbox_items",Integer.class)).isEqualTo(2);
             assertThat(jdbc.queryForObject("SELECT count(*) FROM notification.inbox_items WHERE read_at IS NOT NULL",Integer.class)).isEqualTo(1);

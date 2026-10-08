@@ -112,6 +112,8 @@ class PaymentServiceTest {
         verify(sessionExtensionRepository).save(extension);
         verify(parkingSessionRepository).save(session);
         verify(paymentRepository).save(payment);
+        verify(paymentEventPublisher).publish(payment, "PARKING_EXTENSION_CONFIRMED");
+        verify(paymentEventPublisher, never()).publish(payment, "PAYMENT_APPROVED");
     }
 
     @Test

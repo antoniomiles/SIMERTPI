@@ -15,6 +15,10 @@ class NotificationProviderContractTest {
   assertThat(result.status()).isEqualTo(NotificationProviderResult.Status.TEMPORARY_FAILURE);assertThat(result.externalMessageId()).isNull();assertThat(result.errorCode()).isEqualTo("PROVIDER_NOT_CONFIGURED");
  }
  @Test void unknownProviderFailsClosed(){var result=new NotificationProviderRegistry(new MockEnvironment(),List.of()).send("MISSING",request("PUSH"));assertThat(result.status()).isEqualTo(NotificationProviderResult.Status.PERMANENT_FAILURE);assertThat(result.externalMessageId()).isNull();}
+ @Test void selectingFcmWithoutExplicitlyEnabledProviderFailsStartup(){
+  var registry=new NotificationProviderRegistry(new MockEnvironment().withProperty("simertpi.notifications.providers.push","FCM"),List.of());
+  assertThatThrownBy(registry::validate).isInstanceOf(IllegalStateException.class).hasMessageContaining("FCM");
+ }
  @ParameterizedTest @EnumSource(value=NotificationProviderResult.Status.class)
  void sandboxOutcomes(NotificationProviderResult.Status outcome){
   var env=new MockEnvironment().withProperty("simertpi.notifications.sandbox.enabled","true").withProperty("simertpi.notifications.sandbox.outcome",outcome.name());env.setActiveProfiles("test");

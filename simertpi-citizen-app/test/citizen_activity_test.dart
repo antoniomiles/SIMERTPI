@@ -370,7 +370,11 @@ void main() {
       expect(find.text('WHATSAPP'), findsNothing);
       await t.tap(find.byType(SwitchListTile).first);
       await t.pump();
-      await t.ensureVisible(find.text('Guardar preferencias'));
+      await t.scrollUntilVisible(
+        find.text('Guardar preferencias'),
+        200,
+        scrollable: find.byType(Scrollable).last,
+      );
       await t.tap(find.text('Guardar preferencias'));
       await t.pumpAndSettle();
       expect(g.saved, {'PUSH': true, 'EMAIL': false});

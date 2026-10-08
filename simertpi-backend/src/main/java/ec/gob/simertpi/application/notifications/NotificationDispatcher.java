@@ -118,7 +118,19 @@ public class NotificationDispatcher {
   if(attempts>0)metric(ec.gob.simertpi.application.operations.OperationalMetrics.Event.NOTIFICATION_RETRY);
   UUID token=UUID.randomUUID();attempts++;
   jdbc.update("UPDATE notification.deliveries SET status='PROCESSING',provider_code=?,processing_token=?,attempts=?,last_attempt_at=?,next_attempt_at=null,updated_at=? WHERE id=?",providerCode,token,attempts,now,now,id);
-  return new Claim(id,token,providerCode,attempts,destination.device(),new NotificationProviderRequest(id,(UUID)row.get("notification_id"),(String)row.get("channel"),destination.value(),(String)n.get("title"),(String)n.get("message")));
+  Map<String,String> payload=pushPayload(n);
+  return new Claim(id,token,providerCode,attempts,destination.device(),new NotificationProviderRequest(id,(UUID)row.get("notification_id"),(String)row.get("channel"),destination.value(),(String)n.get("title"),(String)n.get("message"),payload));
+ }
+ static Map<String,String> pushPayload(Map<String,Object> n){
+  Map<String,String> payload=new LinkedHashMap<>();
+  payload.put("notificationId",String.valueOf(n.get("id")));
+  payload.put("eventType",String.valueOf(n.get("notification_type")));
+  // Android receives data-only messages and validates this account audience
+  // against a native, consent-scoped presentation gate before showing anything.
+  payload.put("recipientOwnerId",String.valueOf(n.get("user_id")));
+  if(n.get("reference_type")!=null)payload.put("resourceType",String.valueOf(n.get("reference_type")));
+  if(n.get("reference_id")!=null)payload.put("resourceId",String.valueOf(n.get("reference_id")));
+  return Collections.unmodifiableMap(payload);
  }
  private void complete(Claim c,NotificationProviderResult result,OffsetDateTime now){
   var rows=jdbc.queryForList("SELECT notification_id FROM notification.deliveries WHERE id=? AND status='PROCESSING' AND processing_token=? FOR UPDATE",c.id(),c.token());
@@ -127,7 +139,7 @@ public class NotificationDispatcher {
   if(result!=null&&result.status()!=null&&c.provider().equals(result.providerCode())){
    status=result.status().name();error=status;
    if("DELIVERED".equals(status)){
-    if(result.externalMessageId()!=null&&!result.externalMessageId().matches("[A-Za-z0-9._:-]{1,150}")){status="UNKNOWN";error="UNKNOWN";}
+    if(result.externalMessageId()!=null&&!result.externalMessageId().matches("[A-Za-z0-9._:/-]{1,150}")){status="UNKNOWN";error="UNKNOWN";}
     else{external=result.externalMessageId();error=null;}
    }
    if("TEMPORARY_FAILURE".equals(status)){

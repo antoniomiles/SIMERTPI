@@ -38,6 +38,14 @@ android {
     }
 }
 
+dependencies {
+    // The app's guarded MessagingService subclasses the FlutterFire service,
+    // so its Firebase Messaging API must be on the app compile classpath too.
+    implementation(platform("com.google.firebase:firebase-bom:34.19.0"))
+    implementation("com.google.firebase:firebase-messaging")
+    testImplementation("junit:junit:4.13.2")
+}
+
 kotlin {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17

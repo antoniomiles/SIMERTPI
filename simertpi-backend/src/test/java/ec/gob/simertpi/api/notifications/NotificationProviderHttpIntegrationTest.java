@@ -34,10 +34,10 @@ class NotificationProviderHttpIntegrationTest extends ec.gob.simertpi.testsuppor
  @Autowired NotificationDispatcher dispatcher;@Autowired TestRestTemplate http;@Autowired PasswordEncoder encoder;@Autowired ObjectMapper json;@Autowired Flyway flyway;
  @MockitoSpyBean NotificationProviderRegistry registry;
  @MockitoSpyBean SandboxNotificationProvider provider;@LocalServerPort int port;
- UUID owner,other;String username,othername;List<UUID> rules;
+ UUID owner,other;String username,othername;List<UUID> rules;List<UUID> outboxes;
  static final String PASSWORD="notification-test-only";
  @BeforeEach void setup(){
-  owner=UUID.randomUUID();other=UUID.randomUUID();username="cp13-"+owner;othername="cp13-"+other;rules=new ArrayList<>();
+  owner=UUID.randomUUID();other=UUID.randomUUID();username="cp13-"+owner;othername="cp13-"+other;rules=new ArrayList<>();outboxes=new ArrayList<>();
   insertUser(owner,username);insertUser(other,othername);
   settings.preferences(username,Map.of("PUSH",true,"EMAIL",true,"WHATSAPP",true));
  }
@@ -49,6 +49,7 @@ class NotificationProviderHttpIntegrationTest extends ec.gob.simertpi.testsuppor
   jdbc.update("DELETE FROM notification.notifications WHERE user_id IN (?,?)",owner,other);
   jdbc.update("DELETE FROM notification.devices WHERE user_id IN (?,?)",owner,other);
   jdbc.update("DELETE FROM notification.preferences WHERE user_id IN (?,?)",owner,other);
+  for(UUID id:outboxes)jdbc.update("DELETE FROM audit.outbox_events WHERE id=?",id);
   for(UUID id:rules)jdbc.update("DELETE FROM configuration.notification_rules WHERE id=?",id);
   jdbc.update("DELETE FROM identity.user_roles WHERE user_id IN (?,?)",owner,other);
   jdbc.update("DELETE FROM identity.users WHERE id IN (?,?)",owner,other);
@@ -83,7 +84,7 @@ class NotificationProviderHttpIntegrationTest extends ec.gob.simertpi.testsuppor
  }
  @Test void tokenRegistrationAndDisableAreIdempotent(){String token="private-"+UUID.randomUUID();var first=settings.register(username,"WEB",token);assertThat(settings.register(username,"WEB",token).id()).isEqualTo(first.id());assertThat(settings.devices(username)).hasSize(1);assertThat(audit("NOTIFICATION_DEVICE_REGISTERED",first.id())).isEqualTo(1);settings.disable(username,first.id());settings.disable(username,first.id());assertThat(audit("NOTIFICATION_DEVICE_DISABLED",first.id())).isEqualTo(1);assertThat(settings.devices(username).getFirst().active()).isFalse();}
  @Test void ownDeviceCanBeReactivated(){String token="private-"+UUID.randomUUID();var first=settings.register(username,"WEB",token);settings.disable(username,first.id());assertThat(settings.register(username,"WEB",token).id()).isEqualTo(first.id());assertThat(settings.devices(username).getFirst().active()).isTrue();}
- @Test void horizontalAccessAndTokenTakeoverRejected(){String token="private-"+UUID.randomUUID();var foreign=settings.register(othername,"IOS",token);assertThat(call("/devices",HttpMethod.GET,username,null).getBody()).doesNotContain(foreign.id().toString());assertThat(call("/devices/"+foreign.id(),HttpMethod.DELETE,username,null).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);assertThat(call("/devices",HttpMethod.POST,username,Map.of("platform","IOS","token",token)).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);}
+ @Test void deviceTokenCanBeReassociatedAfterAccountSwitchButIdsRemainOwnerScoped(){String token="private-"+UUID.randomUUID();var foreign=settings.register(othername,"ANDROID",token);assertThat(call("/devices",HttpMethod.GET,username,null).getBody()).doesNotContain(foreign.id().toString());assertThat(call("/devices/"+foreign.id(),HttpMethod.DELETE,username,null).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);var response=call("/devices",HttpMethod.POST,username,Map.of("platform","ANDROID","token",token));assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);assertThat(settings.devices(othername)).isEmpty();assertThat(settings.devices(username)).singleElement().satisfies(device->assertThat(device.id()).isEqualTo(foreign.id()));assertThat(jdbc.queryForObject("SELECT user_id FROM notification.devices WHERE id=?",UUID.class,foreign.id())).isEqualTo(owner);assertThat(audit("NOTIFICATION_DEVICE_REASSIGNED",foreign.id())).isEqualTo(1);}
  @Test void anonymousCannotManageDevicesOrPreferences(){for(String path:List.of("/devices","/preferences"))assertThat(call(path,HttpMethod.GET,null,null).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);}
  @Test void preferencesAreDisabledByDefault(){assertThat(settings.preferences(othername)).allMatch(p->!p.enabled());}
  @ParameterizedTest @ValueSource(strings={"PUSH","WHATSAPP","EMAIL"}) void preferencesAreOwnedAndIdempotent(String channel){
@@ -106,7 +107,7 @@ class NotificationProviderHttpIntegrationTest extends ec.gob.simertpi.testsuppor
  @Test void providerExceptionSanitizedAndUnknown(){doThrow(new IllegalStateException("SENSITIVE_PROVIDER_SECRET")).when(provider).send(any());UUID n=notification("EMAIL",false);process();assertThat(status(n)).isEqualTo("UNKNOWN");assertThat(jdbc.queryForObject("SELECT error_code FROM notification.deliveries WHERE notification_id=?",String.class,n)).isEqualTo("UNKNOWN");}
  @Test void exhaustedRetriesAreTerminalAndAuditedOnce(){outcome(NotificationProviderResult.Status.TEMPORARY_FAILURE);UUID n=notification("EMAIL",false);process();dispatcher.processDue(OffsetDateTime.now().plusMinutes(1));dispatcher.processDue(OffsetDateTime.now().plusMinutes(3));assertThat(status(n)).isEqualTo("DEAD");dispatcher.processDue(OffsetDateTime.now().plusDays(1));verify(provider,times(3)).send(any());assertThat(audit("NOTIFICATION_RETRY_EXHAUSTED",deliveryId(n))).isEqualTo(1);}
  @Test void sentAuditIsOnceAndContainsNoDestination(){UUID n=notification("EMAIL",false);process();process();UUID id=deliveryId(n);assertThat(audit("NOTIFICATION_DELIVERED",id)).isEqualTo(1);assertThat(jdbc.queryForObject("SELECT metadata::text FROM audit.functional_audit_log WHERE action='NOTIFICATION_DELIVERED' AND resource_id=?",String.class,id)).doesNotContain(username,"@example.test","+593999000123","Body","token");}
- @Test void sendRunsWithoutDatabaseTransaction(){doAnswer(inv->{assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();return new NotificationProviderResult(NotificationProviderResult.Status.DELIVERED,"SANDBOX","safe-id",false,null);}).when(provider).send(any());UUID n=notification("EMAIL",false);process();assertThat(status(n)).isEqualTo("DELIVERED");}
+ @Test void sendRunsWithoutDatabaseTransaction(){doAnswer(inv->{assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();return new NotificationProviderResult(NotificationProviderResult.Status.DELIVERED,"SANDBOX","projects/dev/messages/safe-id",false,null);}).when(provider).send(any());UUID n=notification("EMAIL",false);process();assertThat(status(n)).isEqualTo("DELIVERED");}
  @Test void inboxReadStateSurvivesDelivery(){UUID n=notification("EMAIL",false);assertThat(call("/"+n+"/read",HttpMethod.PATCH,username,null).getStatusCode()).isEqualTo(HttpStatus.OK);process();assertThat(jdbc.queryForObject("SELECT status FROM notification.notifications WHERE id=?",String.class,n)).isEqualTo("READ");assertThat(status(n)).isEqualTo("DELIVERED");}
  @ParameterizedTest @ValueSource(strings={"PENDING","TEMPORARY_FAILURE"}) void twoWorkersDoNotSendSameDelivery(String initial)throws Exception{
   UUID n=notification("EMAIL",false);jdbc.update("UPDATE notification.deliveries SET status=? WHERE notification_id=?",initial,n);AtomicInteger calls=new AtomicInteger();CountDownLatch entered=new CountDownLatch(1),release=new CountDownLatch(1);
@@ -148,7 +149,41 @@ class NotificationProviderHttpIntegrationTest extends ec.gob.simertpi.testsuppor
    jdbc.update("DELETE FROM parking.parking_spaces WHERE id=?",space);jdbc.update("DELETE FROM parking.streets WHERE id=?",street);jdbc.update("DELETE FROM parking.zones WHERE id=?",zone);jdbc.update("DELETE FROM identity.vehicles WHERE id=?",vehicle);
   }
  }
- @Test void flywayValidatesCurrentSchema(){flyway.validate();assertThat(flyway.info().current().getVersion().toString()).isEqualTo("33");}
+ @Test void flywayValidatesCurrentSchema(){flyway.validate();assertThat(flyway.info().current().getVersion().toString()).isEqualTo("34");}
+
+ @Test void approvedExtensionCreatesOneLogicalInboxItemAndPerDevicePushes(){
+  device("ANDROID");device("IOS");UUID source=UUID.randomUUID();OffsetDateTime now=OffsetDateTime.now(); UUID outbox=outbox("PARKING_EXTENSION_CONFIRMED",source);
+  int generated=generation.generate(owner,"PARKING_EXTENSION_CONFIRMED",source,outbox,
+   "PARKING_SESSION",UUID.randomUUID(),now,Map.of("additionalMinutes",30,"newExpectedEndTime","13:30"));
+  assertThat(generated).isEqualTo(2);
+  assertThat(jdbc.queryForObject("SELECT count(*) FROM notification.inbox_items WHERE user_id=? AND event_type='PARKING_EXTENSION_CONFIRMED' AND source_event_id=?",Integer.class,owner,source)).isEqualTo(1);
+  assertThat(jdbc.queryForObject("SELECT count(*) FROM notification.notifications WHERE user_id=? AND notification_type='PARKING_EXTENSION_CONFIRMED' AND source_event_id=? AND channel='PUSH'",Integer.class,owner,source)).isEqualTo(1);
+  UUID push=jdbc.queryForObject("SELECT id FROM notification.notifications WHERE user_id=? AND notification_type='PARKING_EXTENSION_CONFIRMED' AND source_event_id=? AND channel='PUSH'",UUID.class,owner,source);
+  assertThat(jdbc.queryForObject("SELECT count(*) FROM notification.deliveries WHERE notification_id=?",Integer.class,push)).isEqualTo(2);
+  assertThat(jdbc.queryForObject("SELECT message FROM notification.inbox_items WHERE user_id=? AND event_type='PARKING_EXTENSION_CONFIRMED' AND source_event_id=?",String.class,owner,source)).contains("30 minutos","13:30");
+ }
+
+ @Test void pushDispatcherCarriesOwnerAudienceGuardInDataOnlyRequest(){
+  device("ANDROID");notification("PUSH",false);process();
+  org.mockito.ArgumentCaptor<NotificationProviderRequest> request=org.mockito.ArgumentCaptor.forClass(NotificationProviderRequest.class);
+  verify(provider).send(request.capture());
+  assertThat(request.getValue().data()).containsEntry("recipientOwnerId",owner.toString());
+  assertThat(request.getValue().data()).doesNotContainKey("title").doesNotContainKey("body");
+ }
+
+ @Test void pushPreferenceOffDoesNotCreatePushNotificationsOrDeliveries(){
+  settings.preferences(username,Map.of("PUSH",false));device("ANDROID");UUID source=UUID.randomUUID();UUID outbox=outbox("PARKING_EXTENSION_CONFIRMED",source);
+  generation.generate(owner,"PARKING_EXTENSION_CONFIRMED",source,outbox,"PARKING_SESSION",UUID.randomUUID(),OffsetDateTime.now(),Map.of("additionalMinutes",30,"newExpectedEndTime","13:30"));
+  assertThat(jdbc.queryForObject("SELECT count(*) FROM notification.notifications WHERE user_id=? AND notification_type='PARKING_EXTENSION_CONFIRMED' AND source_event_id=? AND channel='PUSH'",Integer.class,owner,source)).isZero();
+  assertThat(jdbc.queryForObject("SELECT count(*) FROM notification.deliveries d JOIN notification.notifications n ON n.id=d.notification_id WHERE n.user_id=? AND n.notification_type='PARKING_EXTENSION_CONFIRMED' AND n.source_event_id=? AND d.channel='PUSH'",Integer.class,owner,source)).isZero();
+  assertThat(jdbc.queryForObject("SELECT count(*) FROM notification.inbox_items WHERE user_id=? AND event_type='PARKING_EXTENSION_CONFIRMED' AND source_event_id=?",Integer.class,owner,source)).isEqualTo(1);
+ }
+
+ private UUID outbox(String type, UUID aggregateId) {
+  UUID id=UUID.randomUUID();outboxes.add(id);
+  jdbc.update("INSERT INTO audit.outbox_events(id,aggregate_type,aggregate_id,event_type,payload,status,occurred_at) VALUES(?,'PAYMENT',?,?,'{}','PENDING',CURRENT_TIMESTAMP)",id,aggregateId,type);
+  return id;
+ }
 
  @Test void repeatedEventCreatesOneNotificationAndDelivery(){
   UUID ruleId=rule("EMAIL",false),event=UUID.randomUUID();var rule=ruleRepository.findById(ruleId).orElseThrow();OffsetDateTime now=OffsetDateTime.now();

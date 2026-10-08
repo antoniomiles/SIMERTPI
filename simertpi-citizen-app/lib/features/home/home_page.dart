@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../citizen_activity/activity_pages.dart';
 import '../citizen_activity/profile_page.dart';
 import '../citizen_activity/activity_service.dart';
@@ -58,8 +60,31 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   bool mapOpened = false;
+  bool _initialTabApplied = false;
   String? greeting;
   ValueNotifier<int>? _parkingConfirmed, _citizenTab;
+  ValueNotifier<String?>? _parkingSessionTarget;
+  void _parkingTargetChanged() {
+    final target = _parkingSessionTarget?.value;
+    if (target == null || !mounted) return;
+    _parkingSessionTarget!.value = null;
+    _active?.prioritizeSession(target);
+    _tab(0);
+    unawaited(_resolveParkingTarget(target));
+  }
+
+  Future<void> _resolveParkingTarget(String target) async {
+    final active = _active;
+    if (active == null) return;
+    await active.load();
+    for (var i = 0; i < 300 && active.loading && mounted; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    if (!mounted || !AppScope.of(context).auth.isAuthenticated) return;
+    AppScope.of(context).pushLifecycle?.completeParkingTarget(target);
+    if (!active.sessions.any((session) => session.id == target)) _tab(2);
+  }
+
   void _requestedTab() {
     if (mounted && _citizenTab!.value != tab) _tab(_citizenTab!.value);
   }
@@ -116,11 +141,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     super.didChangeDependencies();
     if (_active != null) return;
     final scope = AppScope.of(context);
+    if (!_initialTabApplied &&
+        widget.initialTab == 0 &&
+        scope.citizenTab?.value == 2) {
+      tab = 2;
+    }
+    _initialTabApplied = true;
     activity = ActivityService(scope.api);
     refreshUnread();
     _citizenTab = scope.citizenTab;
     _citizenTab?.value = tab;
     _citizenTab?.addListener(_requestedTab);
+    _parkingSessionTarget = scope.parkingSessionTarget;
+    _parkingSessionTarget?.addListener(_parkingTargetChanged);
+    if (_parkingSessionTarget?.value != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _parkingTargetChanged();
+      });
+    }
     _parkingConfirmed = scope.parkingConfirmed;
     _parkingConfirmed?.addListener(_confirmed);
     // A vehicles controller is only needed when injected by a host/test.
@@ -172,6 +210,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _parkingConfirmed?.removeListener(_confirmed);
     _citizenTab?.removeListener(_requestedTab);
+    _parkingSessionTarget?.removeListener(_parkingTargetChanged);
     if (widget.controller == null) _vehicles?.dispose();
     if (widget.activeController == null) _active?.dispose();
     super.dispose();
@@ -383,11 +422,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           CitizenProfilePage(gateway: activity, onNotifications: () => _tab(2)),
         ],
       ),
-      bottomNavigationBar: CitizenNavigation(
-        selected: tab,
-        onSelected: _tab,
-        unreadCount: unreadCount,
-      ),
+      bottomNavigationBar: CitizenNavigation(selected: tab, onSelected: _tab),
     ),
   );
 }

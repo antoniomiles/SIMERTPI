@@ -541,8 +541,8 @@ class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupp
                 Integer.class, sessionId)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.parking_control_events WHERE parking_session_id = ? AND event_type = 'EXCESS_11_30'",
                 Integer.class, sessionId)).isEqualTo(1);
-        Integer activeExpirationRules = jdbc.queryForObject("SELECT count(*) FROM configuration.notification_rules WHERE event_type = 'PARKING_TIME_EXPIRED' AND enabled = true AND valid_from <= ? AND (valid_to IS NULL OR valid_to >= ?)",
-                Integer.class, evaluationTime.plusMinutes(1), evaluationTime.plusMinutes(1));
+        Integer activeExpirationRules = jdbc.queryForObject("SELECT count(*) FROM configuration.notification_rules r WHERE event_type = 'PARKING_TIME_EXPIRED' AND enabled = true AND valid_from <= ? AND (valid_to IS NULL OR valid_to >= ?) AND (channel='IN_APP' OR mandatory=true OR COALESCE((SELECT enabled FROM notification.preferences p WHERE p.user_id=? AND p.channel=r.channel),false))",
+                Integer.class, evaluationTime.plusMinutes(1), evaluationTime.plusMinutes(1), fixture.userA);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM notification.notifications WHERE user_id = ? AND notification_type = 'PARKING_TIME_EXPIRED'",
                 Integer.class, fixture.userA)).isEqualTo(activeExpirationRules);
 
