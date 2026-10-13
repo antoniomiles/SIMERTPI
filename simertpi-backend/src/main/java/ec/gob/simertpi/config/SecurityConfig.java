@@ -39,6 +39,8 @@ public class SecurityConfig {
                 .requestMatchers("/actuator/**").denyAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/users").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/logout").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/v1/auth/device/challenge", "/api/v1/auth/device/authenticate").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/v1/auth/device/register/challenge", "/api/v1/auth/device/register/verify", "/api/v1/auth/device/unlock/challenge", "/api/v1/auth/device/unlock/verify", "/api/v1/auth/device/revoke").hasAuthority("CITIZEN")
                 .requestMatchers("/api/v1/auth/**").denyAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/parking-spaces/availability", "/api/v1/users/mine").hasAuthority("CITIZEN")
                 .requestMatchers(HttpMethod.GET, PUBLIC_CATALOG_GETS).permitAll()
