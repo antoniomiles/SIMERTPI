@@ -8,16 +8,35 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
+import android.os.Bundle
+import android.view.WindowManager
+import androidx.activity.OnBackPressedCallback
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-class MainActivity : FlutterActivity() {
+class MainActivity : FlutterFragmentActivity() {
+    private val lockBack = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() { /* Never expose the retained private route. */ }
+    }
+    override fun onCreate(savedInstanceState: Bundle?) {
+        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        super.onCreate(savedInstanceState)
+        onBackPressedDispatcher.addCallback(this, lockBack)
+    }
+    companion object {
+        private const val REQUEST_NOTIFICATION_PERMISSION = 8462
+    }
     private var pushChannel: MethodChannel? = null
     private var pendingPushTap: Map<String, String>? = null
+    private var pendingNotificationPermission: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        DeviceCredentialChannel(this, flutterEngine.dartExecutor.binaryMessenger)
+        DeviceSecurityChannel(this, flutterEngine.dartExecutor.binaryMessenger) { locked ->
+            lockBack.isEnabled = locked
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel("simertpi_updates", "Avisos SIMERTPI", NotificationManager.IMPORTANCE_DEFAULT)
                 .apply { description = "Avisos sobre tu estacionamiento y actividad SIMERTPI" }
@@ -27,6 +46,7 @@ class MainActivity : FlutterActivity() {
         pushChannel?.setMethodCallHandler { call, result ->
                 when (call.method) {
                     "permissionStatus" -> result.success(permissionStatus())
+                    "requestNotificationPermission" -> requestNotificationPermission(result)
                     "setPresentationGate" -> {
                         val args = call.arguments as? Map<*, *>
                         val owner = args?.get("ownerId") as? String
@@ -116,5 +136,39 @@ class MainActivity : FlutterActivity() {
         }
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && !manager.areNotificationsEnabled()) "denied" else "granted"
+    }
+
+    private fun requestNotificationPermission(result: MethodChannel.Result) {
+        if (Build.VERSION.SDK_INT < 33 || permissionStatus() == "granted") {
+            result.success(permissionStatus())
+            return
+        }
+        if (pendingNotificationPermission != null) {
+            result.error("PERMISSION_REQUEST_IN_PROGRESS", "Permission request is already active", null)
+            return
+        }
+        pendingNotificationPermission = result
+        try {
+            requestPermissions(
+                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                REQUEST_NOTIFICATION_PERMISSION,
+            )
+        } catch (error: Exception) {
+            pendingNotificationPermission = null
+            result.error("PERMISSION_REQUEST_FAILED", "Could not request notification permission", null)
+        }
+    }
+
+    @Deprecated("Deprecated by Android; retained for FlutterActivity compatibility")
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_NOTIFICATION_PERMISSION) {
+            pendingNotificationPermission?.success(permissionStatus())
+            pendingNotificationPermission = null
+        }
     }
 }

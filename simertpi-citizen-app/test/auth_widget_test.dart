@@ -6,6 +6,7 @@ import 'package:simertpi_citizen_app/app/router/app_router.dart';
 import 'package:simertpi_citizen_app/core/errors/app_failure.dart';
 import 'package:simertpi_citizen_app/core/widgets/app_buttons.dart';
 import 'package:simertpi_citizen_app/features/auth/state/auth_controller.dart';
+import 'package:simertpi_citizen_app/features/welcome/welcome_page.dart';
 
 import 'support/auth_test_support.dart';
 
@@ -52,6 +53,31 @@ void main() {
     expect(find.text('Ingresa tu contraseña.'), findsOneWidget);
     expect(fake.calls, 0);
   });
+  testWidgets('Temporary login failure preserves password and retries safely', (
+    tester,
+  ) async {
+    fake.failure = const AppFailure(FailureKind.timeout);
+    await tester.pumpWidget(authTestApp(auth));
+    await fillLogin(tester);
+    await tester.tap(find.text('INGRESAR'));
+    await tester.pumpAndSettle();
+    expect(
+      find.text(
+        'La conexión está tardando más de lo esperado. Inténtalo nuevamente',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      tester.widget<TextField>(find.byType(TextField).last).controller!.text,
+      'fixture-password',
+    );
+    fake.failure = null;
+    await tester.ensureVisible(find.text('Reintentar'));
+    await tester.tap(find.text('Reintentar'));
+    await tester.pumpAndSettle();
+    expect(fake.calls, 2);
+    expect(find.text('¿Qué deseas hacer?'), findsOneWidget);
+  });
   testWidgets(
     'Processing locks button, prevents double submit and success resets navigation stack',
     (tester) async {
@@ -77,9 +103,9 @@ void main() {
       await tester.ensureVisible(find.byTooltip('Cerrar sesión'));
       await tester.tap(find.byTooltip('Cerrar sesión'));
       await tester.pumpAndSettle();
-      expect(find.text('Inicia sesión'), findsOneWidget);
+      expect(find.text('Crear cuenta'), findsOneWidget);
       expect(
-        Navigator.of(tester.element(find.text('Inicia sesión'))).canPop(),
+        Navigator.of(tester.element(find.text('Crear cuenta'))).canPop(),
         false,
       );
       expect(find.text('¿Qué deseas hacer?'), findsNothing);
@@ -94,7 +120,7 @@ void main() {
       await tester.tap(find.text('INGRESAR'));
       await tester.pumpAndSettle();
       expect(
-        find.text('No pudimos verificar tu usuario y contraseña.'),
+        find.text('Usuario o contraseña incorrectos. Verifica tus datos'),
         findsOneWidget,
       );
       expect(
@@ -108,14 +134,14 @@ void main() {
     'Direct protected route and invalidation cannot expose showcase',
     (tester) async {
       await tester.pumpWidget(authTestApp(auth, route: AppRoute.home));
-      expect(find.text('Inicia sesión'), findsOneWidget);
+      expect(find.byType(WelcomePage), findsOneWidget);
       expect(find.text('¿Qué deseas hacer?'), findsNothing);
       await auth.login('citizen', 'fixture-password');
       await tester.pumpAndSettle();
       expect(find.text('¿Qué deseas hacer?'), findsOneWidget);
       await auth.logout(expired: true);
       await tester.pumpAndSettle();
-      expect(find.textContaining('Tu sesión ya no es válida'), findsOneWidget);
+      expect(find.byType(WelcomePage), findsOneWidget);
       expect(find.text('¿Qué deseas hacer?'), findsNothing);
     },
   );

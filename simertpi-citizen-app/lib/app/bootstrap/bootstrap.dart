@@ -11,6 +11,9 @@ import '../app.dart';
 import '../../features/auth/data/auth_service.dart';
 import '../../features/auth/state/auth_controller.dart';
 import '../../features/auth/data/session_store.dart';
+import '../../features/auth/data/device_security.dart';
+import '../../features/auth/data/device_credential.dart';
+import '../../features/auth/state/inactivity_lock.dart';
 import '../../core/push/push_lifecycle.dart';
 
 class AppScope extends InheritedWidget {
@@ -23,6 +26,7 @@ class AppScope extends InheritedWidget {
     this.parkingSessionTarget,
     this.unreadNotifications,
     this.pushLifecycle,
+    this.welcomePermissionPrompt,
     required this.auth,
     required super.child,
   });
@@ -33,6 +37,7 @@ class AppScope extends InheritedWidget {
   final ValueNotifier<String?>? parkingSessionTarget;
   final ValueNotifier<int>? unreadNotifications;
   final PushDeviceLifecycle? pushLifecycle;
+  final WelcomePushPermissionPrompt? welcomePermissionPrompt;
   final AuthController auth;
   static AppScope of(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<AppScope>()!;
@@ -41,6 +46,7 @@ class AppScope extends InheritedWidget {
       config != oldWidget.config ||
       api != oldWidget.api ||
       pushLifecycle != oldWidget.pushLifecycle ||
+      welcomePermissionPrompt != oldWidget.welcomePermissionPrompt ||
       auth != oldWidget.auth;
 }
 
@@ -55,8 +61,11 @@ class _BootstrapState extends State<Bootstrap> with WidgetsBindingObserver {
   ApiClient? _api;
   AppConfig? _config;
   AuthController? _auth;
+  InactivityLock? _inactivity;
   PushDeviceLifecycle? _pushLifecycle;
+  WelcomePushPermissionPrompt? _welcomePermissionPrompt;
   bool _wasAuthenticated = false;
+  bool _wasLocked = false;
   final _citizenTab = ValueNotifier<int>(0);
   final _parkingSessionTarget = ValueNotifier<String?>(null);
   final _unreadNotifications = ValueNotifier<int>(0);
@@ -73,29 +82,40 @@ class _BootstrapState extends State<Bootstrap> with WidgetsBindingObserver {
     if (!authenticated) {
       _unreadNotifications.value = 0;
     }
-    if (authenticated && !_wasAuthenticated) {
-      unawaited(_pushLifecycle?.onAuthenticated());
+    final locked = _auth?.isLocked ?? false;
+    if (authenticated && (!_wasAuthenticated || (_wasLocked && !locked))) {
+      unawaited(_pushLifecycle?.onAuthenticated().catchError((Object _) {}));
     }
     _wasAuthenticated = authenticated;
+    _wasLocked = locked;
   }
 
   void _configure() {
     _pushLifecycle?.dispose();
     _pushLifecycle = null;
+    _welcomePermissionPrompt = null;
     _api?.close();
     _auth?.dispose();
+    _inactivity?.dispose();
     _auth = null;
     _api = null;
     _config = null;
     try {
       _config = AppConfig.fromDefines();
+      final pushStore = SecurePushDeviceStore(
+        '${_config!.environment.name}:${_config!.apiBaseUrl}',
+      );
+      _welcomePermissionPrompt = WelcomePushPermissionPrompt(
+        store: pushStore,
+        gateway: const AndroidNotificationPermissionGateway(),
+        isAuthenticated: () => _auth?.isAuthenticated ?? false,
+      );
       if (_config!.apiBaseUrl != null) {
         _api = ApiClient(
           baseUrl: _config!.apiBaseUrl!,
           headersProvider: () => _auth!.headers(),
-          onSessionRejected: () => _auth!.isLoggingOut
-              ? Future<void>.value()
-              : _auth!.logout(expired: true, remote: false),
+          onAuthorizationRejected: (authorization) =>
+              _auth!.rejectAuthorization(authorization),
           onUnauthorized: (authorization) => _auth!.isLoggingOut
               ? Future<bool>.value(false)
               : _auth!.recoverUnauthorized(authorization),
@@ -103,7 +123,19 @@ class _BootstrapState extends State<Bootstrap> with WidgetsBindingObserver {
       }
       _auth = AuthController(
         AuthService(_api),
+        signingDevice: AndroidSigningDevice(
+          '${_config!.environment.name}:${_config!.apiBaseUrl}',
+        ),
+        credentialGateway: DeviceCredentialGateway(_api),
         store: SecureSessionStore(
+          '${_config!.environment.name}:${_config!.apiBaseUrl}',
+        ),
+        inactivity: _inactivity = InactivityLock(
+          store: AndroidActivityStore(
+            '${_config!.environment.name}:${_config!.apiBaseUrl}',
+          ),
+        ),
+        deviceSecurity: AndroidDeviceSecurity(
           '${_config!.environment.name}:${_config!.apiBaseUrl}',
         ),
         onBeforeLogout: ({required remote, required ownerId}) async =>
@@ -115,9 +147,7 @@ class _BootstrapState extends State<Bootstrap> with WidgetsBindingObserver {
         _pushLifecycle = PushDeviceLifecycle(
           runtime: widget.pushRuntime!,
           api: NotificationDeviceApi(_api!),
-          store: SecurePushDeviceStore(
-            '${_config!.environment.name}:${_config!.apiBaseUrl}',
-          ),
+          store: pushStore,
           isAuthenticated: () => _auth?.isAuthenticated ?? false,
           ownerId: () => _auth?.userId,
           unreadNotifications: _unreadNotifications,
@@ -146,6 +176,7 @@ class _BootstrapState extends State<Bootstrap> with WidgetsBindingObserver {
     _pushLifecycle?.dispose();
     _api?.close();
     _auth?.dispose();
+    _inactivity?.dispose();
     _parkingConfirmed.dispose();
     _citizenTab.dispose();
     _parkingSessionTarget.dispose();
@@ -163,6 +194,7 @@ class _BootstrapState extends State<Bootstrap> with WidgetsBindingObserver {
           parkingSessionTarget: _parkingSessionTarget,
           unreadNotifications: _unreadNotifications,
           pushLifecycle: _pushLifecycle,
+          welcomePermissionPrompt: _welcomePermissionPrompt,
           auth: _auth!,
           child: SimertpiApp(auth: _auth!),
         )

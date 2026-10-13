@@ -27,6 +27,7 @@ class ApiClient {
     this.headersProvider,
     this.onUnauthorized,
     this.onSessionRejected,
+    this.onAuthorizationRejected,
     this.log = const AppLog(),
   }) : _client = client ?? HttpClient() {
     _client.connectionTimeout = connectTimeout;
@@ -39,6 +40,7 @@ class ApiClient {
   final AppLog log;
   final VoidUnauthorized? onUnauthorized;
   final Future<void> Function()? onSessionRejected;
+  final Future<void> Function(String? authorization)? onAuthorizationRejected;
 
   Future<ApiResponse> request(
     ApiMethod method,
@@ -67,6 +69,12 @@ class ApiClient {
     );
     final write = method != ApiMethod.get;
     HttpClientRequest? pending;
+    final biometricRequest = {
+      'auth/device/register/challenge',
+      'auth/device/register/verify',
+      'auth/refresh',
+    }.contains(path);
+    int? biometricHttpStatus;
     try {
       final extra = <String, String>{
         if (authenticated)
@@ -92,6 +100,9 @@ class ApiClient {
         pending.write(jsonEncode(body));
       }
       final response = await pending.close().timeout(readTimeout);
+      if (biometricRequest) {
+        biometricHttpStatus = response.statusCode;
+      }
       final returned = response.headers.value(correlationHeader);
       final effectiveId =
           returned != null && _safeCorrelation.hasMatch(returned)
@@ -99,6 +110,7 @@ class ApiClient {
           : id;
       if (response.statusCode < 200 || response.statusCode >= 300) {
         String? safeCode;
+        String? safeMessage;
         if (response.statusCode == 409) {
           try {
             final error = jsonDecode(
@@ -108,9 +120,18 @@ class ApiClient {
               'VEHICLE_OCCUPIED',
               'SPACE_UNAVAILABLE',
               'SPACE_DISABLED',
+              'VEHICLE_SPACE_REENTRY_COOLDOWN',
             };
             if (error is Map && allowed.contains(error['code'])) {
               safeCode = error['code'] as String;
+              final message = error['message'];
+              if (safeCode == 'VEHICLE_SPACE_REENTRY_COOLDOWN' &&
+                  message is String &&
+                  RegExp(
+                    r'^Ya cumpliste las 4 horas continuas en este espacio\. Podrás volver a utilizarlo a partir de las ([01]\d|2[0-3]):[0-5]\d\. Puedes elegir otro espacio disponible\.$',
+                  ).hasMatch(message)) {
+                safeMessage = message;
+              }
             }
           } catch (_) {}
         } else {
@@ -134,7 +155,11 @@ class ApiClient {
           }
         }
         if (response.statusCode == 401 && authenticated && !retryUnauthorized) {
-          await onSessionRejected?.call();
+          if (onAuthorizationRejected != null) {
+            await onAuthorizationRejected!(extra['Authorization']);
+          } else {
+            await onSessionRejected?.call();
+          }
         }
         throw AppFailure(
           response.statusCode == 401
@@ -149,7 +174,9 @@ class ApiClient {
               ? FailureKind.unavailable
               : FailureKind.rejected,
           correlationId: effectiveId,
+          httpStatus: biometricHttpStatus,
           code: safeCode,
+          messageOverride: safeMessage,
         );
       }
       final text = await utf8.decoder
@@ -170,6 +197,8 @@ class ApiClient {
       pending?.abort();
       throw AppFailure(
         FailureKind.timeout,
+        diagnosticExceptionClass: biometricRequest ? 'TimeoutException' : null,
+        httpStatus: biometricHttpStatus,
         correlationId: id,
         outcomeUnknown: write,
       );
@@ -177,13 +206,33 @@ class ApiClient {
       pending?.abort();
       throw AppFailure(
         write ? FailureKind.unknown : FailureKind.offline,
+        diagnosticExceptionClass: biometricRequest ? 'SocketException' : null,
+        httpStatus: biometricHttpStatus,
         correlationId: id,
+        code: 'NETWORK_UNREACHABLE',
         outcomeUnknown: write,
       );
-    } catch (_) {
+    } catch (error) {
       pending?.abort();
+      String? diagnosticClass;
+      if (biometricRequest) {
+        final type = error.runtimeType.toString();
+        diagnosticClass =
+            {
+              'FormatException',
+              'TypeError',
+              'StateError',
+              'HandshakeException',
+              'TlsException',
+              'HttpException',
+            }.contains(type)
+            ? type
+            : 'OTHER';
+      }
       throw AppFailure(
         FailureKind.unknown,
+        diagnosticExceptionClass: diagnosticClass,
+        httpStatus: biometricHttpStatus,
         correlationId: id,
         outcomeUnknown: write,
       );

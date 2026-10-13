@@ -44,6 +44,41 @@ void main() {
   );
 
   test(
+    'reentry conflict exposes only the validated backend local-time message',
+    () async {
+      var requestCount = 0;
+      server.listen((request) async {
+        requestCount++;
+        request.response.statusCode = 409;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          jsonEncode({
+            'code': 'VEHICLE_SPACE_REENTRY_COOLDOWN',
+            'message': requestCount == 1
+                ? 'Ya cumpliste las 4 horas continuas en este espacio. Podrás volver a utilizarlo a partir de las 14:05. Puedes elegir otro espacio disponible.'
+                : 'Use your token and secret data',
+          }),
+        );
+        await request.response.close();
+      });
+      try {
+        await client.request(ApiMethod.post, 'parking/sessions');
+        fail('Expected a cooldown conflict');
+      } on AppFailure catch (error) {
+        expect(error.code, 'VEHICLE_SPACE_REENTRY_COOLDOWN');
+        expect(error.message, contains('14:05'));
+      }
+      try {
+        await client.request(ApiMethod.post, 'parking/sessions');
+        fail('Expected a cooldown conflict');
+      } on AppFailure catch (error) {
+        expect(error.messageOverride, isNull);
+        expect(error.message, isNot(contains('secret')));
+      }
+    },
+  );
+
+  test(
     'Valid caller correlation is retained and invalid input replaced',
     () async {
       final seen = <String?>[];

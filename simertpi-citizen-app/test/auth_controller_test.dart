@@ -176,7 +176,10 @@ void main() {
         expect(auth.phase, AuthPhase.error);
         expect(await auth.headers(), isEmpty);
         if (kind == FailureKind.unauthorized) {
-          expect(auth.message, contains('usuario y contraseña'));
+          expect(
+            auth.message,
+            'Usuario o contraseña incorrectos. Verifica tus datos',
+          );
         } else {
           expect(auth.message, isNot(contains('usuario y contraseña')));
         }
