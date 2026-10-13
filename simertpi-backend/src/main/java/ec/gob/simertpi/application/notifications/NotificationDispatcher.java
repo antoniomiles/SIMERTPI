@@ -85,7 +85,14 @@ public class NotificationDispatcher {
   }
  });}
  // Revalidate the contractual reference when claiming, including retries.
- private boolean currentReminder(Map<String,Object> n, OffsetDateTime now){
+ boolean currentReminder(Map<String,Object> n, OffsetDateTime now){
+  if("PARKING_TIME_EXPIRED".equals(n.get("notification_type"))){
+   var states=jdbc.queryForList("SELECT status,expected_end_at FROM parking.parking_sessions WHERE id=?",n.get("reference_id"));
+   if(states.size()!=1)return false;
+   var state=states.getFirst();
+   if(Set.of("ACTIVE","EXTENDED","PENDING_PAYMENT").contains(state.get("status")))return false;
+   return !((java.sql.Timestamp)state.get("expected_end_at")).toInstant().isAfter(((java.sql.Timestamp)n.get("created_at")).toInstant());
+  }
   if(!"PARKING_ENDING_SOON".equals(n.get("notification_type")))return true;
   var rows=jdbc.queryForList("SELECT expected_end_at,status FROM parking.parking_sessions WHERE id=? FOR SHARE",n.get("reference_id"));
   if(rows.isEmpty()||n.get("contract_end_at")==null)return false;
@@ -120,6 +127,10 @@ public class NotificationDispatcher {
   jdbc.update("UPDATE notification.deliveries SET status='PROCESSING',provider_code=?,processing_token=?,attempts=?,last_attempt_at=?,next_attempt_at=null,updated_at=? WHERE id=?",providerCode,token,attempts,now,now,id);
   Map<String,String> payload=pushPayload(n);
   if("PUSH".equals(n.get("channel"))) payload=withSafeParkingDetails(payload,n,now);
+  if("PUSH".equals(n.get("channel"))&&payload.isEmpty()){
+   jdbc.update("UPDATE notification.deliveries SET status='SUPPRESSED',error_code='EVENT_NOT_CONFIRMED',processing_token=null,updated_at=? WHERE id=?",now,id);
+   aggregate((UUID)row.get("notification_id"));return new Claim(id,null,null,attempts,null,null);
+  }
   return new Claim(id,token,providerCode,attempts,destination.device(),new NotificationProviderRequest(id,(UUID)row.get("notification_id"),(String)row.get("channel"),destination.value(),(String)n.get("title"),(String)n.get("message"),payload));
  }
  static Map<String,String> pushPayload(Map<String,Object> n){
@@ -134,46 +145,8 @@ public class NotificationDispatcher {
   return Collections.unmodifiableMap(payload);
  }
  private Map<String,String> withSafeParkingDetails(Map<String,String> source,Map<String,Object> notification,OffsetDateTime now){
-  String event=String.valueOf(notification.get("notification_type"));
-  Object reference=notification.get("reference_id");
-  if(!"PARKING_SESSION".equals(notification.get("reference_type"))||!(reference instanceof UUID sessionId))return source;
-  var rows=jdbc.query("SELECT started_at,expected_end_at,ended_at,status FROM parking.parking_sessions WHERE id=?",
-    (rs,row)->new ParkingPushContext(rs.getObject("started_at",OffsetDateTime.class),rs.getObject("expected_end_at",OffsetDateTime.class),rs.getObject("ended_at",OffsetDateTime.class),rs.getString("status")),sessionId);
-  if(rows.isEmpty())return source;
-  ParkingPushContext session=rows.getFirst();Map<String,String> data=new LinkedHashMap<>(source);
-  java.time.ZoneId piñas=java.time.ZoneId.of("America/Guayaquil");
-  java.time.format.DateTimeFormatter clock=java.time.format.DateTimeFormatter.ofPattern("HH:mm");
-  switch(event){
-   case "PARKING_STARTED" -> {
-    if(session.startedAt()!=null&&session.expectedEndAt()!=null){
-     data.put("contractedMinutes",Long.toString(java.time.Duration.between(session.startedAt(),session.expectedEndAt()).toMinutes()));
-     data.put("expectedEndTime",clock.format(session.expectedEndAt().atZoneSameInstant(piñas)));
-    }
-   }
-   case "PARKING_ENDING_SOON" -> {
-    if(session.expectedEndAt()!=null&&session.expectedEndAt().isAfter(now)&&Set.of("ACTIVE","EXTENDED").contains(session.status())){
-     long seconds=java.time.Duration.between(now,session.expectedEndAt()).toSeconds();
-     data.put("minutesRemaining",Long.toString(Math.max(1,(seconds+59)/60)));
-     data.put("expectedEndTime",clock.format(session.expectedEndAt().atZoneSameInstant(piñas)));
-    }
-   }
-   case "PARKING_TIME_EXPIRED" -> {
-    if(session.expectedEndAt()!=null)data.put("expectedEndTime",clock.format(session.expectedEndAt().atZoneSameInstant(piñas)));
-   }
-   case "PARKING_EXTENSION_CONFIRMED" -> {
-    if(session.expectedEndAt()!=null){
-     data.put("expectedEndTime",clock.format(session.expectedEndAt().atZoneSameInstant(piñas)));
-     var extensionMinutes=jdbc.query("SELECT additional_minutes FROM parking.session_extensions WHERE parking_session_id=? AND status='APPROVED' ORDER BY updated_at DESC,id DESC LIMIT 1",
-       (rs,row)->rs.getInt(1),sessionId);
-     if(!extensionMinutes.isEmpty())data.put("additionalMinutes",Integer.toString(extensionMinutes.getFirst()));
-    }
-   }
-   case "PARKING_COMPLETED" -> {if(session.endedAt()!=null)data.put("endedAt",clock.format(session.endedAt().atZoneSameInstant(piñas)));}
-   default -> { }
-  }
-  return Collections.unmodifiableMap(data);
+  return new ParkingPushDetails(jdbc).enrich(source,notification,now);
  }
- private record ParkingPushContext(OffsetDateTime startedAt,OffsetDateTime expectedEndAt,OffsetDateTime endedAt,String status) { }
  private void complete(Claim c,NotificationProviderResult result,OffsetDateTime now){
   var rows=jdbc.queryForList("SELECT notification_id FROM notification.deliveries WHERE id=? AND status='PROCESSING' AND processing_token=? FOR UPDATE",c.id(),c.token());
   if(rows.isEmpty())return;

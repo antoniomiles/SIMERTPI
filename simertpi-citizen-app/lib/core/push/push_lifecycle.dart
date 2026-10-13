@@ -7,6 +7,8 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../network/api_client.dart';
 
+enum PushRegistrationState { idle, syncing, registered, disabled, failed }
+
 enum PushPermissionState {
   unavailable,
   notDetermined,
@@ -367,6 +369,10 @@ class PushDeviceLifecycle {
   final ValueNotifier<int> unreadNotifications, citizenTab;
   final ValueNotifier<String?> parkingSessionTarget;
   PushPermissionState permissionState = PushPermissionState.notDetermined;
+  final registrationStatus = ValueNotifier(PushRegistrationState.idle);
+  PushRegistrationState get registrationState => registrationStatus.value;
+  set registrationState(PushRegistrationState state) =>
+      registrationStatus.value = state;
   StreamSubscription<String>? _tokens;
   StreamSubscription<void>? _foreground;
   StreamSubscription<PushNavigationTarget?>? _opened;
@@ -621,10 +627,12 @@ class PushDeviceLifecycle {
         return;
       }
     } catch (_) {
+      registrationState = PushRegistrationState.failed;
       await runtime.setPresentationGate(null, enabled: false);
       return;
     }
     _syncing = true;
+    registrationState = PushRegistrationState.syncing;
     try {
       if (await runtime.permission() != PushPermissionState.granted) {
         await _disableCurrent();
@@ -689,14 +697,22 @@ class PushDeviceLifecycle {
         await store.completePendingRevocation(previousOwner, previousId);
       }
       permissionState = PushPermissionState.granted;
+      registrationState = isAuthenticated() && ownerId() == owner
+          ? PushRegistrationState.registered
+          : PushRegistrationState.disabled;
     } catch (_) {
+      registrationState = PushRegistrationState.failed;
       /* retry after auth restore, token rotation, settings change or resume */
     } finally {
+      if (registrationState == PushRegistrationState.syncing) {
+        registrationState = PushRegistrationState.failed;
+      }
       _syncing = false;
     }
   }
 
   Future<void> _disableCurrent() async {
+    registrationState = PushRegistrationState.disabled;
     await runtime.setPresentationGate(null, enabled: false);
     if (!isAuthenticated()) return;
     final id = await store.deviceId(), owner = await store.registeredOwnerId();
@@ -715,6 +731,7 @@ class PushDeviceLifecycle {
   }
 
   Future<void> logout({required bool remote, required String? ownerId}) async {
+    registrationState = PushRegistrationState.disabled;
     // Close the local presentation gate before remote revocation or Firebase
     // token deletion, either of which can fail while the old server row lives.
     // Do not continue clearing the authenticated owner if native invalidation

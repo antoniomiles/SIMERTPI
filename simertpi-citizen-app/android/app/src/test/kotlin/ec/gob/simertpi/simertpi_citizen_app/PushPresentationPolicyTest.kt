@@ -13,6 +13,26 @@ class PushPresentationPolicyTest {
         "recipientOwnerId" to "citizen-a",
     )
 
+    @Test fun lateOldReminderCannotOverrideReceivedExtension() {
+        assertFalse(PushDeliveryPolicy.currentContract(valid + ("contractEndEpoch" to "1000"),2000))
+        assertTrue(PushDeliveryPolicy.currentContract(valid + ("contractEndEpoch" to "2000"),2000))
+        assertTrue(PushDeliveryPolicy.currentContract(valid + mapOf("eventType" to "PARKING_EXTENSION_CONFIRMED", "contractEndEpoch" to "1000"),2000))
+    }
+    @Test fun expiresLatePushAndRejectsMalformedExpiry() {
+        assertTrue(PushDeliveryPolicy.fresh(valid + ("validUntil" to "2000"), 1000))
+        assertFalse(PushDeliveryPolicy.fresh(valid + ("validUntil" to "1000"), 1000))
+        assertFalse(PushDeliveryPolicy.fresh(valid + ("validUntil" to "invalid"), 1000))
+    }
+    @Test fun detailedCopyUsesConfirmedOperationAndEcuadorTimes() {
+        val data=valid + mapOf("eventType" to "PARKING_EXTENSION_CONFIRMED", "plate" to "ABC-1234",
+            "additionalMinutes" to "30", "amount" to "0.50", "currency" to "USD",
+            "expectedEndAt" to "13/10/2026 11:30", "expectedEndTime" to "11:30")
+        val copy=PushEventCopy.forEvent("PARKING_EXTENSION_CONFIRMED",data)!!.second
+        assertTrue(copy.contains("ABC-1234")); assertTrue(copy.contains("0.50 USD")); assertTrue(copy.contains("13/10/2026 11:30"))
+        val activation=PushEventCopy.forEvent("PARKING_STARTED",data + mapOf("eventType" to "PARKING_STARTED",
+            "spaceCode" to "PIN-DEV-001","startedAt" to "13/10/2026 10:00"))!!.second
+        assertTrue(activation.contains("PIN-DEV-001")); assertTrue(activation.contains("Inicio: 13/10/2026 10:00"))
+    }
     @Test fun acceptsOnlySupportedMinimalPayload() {
         assertTrue(PushPresentationPolicy.valid(valid))
         assertFalse(PushPresentationPolicy.valid(valid + ("eventType" to "PAYMENT_APPROVED")))

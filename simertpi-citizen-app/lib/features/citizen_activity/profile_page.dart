@@ -155,16 +155,31 @@ class _NotificationPreferencesPageState
   @override
   void initState() {
     super.initState();
+    widget.pushLifecycle?.registrationStatus.addListener(_registrationChanged);
     load();
     refreshPermission();
+  }
+
+  void _registrationChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    widget.pushLifecycle?.registrationStatus.removeListener(
+      _registrationChanged,
+    );
+    super.dispose();
   }
 
   Future<void> refreshPermission() async {
     final push = widget.pushLifecycle;
     if (push == null) {
-      if (mounted) {
-        setState(() => permissionState = PushPermissionState.unavailable);
-      }
+      var state = PushPermissionState.unavailable;
+      try {
+        state = await const AndroidNotificationPermissionGateway().permission();
+      } catch (_) {}
+      if (mounted) setState(() => permissionState = state);
       return;
     }
     final state = await push.refreshPermission();
@@ -193,7 +208,9 @@ class _NotificationPreferencesPageState
           if (mounted) {
             AppSnackbar.show(
               context,
-              'Notificaciones activadas en este dispositivo.',
+              push.registrationState == PushRegistrationState.registered
+                  ? 'Dispositivo registrado para recibir push.'
+                  : 'Permiso concedido; no se confirmó el registro push. Inténtalo nuevamente.',
             );
           }
         } catch (_) {
@@ -236,7 +253,7 @@ class _NotificationPreferencesPageState
     });
     try {
       await widget.gateway.savePreferences(values!);
-      if (values!['PUSH'] == true) await widget.pushLifecycle?.sync();
+      await widget.pushLifecycle?.sync();
       if (mounted) {
         AppSnackbar.show(context, 'Preferencias guardadas.');
       }
@@ -289,13 +306,34 @@ class _NotificationPreferencesPageState
                 'El permiso del dispositivo está desactivado.',
               PushPermissionState.notDetermined =>
                 'El permiso del dispositivo aún no se ha solicitado.',
-              PushPermissionState.unavailable => 'Las notificaciones del dispositivo no están configuradas en esta versión.',
+              PushPermissionState.unavailable =>
+                widget.pushLifecycle == null
+                    ? 'Firebase no está configurado en esta compilación.'
+                    : 'No pudimos comprobar el permiso o sincronizar el dispositivo.',
             }, style: Theme.of(context).textTheme.bodySmall),
+            Text(
+              widget.pushLifecycle == null
+                  ? 'Firebase no configurado en esta compilación; registro push no disponible.'
+                  : switch (widget.pushLifecycle!.registrationState) {
+                      PushRegistrationState.registered =>
+                        values?['PUSH'] == true
+                            ? 'Dispositivo registrado para push. La entrega real requiere verificar FCM y Android.'
+                            : 'Preferencia push desactivada.',
+                      PushRegistrationState.syncing =>
+                        'Registrando dispositivo...',
+                      PushRegistrationState.failed => 'Error de sincronización o registro. Reintenta la activación.',
+                      PushRegistrationState.disabled =>
+                        'Registro push desactivado.',
+                      PushRegistrationState.idle =>
+                        'Dispositivo aún no registrado para push.',
+                    },
+            ),
             const SizedBox(height: 8),
             OutlinedButton.icon(
               onPressed:
                   requestingPermission ||
-                      permissionState == PushPermissionState.unavailable
+                      permissionState == PushPermissionState.unavailable ||
+                      widget.pushLifecycle == null
                   ? null
                   : enablePushPermission,
               icon: const Icon(Icons.notifications_active_outlined),
