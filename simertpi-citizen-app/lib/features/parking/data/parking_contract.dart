@@ -376,7 +376,7 @@ String ruleMessage(String reason) => switch (reason) {
 };
 String parkingError(Object error) =>
     error is AppFailure && error.kind == FailureKind.conflict
-    ? 'El espacio o las condiciones cambiaron. Consulta nuevamente o elige otro espacio.'
+    ? error.messageOverride ?? 'El espacio o las condiciones cambiaron. Consulta nuevamente o elige otro espacio.'
     : error is AppFailure
     ? error.message
     : 'No pudimos completar la consulta. Inténtalo nuevamente.';

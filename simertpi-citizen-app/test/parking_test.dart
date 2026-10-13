@@ -110,7 +110,10 @@ class FakeParking implements ParkingGateway {
       ...ruleFixture(minutes),
       'operational': open,
       if (!open) 'reasonCode': 'OUTSIDE_OPERATION_HOURS',
-      if (minutes != null) 'calculatedAmount': amount,
+      if (minutes != null) ...{
+        'billedDurationMinutes': minutes == 16 ? 30 : minutes,
+        'calculatedAmount': amount,
+      },
     });
   }
 
@@ -142,18 +145,28 @@ ParkingController controller(
   parking: p,
   store: store ?? MemoryIntent(),
 );
-Future<Widget> page(ParkingController c) async {
+Future<Widget> page(ParkingController c, {bool dark = false}) async {
   final scope = await citizenApp() as AppScope;
   return AppScope(
     config: scope.config,
     auth: scope.auth,
     child: MaterialApp(
-      theme: AppTheme.light,
+      theme: AppTheme.forNight(dark),
       home: ParkingPage(selected: c.space, controller: c),
       onGenerateRoute: (s) => s.name == AppRoute.payments.path
-          ? MaterialPageRoute<void>(
+          ? MaterialPageRoute<bool>(
               settings: s,
-              builder: (_) => const Scaffold(body: Text('Pago preparado')),
+              builder: (context) => Scaffold(
+                body: Column(
+                  children: [
+                    const Text('Pago preparado'),
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(true),
+                      child: const Text('Volver sin pagar'),
+                    ),
+                  ],
+                ),
+              ),
             )
           : AppRouter.generate(s, scope.auth),
     ),
@@ -161,6 +174,56 @@ Future<Widget> page(ParkingController c) async {
 }
 
 void main() {
+  for (final dark in [false, true]) {
+    testWidgets('Local flow back and Home abandonment dark=$dark', (
+      tester,
+    ) async {
+      final gateway = FakeParking();
+      final c = controller(gateway);
+      await tester.pumpWidget(await page(c, dark: dark));
+      await tester.pumpAndSettle();
+      for (final title in ['Tiempo de estacionamiento', 'Confirmar pago']) {
+        await tester.ensureVisible(find.text('Continuar'));
+        await tester.tap(find.text('Continuar'));
+        await tester.pumpAndSettle();
+        expect(find.text(title), findsOneWidget);
+        expect(gateway.creates, 0);
+      }
+      await tester.tap(find.text('Seleccionar método de pago'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Tarjeta de crédito o débito'));
+      await tester.tap(find.text('Deuna'));
+      await tester.pumpAndSettle();
+      final button = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Continuar con el pago'),
+      );
+      expect(button.onPressed, isNull);
+      for (final title in [
+        'Confirmar pago',
+        'Tiempo de estacionamiento',
+        'Selecciona un vehículo',
+      ]) {
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        expect(find.text(title), findsOneWidget);
+        expect(gateway.creates, 0);
+        expect(find.text('Resumen del estacionamiento'), findsNothing);
+      }
+      // Home must also abandon from the deepest local step without a checkout.
+      await tester.tap(find.text('Continuar'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Continuar'));
+      await tester.tap(find.text('Continuar'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Seleccionar método de pago'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Inicio'));
+      await tester.pumpAndSettle();
+      expect(gateway.creates, 0);
+      expect(tester.takeException(), isNull);
+      c.dispose();
+    });
+  }
   test('Exact decimal parsing never converts backend money through double', () {
     final data = parkingJson(
       '{"amount":9999999999.99,"unitPrice":0.10,"minutes":31,"label":"0.1"}',
@@ -397,27 +460,90 @@ void main() {
     expect(offline.canSubmit, false);
     offline.dispose();
   });
-  testWidgets('Vehicle/duration summary and contextual submission are honest', (
-    tester,
-  ) async {
-    final c = controller(FakeParking());
-    await tester.pumpWidget(await page(c));
-    await tester.pumpAndSettle();
-    expect(find.text('TEST-123'), findsWidgets);
-    await tester.tap(find.text('Continuar'));
-    await tester.pumpAndSettle();
-    expect(find.textContaining(r'$0,31'), findsOneWidget);
-    await tester.ensureVisible(find.text('Continuar'));
-    await tester.tap(find.text('Continuar'));
-    await tester.pumpAndSettle();
-    expect(find.text('Resumen del estacionamiento'), findsOneWidget);
-    await tester.ensureVisible(find.text('Continuar al pago'));
-    await tester.tap(find.text('Continuar al pago'));
-    await tester.pumpAndSettle();
-    expect(find.text('Pago preparado'), findsOneWidget);
-    expect(c.receipt!.status, 'PENDING_PAYMENT');
-    c.dispose();
-  });
+  testWidgets(
+    'Selection and DEV continuation only open a local final summary',
+    (tester) async {
+      final p = FakeParking();
+      final c = controller(p);
+      await tester.pumpWidget(await page(c));
+      await tester.pumpAndSettle();
+      expect(find.text('TEST-123'), findsWidgets);
+      await tester.tap(find.text('Continuar'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining(r'$0,31'), findsOneWidget);
+      await tester.ensureVisible(find.text('Continuar'));
+      await tester.tap(find.text('Continuar'));
+      await tester.pumpAndSettle();
+      expect(find.text('Confirmar pago'), findsOneWidget);
+      expect(c.phase, ParkingPhase.ready);
+      expect(p.creates, 0);
+      await tester.tap(find.text('Seleccionar método de pago'));
+      await tester.pumpAndSettle();
+      expect(find.text('Tarjeta de crédito o débito'), findsOneWidget);
+      expect(find.text('Deuna'), findsOneWidget);
+      expect(find.text('Método DEV'), findsOneWidget);
+      expect(find.text('Próximamente'), findsNWidgets(2));
+      expect(p.creates, 0);
+      await tester.tap(find.text('Método DEV'));
+      await tester.pumpAndSettle();
+      expect(p.creates, 0);
+      await tester.tap(find.text('Continuar con el pago'));
+      await tester.pumpAndSettle();
+      expect(find.text('Pago preparado'), findsOneWidget);
+      expect(p.creates, 0);
+      expect(c.receipt, isNull);
+      c.dispose();
+    },
+  );
+  testWidgets(
+    'Back from final summary requires no cancellation for a new quote',
+    (tester) async {
+      final p = FakeParking();
+      final c = controller(p);
+      await tester.pumpWidget(await page(c));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Continuar'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Continuar'));
+      await tester.tap(find.text('Continuar'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Seleccionar método de pago'));
+      await tester.pumpAndSettle();
+      expect(p.creates, 0);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.text('Confirmar pago'), findsOneWidget);
+      expect(p.creates, 0);
+      await tester.tap(find.text('Seleccionar método de pago'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Método DEV'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Continuar con el pago'));
+      await tester.pumpAndSettle();
+      expect(c.phase, ParkingPhase.ready);
+      await tester.tap(find.text('Volver sin pagar'));
+      await tester.pumpAndSettle();
+
+      expect(c.phase, ParkingPhase.ready);
+      expect(c.receipt, isNull);
+      expect(c.canSubmit, isTrue);
+      expect(find.text('Método de pago'), findsOneWidget);
+
+      c.selectDuration(
+        ParkingRules({
+          ...ruleFixture(60),
+          'spaceId': c.space.space.id,
+          'billedDurationMinutes': 60,
+        }),
+      );
+      expect(c.minutes, 60);
+      expect(c.canSubmit, isTrue);
+      await c.create();
+      expect(p.creates, 1);
+      expect(p.intent!.minutes, 60);
+      c.dispose();
+    },
+  );
   testWidgets(
     'Empty vehicles provides registration; rules error provides retry',
     (tester) async {

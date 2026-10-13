@@ -37,7 +37,7 @@ class ParkingMapMarker extends StatelessWidget {
                       color: space.operationalStatus == 'ENDING_SOON'
                           ? AppColors.ink
                           : AppColors.surface,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w600,
                       fontSize: 13,
                     ),
                   ),

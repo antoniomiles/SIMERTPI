@@ -123,7 +123,7 @@ class _ActiveParkingPanelState extends State<ActiveParkingPanel>
                   child: const Text('Cancelar'),
                 ),
                 AsyncButton(
-                  label: 'Finalizar',
+                  label: 'Finalizar y confirmar salida',
                   processingLabel: 'Finalizando…',
                   onPressed: () async {
                     final result = widget.controller.closeSession(s.id);
@@ -141,6 +141,7 @@ class _ActiveParkingPanelState extends State<ActiveParkingPanel>
       );
       if (mounted && confirmed == true) {
         AppSnackbar.show(context, 'Estacionamiento finalizado.');
+        await widget.controller.load();
       }
     } finally {
       opening = false;
@@ -307,7 +308,7 @@ class _ActiveParkingPanelState extends State<ActiveParkingPanel>
                       Expanded(
                         child: OutlinedButton(
                           onPressed: () => _close(s),
-                          child: const Text('Finalizar'),
+                          child: const Text('Finalizar y confirmar salida'),
                         ),
                       ),
                   ];
@@ -323,7 +324,7 @@ class _ActiveParkingPanelState extends State<ActiveParkingPanel>
                         if (close)
                           OutlinedButton(
                             onPressed: () => _close(s),
-                            child: const Text('Finalizar'),
+                            child: const Text('Finalizar y confirmar salida'),
                           ),
                       ],
                     );

@@ -114,7 +114,11 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        expect(find.byTooltip('Espacio 1'), findsOneWidget);
+        if (status == 'AVAILABLE' || status == 'ENDING_SOON') {
+          expect(find.byTooltip('Espacio 1'), findsOneWidget);
+        } else {
+          expect(find.byTooltip('Espacio 1'), findsNothing);
+        }
         expect(tester.takeException(), isNull);
       },
     );
@@ -344,6 +348,7 @@ void main() {
           );
           await tester.pumpAndSettle();
           expect(find.text('Estacionamiento activo'), findsNothing);
+          expect(find.text('Consultar pago pendiente'), findsNothing);
           final nav = find.byType(NavigationBar);
           expect(nav, findsOneWidget);
           await tester.tap(

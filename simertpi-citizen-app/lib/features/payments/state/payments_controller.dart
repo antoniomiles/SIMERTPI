@@ -3,6 +3,7 @@ import '../../discovery/data/parking_catalog.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../parking/data/parking_contract.dart';
+import '../../parking/state/parking_controller.dart';
 import '../../vehicles/data/vehicle_service.dart';
 import '../data/payment_contract.dart';
 import '../data/payment_intent_store.dart';
@@ -49,13 +50,17 @@ class PaymentsController extends ChangeNotifier {
   PaymentIntent? intent;
   String? message;
   bool methodSelected = false, _busy = false, _disposed = false;
+  ParkingController? _draft;
   bool get busy => _busy;
   bool get canConfirm =>
       dev &&
       methodSelected &&
       !busy &&
       phase == PaymentPhase.ready &&
-      quote?.quoted == true;
+      quote?.quoted == true &&
+      (_draft == null ||
+          _draft!.canSubmit ||
+          _draft!.phase == ParkingPhase.created);
   bool get canRetry =>
       !busy &&
       payment?.retryable == true &&
@@ -68,6 +73,130 @@ class PaymentsController extends ChangeNotifier {
   void chooseMethod() {
     if (dev && !busy && phase == PaymentPhase.ready) {
       methodSelected = true;
+      _notify();
+    }
+  }
+
+  /// Pure local staging: opening the final summary never loads/reconciles payments.
+  void stageDraft(ParkingController selection) {
+    if (busy || _disposed) return;
+    _draft = selection;
+    quote = selection.quote;
+    vehicle = selection.items
+        .where((v) => v.id == selection.vehicleId)
+        .firstOrNull;
+    spaceCode = selection.space.space.code;
+    zoneName = selection.space.catalog.zoneOf(selection.space.space)?.name;
+    methodSelected = dev;
+    phase = PaymentPhase.ready;
+    _notify();
+  }
+
+  /// The final Pay event is the sole entry point for a new checkout and payment.
+  Future<void> startParking() async {
+    final selection = _draft;
+    if (selection == null || !canConfirm || _disposed) return;
+    _busy = true;
+    phase = PaymentPhase.processing;
+    message = null;
+    _notify();
+    var saved = false;
+    final previous = quote!;
+    try {
+      // Only after Pay: protect any durable unresolved transaction before a new POST.
+      final stored = await store.read();
+      if (stored != null) {
+        if (stored.owner != owner) throw invalidParking;
+        intent = stored;
+        if (stored.paymentId == null) {
+          await _session(stored.sessionId);
+          phase = PaymentPhase.uncertain;
+          return;
+        }
+        await _accept(await payments.status(stored.paymentId!));
+        if (_disposed || payment!.waiting) return;
+        intent = null;
+        payment = null;
+        session = null;
+        phase = PaymentPhase.processing;
+      }
+      if (selection.receipt == null) {
+        await selection.create(retainIntent: true);
+      }
+      if (_disposed) return;
+      if (selection.phase != ParkingPhase.created ||
+          selection.receipt == null) {
+        quote = selection.quote;
+        message = selection.message;
+        phase = selection.phase == ParkingPhase.uncertain
+            ? PaymentPhase.uncertain
+            : PaymentPhase.ready;
+        return;
+      }
+      await _prepare(selection.receipt!.id);
+      if (_disposed) return;
+      if (quote!.conditions != previous.conditions) {
+        phase = PaymentPhase.error;
+        message =
+            'Las condiciones cambiaron. Revisa el importe antes de pagar.';
+        return;
+      }
+      phase = PaymentPhase.processing;
+      final next = PaymentIntent(
+        owner,
+        session!.id,
+        'TEST',
+        createdAt: now().toUtc(),
+      );
+      await store.write(next);
+      saved = true;
+      intent = next;
+      await selection.paymentIntentSaved();
+      if (_disposed) return;
+      await _accept(await payments.create(next));
+    } catch (error) {
+      phase = saved || intent != null
+          ? PaymentPhase.uncertain
+          : PaymentPhase.error;
+      message = paymentError(error);
+    } finally {
+      _busy = false;
+      _notify();
+    }
+  }
+
+  /// Explicit recovery of a checkout started by Pay, never by screen navigation.
+  Future<void> reviewStartedCheckout() async {
+    final selection = _draft;
+    if (busy || _disposed || selection == null || intent != null) return;
+    _busy = true;
+    _notify();
+    try {
+      if (selection.receipt == null &&
+          selection.phase != ParkingPhase.uncertain) {
+        await selection.load();
+        quote = selection.quote;
+        methodSelected = dev;
+        phase = selection.canSubmit ? PaymentPhase.ready : PaymentPhase.error;
+        message = selection.message;
+        return;
+      }
+      if (selection.phase == ParkingPhase.uncertain) {
+        await selection.recover(retainIntent: true);
+      }
+      if (selection.receipt == null) {
+        phase = PaymentPhase.uncertain;
+        message = selection.message;
+        return;
+      }
+      await _prepare(selection.receipt!.id);
+      methodSelected = dev;
+      message = null;
+    } catch (error) {
+      phase = PaymentPhase.uncertain;
+      message = paymentError(error);
+    } finally {
+      _busy = false;
       _notify();
     }
   }

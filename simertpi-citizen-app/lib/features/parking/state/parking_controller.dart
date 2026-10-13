@@ -157,6 +157,8 @@ class ParkingController extends ChangeNotifier {
         quote = null;
         message = e is AppFailure && e.code == 'VEHICLE_OCCUPIED'
             ? 'Este vehículo ya tiene un estacionamiento en curso.'
+            : e is AppFailure && e.code == 'VEHICLE_SPACE_REENTRY_COOLDOWN'
+            ? parkingError(e)
             : e is AppFailure && e.kind == FailureKind.conflict
             ? 'Este espacio ya no está disponible. Selecciona otro estacionamiento.'
             : parkingError(e);
@@ -215,7 +217,7 @@ class ParkingController extends ChangeNotifier {
     }
   }
 
-  Future<void> create() async {
+  Future<void> create({bool retainIntent = false}) async {
     if (!canSubmit || _disposed) return;
     _busy = true;
     phase = ParkingPhase.processing;
@@ -280,8 +282,10 @@ class ParkingController extends ChangeNotifier {
       receipt = result;
       phase = ParkingPhase.created;
       try {
-        await store.clear();
-        _intent = null;
+        if (!retainIntent) {
+          await store.clear();
+          _intent = null;
+        }
       } catch (_) {
         /* Recover by read-only lookup on next entry. */
       }
@@ -331,7 +335,7 @@ class ParkingController extends ChangeNotifier {
     }
   }
 
-  Future<void> recover() async {
+  Future<void> recover({bool retainIntent = false}) async {
     if (_busy || _disposed || _intent == null) return;
     _busy = true;
     _notify();
@@ -344,8 +348,10 @@ class ParkingController extends ChangeNotifier {
       if (matching.length == 1) {
         receipt = matching.single;
         phase = ParkingPhase.created;
-        await store.clear();
-        _intent = null;
+        if (!retainIntent) {
+          await store.clear();
+          _intent = null;
+        }
         message = null;
       } else {
         phase = ParkingPhase.uncertain;
@@ -366,6 +372,37 @@ class ParkingController extends ChangeNotifier {
           } catch (_) {}
         }
       }
+    } finally {
+      _busy = false;
+      _notify();
+    }
+  }
+
+  /// Payment intent is durable before the checkout handoff is acknowledged.
+  Future<void> paymentIntentSaved() async {
+    if (_intent == null) return;
+    await store.clear();
+    _intent = null;
+  }
+
+  /// Resets the local checkout flow after the backend confirms cancellation.
+  /// The backend remains authoritative for whether the vehicle/space is free.
+  Future<void> checkoutAbandoned() async {
+    if (_busy ||
+        _disposed ||
+        phase != ParkingPhase.created ||
+        receipt == null) {
+      return;
+    }
+    _busy = true;
+    receipt = null;
+    phase = ParkingPhase.ready;
+    message = null;
+    _notify();
+    try {
+      await refreshVehicles();
+    } catch (_) {
+      // The next create revalidates both vehicle and space with the backend.
     } finally {
       _busy = false;
       _notify();

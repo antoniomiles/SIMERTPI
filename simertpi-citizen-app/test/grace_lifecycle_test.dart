@@ -85,7 +85,7 @@ void main() {
         await c.load();
         await tester.pumpWidget(a.panel(c));
         await tester.pump();
-        expect(find.text('Finalizar'), findsOneWidget);
+        expect(find.text('Finalizar y confirmar salida'), findsOneWidget);
         expect(
           find.text('Extender'),
           minutes == 180 ? findsOneWidget : findsNothing,
@@ -179,7 +179,7 @@ void main() {
               actions ? findsOneWidget : findsNothing,
             );
             expect(
-              find.text('Finalizar'),
+              find.text('Finalizar y confirmar salida'),
               (actions || phase == 'MAX_TIME_REACHED')
                   ? findsOneWidget
                   : findsNothing,
@@ -232,12 +232,12 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
       await tester.pump();
       expect(find.text('Período de gracia finalizado'), findsOneWidget);
-      expect(find.text('Finalizar'), findsNothing);
+      expect(find.text('Finalizar y confirmar salida'), findsNothing);
       g.warned = true;
       await c.load();
       await tester.pump();
       expect(find.text('Regulariza tu estacionamiento'), findsOneWidget);
-      expect(find.text('Finalizar'), findsOneWidget);
+      expect(find.text('Finalizar y confirmar salida'), findsOneWidget);
       expect(c.sessions.single.spaceId, 's');
       expect(c.sessions.single.vehicleId, 'v');
       await tester.pumpWidget(const SizedBox());
@@ -301,7 +301,7 @@ void main() {
     expect(g.loads, before + 1);
     expect(find.text('Regulariza tu estacionamiento'), findsOneWidget);
     expect(find.text('Extender'), findsOneWidget);
-    expect(find.text('Finalizar'), findsOneWidget);
+    expect(find.text('Finalizar y confirmar salida'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
     c.dispose();
   });
