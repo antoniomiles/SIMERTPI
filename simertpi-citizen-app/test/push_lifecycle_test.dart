@@ -13,6 +13,7 @@ class FakeRuntime implements PushRuntime {
   PushPermissionState state = PushPermissionState.granted;
   String currentToken = 'token-a';
   int tokenReads = 0, activations = 0, prompts = 0;
+  PushPermissionState requestResult = PushPermissionState.granted;
   bool deleted = false, autoInit = false;
   String? presentationOwner;
   String? presentationDeviceId;
@@ -48,7 +49,8 @@ class FakeRuntime implements PushRuntime {
   Future<PushPermissionState> requestPermission() async {
     prompts++;
     activations++;
-    return state;
+    state = requestResult;
+    return requestResult;
   }
 
   @override
@@ -81,9 +83,10 @@ class FakeRuntime implements PushRuntime {
   }
 }
 
-class FakeStore implements PushDeviceStore {
+class FakeStore implements PushDeviceStore, WelcomePermissionPromptStore {
   String? id, savedToken, savedOwner;
   final askedOwners = <String>{};
+  bool welcomePrompted = false;
   bool cleared = false;
   final consents = <String>{};
   final revocations = <PendingPushRevocation>[];
@@ -96,6 +99,13 @@ class FakeStore implements PushDeviceStore {
   @override
   Future<bool> permissionWasRequested(String owner) async =>
       askedOwners.contains(owner);
+  @override
+  Future<bool> welcomePermissionPrompted() async => welcomePrompted;
+  @override
+  Future<void> markWelcomePermissionPrompted() async {
+    welcomePrompted = true;
+  }
+
   final onboarding = <String>{};
   @override
   Future<bool> onboardingSeen(String owner) async => onboarding.contains(owner);
@@ -270,7 +280,9 @@ void main() {
   test(
     'denial leaves citizen operations usable and never fetches a token',
     () async {
-      final runtime = FakeRuntime()..state = PushPermissionState.denied,
+      final runtime = FakeRuntime()
+            ..state = PushPermissionState.denied
+            ..requestResult = PushPermissionState.denied,
           api = FakeApi(),
           store = FakeStore();
       final lifecycle = PushDeviceLifecycle(

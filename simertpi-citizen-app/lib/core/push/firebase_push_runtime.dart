@@ -113,25 +113,12 @@ class FirebasePushRuntime implements PushRuntime {
       _map(await _settings.invokeMethod<String>('permissionStatus'));
   @override
   Future<PushPermissionState> requestPermission() async {
-    final messaging = await _activate();
-    final settings = await messaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
-    final state = switch (settings.authorizationStatus) {
-      AuthorizationStatus.authorized ||
-      AuthorizationStatus.provisional => PushPermissionState.granted,
-      AuthorizationStatus.notDetermined => PushPermissionState.notDetermined,
-      AuthorizationStatus.denied => PushPermissionState.denied,
-      AuthorizationStatus.deniedPermanently =>
-        PushPermissionState.systemSettingsRequired,
-    };
-    // Permission acceptance is not yet the durable application consent. The
-    // lifecycle stores that consent first, then enables auto-init and fetches
-    // the token only after backend registration is authorized.
-    if (state != PushPermissionState.granted) {
-      await messaging.setAutoInitEnabled(false);
+    final state = await const AndroidNotificationPermissionGateway()
+        .requestPermission();
+    // Android's native prompt is independent of Firebase initialization.
+    // Auto-init is enabled only later, after authenticated app consent.
+    if (state != PushPermissionState.granted && _messaging != null) {
+      await _messaging!.setAutoInitEnabled(false);
     }
     return state;
   }

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../network/api_client.dart';
@@ -89,6 +90,88 @@ abstract interface class PushDeviceStore {
   Future<void> clearActive();
 }
 
+/// Device-scoped record for a single OS permission prompt from Welcome.
+/// It is intentionally separate from a citizen's in-app PUSH consent.
+abstract interface class WelcomePermissionPromptStore {
+  Future<bool> welcomePermissionPrompted();
+  Future<void> markWelcomePermissionPrompted();
+}
+
+abstract interface class NotificationPermissionGateway {
+  Future<PushPermissionState> permission();
+  Future<PushPermissionState> requestPermission();
+}
+
+/// Uses Android's OS permission API directly. This never initializes Firebase
+/// and is safe to use from the signed-out Welcome screen.
+class AndroidNotificationPermissionGateway
+    implements NotificationPermissionGateway {
+  const AndroidNotificationPermissionGateway();
+  static const MethodChannel _channel = MethodChannel(
+    'simertpi/notification_settings',
+  );
+
+  PushPermissionState _parse(String? state) => switch (state) {
+    'granted' => PushPermissionState.granted,
+    'denied' => PushPermissionState.denied,
+    'notDetermined' => PushPermissionState.notDetermined,
+    'systemSettingsRequired' => PushPermissionState.systemSettingsRequired,
+    _ => PushPermissionState.unavailable,
+  };
+
+  @override
+  Future<PushPermissionState> permission() async =>
+      _parse(await _channel.invokeMethod<String>('permissionStatus'));
+
+  @override
+  Future<PushPermissionState> requestPermission() async => _parse(
+    await _channel.invokeMethod<String>('requestNotificationPermission'),
+  );
+}
+
+class WelcomePushPermissionPrompt {
+  WelcomePushPermissionPrompt({
+    required this.store,
+    required this.gateway,
+    required this.isAuthenticated,
+  });
+  final WelcomePermissionPromptStore store;
+  final NotificationPermissionGateway gateway;
+  final bool Function() isAuthenticated;
+  bool _inFlight = false;
+
+  Future<PushPermissionState> requestOnce() async {
+    if (isAuthenticated() || _inFlight) return PushPermissionState.unavailable;
+    _inFlight = true;
+    try {
+      final current = await gateway.permission();
+      if (current == PushPermissionState.granted) {
+        await store.markWelcomePermissionPrompted();
+        return current;
+      }
+      if (current == PushPermissionState.unavailable ||
+          current == PushPermissionState.systemSettingsRequired ||
+          await store.welcomePermissionPrompted()) {
+        return current == PushPermissionState.denied
+            ? PushPermissionState.systemSettingsRequired
+            : current;
+      }
+      // Persist before asking Android so a second mount or process restart
+      // cannot repeat the system prompt. This marker is not citizen consent.
+      await store.markWelcomePermissionPrompted();
+      if (isAuthenticated()) return PushPermissionState.unavailable;
+      final result = await gateway.requestPermission();
+      return result == PushPermissionState.denied
+          ? PushPermissionState.systemSettingsRequired
+          : result;
+    } catch (_) {
+      return PushPermissionState.unavailable;
+    } finally {
+      _inFlight = false;
+    }
+  }
+}
+
 class PendingPushRevocation {
   const PendingPushRevocation(this.ownerId, this.deviceId);
   final String ownerId, deviceId;
@@ -152,7 +235,8 @@ class NotificationDeviceApi implements PushDeviceApi {
   }
 }
 
-class SecurePushDeviceStore implements PushDeviceStore {
+class SecurePushDeviceStore
+    implements PushDeviceStore, WelcomePermissionPromptStore {
   SecurePushDeviceStore(String namespace)
     : _prefix = 'simertpi.push.v2.${base64Url.encode(utf8.encode(namespace))}';
   final String _prefix;
@@ -167,6 +251,8 @@ class SecurePushDeviceStore implements PushDeviceStore {
       '$_prefix.onboarding-seen.${base64Url.encode(utf8.encode(owner))}';
   String _consentKey(String owner) =>
       '$_prefix.consent.${base64Url.encode(utf8.encode(owner))}';
+  String get _welcomePermissionPromptKey =>
+      '$_prefix.welcome-permission-prompted';
   @override
   Future<String?> deviceId() => _storage.read(key: _deviceKey);
   @override
@@ -176,6 +262,12 @@ class SecurePushDeviceStore implements PushDeviceStore {
   @override
   Future<bool> permissionWasRequested(String ownerId) async =>
       await _storage.read(key: _askedKey(ownerId)) == 'true';
+  @override
+  Future<bool> welcomePermissionPrompted() async =>
+      await _storage.read(key: _welcomePermissionPromptKey) == 'true';
+  @override
+  Future<void> markWelcomePermissionPrompted() =>
+      _storage.write(key: _welcomePermissionPromptKey, value: 'true');
   @override
   Future<bool> onboardingSeen(String ownerId) async =>
       await _storage.read(key: _onboardingKey(ownerId)) == 'true';
@@ -282,7 +374,6 @@ class PushDeviceLifecycle {
   String? _lastTapId;
   DateTime? _lastTapAt;
   bool _syncing = false, _disposed = false, _initialRead = false;
-
   void start() {
     _tokens = runtime.tokenRefreshes.listen((_) => unawaited(sync()));
     _foreground = runtime.foregroundMessages.listen(
@@ -393,8 +484,29 @@ class PushDeviceLifecycle {
       return PushPermissionState.unavailable;
     }
     try {
+      final actual = await runtime.permission();
+      if (actual == PushPermissionState.denied ||
+          actual == PushPermissionState.systemSettingsRequired) {
+        final accountAlreadyAsked = await store.permissionWasRequested(
+          requestedOwner,
+        );
+        final welcomeAlreadyAsked =
+            store is WelcomePermissionPromptStore &&
+            await (store as WelcomePermissionPromptStore)
+                .welcomePermissionPrompted();
+        if (actual == PushPermissionState.systemSettingsRequired ||
+            accountAlreadyAsked ||
+            welcomeAlreadyAsked) {
+          await store.markPermissionRequested(requestedOwner);
+          permissionState = PushPermissionState.systemSettingsRequired;
+          await runtime.setAutoInitEnabled(false);
+          return permissionState;
+        }
+      }
       await store.markPermissionRequested(requestedOwner);
-      final state = await runtime.requestPermission();
+      final state = actual == PushPermissionState.granted
+          ? actual
+          : await runtime.requestPermission();
       permissionState = state;
       final currentOwner = ownerId();
       if (state == PushPermissionState.granted &&
