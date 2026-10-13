@@ -4,6 +4,7 @@ import ec.gob.simertpi.api.GlobalExceptionHandler;
 import ec.gob.simertpi.api.ForbiddenException;
 import ec.gob.simertpi.api.parking.ParkingSessionController;
 import ec.gob.simertpi.application.parking.ParkingSessionService;
+import ec.gob.simertpi.application.parking.AbandonUnpaidCheckoutService;
 import ec.gob.simertpi.application.parking.IdempotentParkingSessionCreationService;
 import ec.gob.simertpi.config.SecurityConfig;
 import ec.gob.simertpi.config.SimertpiUserDetailsService;
@@ -52,6 +53,7 @@ class HttpBasicSecurityTest {
 
     @MockitoBean private UserRepository userRepository;
     @MockitoBean private ParkingSessionService parkingSessionService;
+    @MockitoBean private AbandonUnpaidCheckoutService abandonCheckoutService;
     @MockitoBean private IdempotentParkingSessionCreationService idempotentCreationService;
     @MockitoBean private ParkingSpaceRepository parkingSpaceRepository;
     @MockitoBean private VehicleRepository vehicleRepository;

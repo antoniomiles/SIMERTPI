@@ -39,6 +39,40 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {"simertpi.payments.provider=SANDBOX_STUB", "simertpi.payments.sandbox.enabled=true"})
 class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupport.AbstractPostgresIntegrationTest {
+    @Test void citizenCanAbandonCheckoutWithoutPaymentAndImmediatelyReuseVehicleAndSpace() throws Exception {
+        String owner = "citizen-a-" + fixture.tag;
+        var created = post(owner, "ABANDON-UNPAID", fixture.spaceA, fixture.vehicleA);
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        UUID sessionId = UUID.fromString(objectMapper.readTree(created.getBody()).get("id").asText());
+        assertThat(sessionRepository.findById(sessionId).orElseThrow().getStatus()).isEqualTo("PENDING_PAYMENT");
+
+        var citizen = restTemplate.withBasicAuth(owner, "integration-password");
+        String abandonUrl = "http://localhost:" + port + "/api/v1/parking/sessions/" + sessionId + "/abandon";
+        assertThat(citizen.postForEntity(abandonUrl, null, String.class).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(sessionRepository.findById(sessionId).orElseThrow().getStatus()).isEqualTo("CANCELLED");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM payments.payments WHERE parking_session_id=?", Integer.class, sessionId)).isZero();
+
+        var availability = objectMapper.readTree(citizen.getForObject(
+                "http://localhost:" + port + "/api/v1/parking-spaces/availability", String.class));
+        assertThat(java.util.stream.StreamSupport.stream(availability.spliterator(), false)
+                .filter(item -> item.get("parkingSpaceId").asText().equals(fixture.spaceA.toString()))
+                .findFirst().orElseThrow().get("selectable").asBoolean()).isTrue();
+
+        var changedDuration = post(owner, "ABANDON-NEW-DURATION", fixture.spaceA, fixture.vehicleA);
+        assertThat(changedDuration.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.parking_sessions WHERE vehicle_id=? AND status IN ('PENDING_PAYMENT','ACTIVE','EXTENDED','EXPIRED','MAX_TIME_REACHED')",
+                Integer.class, fixture.vehicleA)).isEqualTo(1);
+    }
+
+    @Test void anotherCitizenCannotAbandonOwnerCheckout() throws Exception {
+        var created = post("citizen-a-" + fixture.tag, "ABANDON-OWNER", fixture.spaceA, fixture.vehicleA);
+        UUID sessionId = UUID.fromString(objectMapper.readTree(created.getBody()).get("id").asText());
+        var other = restTemplate.withBasicAuth("citizen-b-" + fixture.tag, "integration-password");
+        String url = "http://localhost:" + port + "/api/v1/parking/sessions/" + sessionId + "/abandon";
+        assertThat(other.postForEntity(url, null, String.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(sessionRepository.findById(sessionId).orElseThrow().getStatus()).isEqualTo("PENDING_PAYMENT");
+    }
+
     @Test void availabilityHasNoOccupantDataAndTracksOperationalTransitions() throws Exception {
         String base="http://localhost:"+port+"/api/v1/parking-spaces/availability";
         assertThat(restTemplate.getForEntity(base,String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);

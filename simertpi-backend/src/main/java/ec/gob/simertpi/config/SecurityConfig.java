@@ -55,6 +55,8 @@ public class SecurityConfig {
                     .hasAuthority("SIMERTPI_ADMIN")
                 .requestMatchers(HttpMethod.POST, "/api/v1/parking/sessions", "/api/v1")
                     .hasAuthority("CITIZEN")
+                .requestMatchers(HttpMethod.POST, "/api/v1/parking/sessions/*/abandon")
+                        .hasAuthority("CITIZEN")
                 .requestMatchers(HttpMethod.GET, "/api/v1/parking/rules", "/api/v1/parking/rules/options")
                     .hasAnyAuthority("CITIZEN", "INSPECTOR", "SUPERVISOR", "SIMERTPI_ADMIN")
                 .requestMatchers("/api/v1/inspections/**", "/api/v1/violations/**")

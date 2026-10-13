@@ -26,6 +26,14 @@ public class PaymentReconciliationService {
     if(sessions.isEmpty() || !"PENDING_PAYMENT".equals(sessions.getFirst().get("status"))) return false;
     var payments=paymentsForUpdate(id);
     if(payments.stream().anyMatch(p -> "APPROVED".equals(p.get("status")))) return false;
+    var unresolvedProviderOperation=payments.stream().filter(p -> Set.of("PENDING","PROCESSING","UNKNOWN").contains(p.get("status")))
+     .filter(p -> !"NOT_STARTED".equals(p.get("provider_operation_status"))).toList();
+    if(!unresolvedProviderOperation.isEmpty()) {
+     for(var payment:unresolvedProviderOperation) findings.report("PAYMENT",(UUID)payment.get("id"),
+      "PAYMENT_PROVIDER_RESULT_UNRESOLVED","MANUAL_REVIEW_REQUIRED","NONE","PAYMENT_PROVIDER_STATUS_REVIEW_REQUIRED");
+     findings.report("PARKING_SESSION",id,"PAYMENT_PROVIDER_RESULT_UNRESOLVED","MANUAL_REVIEW_REQUIRED","NONE","PAYMENT_PROVIDER_STATUS_REVIEW_REQUIRED");
+     return false;
+    }
     // A newly initiated attempt retains its configured time window.
     if(payments.stream().anyMatch(p -> Set.of("PENDING","PROCESSING").contains(p.get("status")) && ((java.sql.Timestamp)p.get("last_activity_at")).toInstant().isAfter(cutoff.toInstant()))) return false;
     for(var payment:payments) if(Set.of("PENDING","PROCESSING").contains(payment.get("status"))) {

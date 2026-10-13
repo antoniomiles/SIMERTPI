@@ -76,6 +76,47 @@ class PaymentServiceTest {
     }
 
     @Test
+    void definitiveInitialPaymentDeclineCancelsPendingCheckoutAndReleasesItsSlot() {
+        OffsetDateTime now = OffsetDateTime.now();
+        ParkingSession session = createSession("PENDING_PAYMENT", now, now.plusMinutes(60), 240);
+        Payment payment = createPayment(session.getId());
+        when(paymentRepository.findById(payment.getId())).thenReturn(Optional.of(payment));
+        when(parkingSessionRepository.findByIdForUpdate(session.getId())).thenReturn(Optional.of(session));
+        when(sessionExtensionRepository.findByPaymentId(payment.getId())).thenReturn(Optional.empty());
+        when(paymentRepository.findByParkingSessionId(session.getId())).thenReturn(java.util.List.of(payment));
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(parkingSessionRepository.save(any(ParkingSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.decline(payment.getId(), "Provider declined payment");
+
+        assertEquals("DECLINED", payment.getStatus());
+        assertEquals("CANCELLED", session.getStatus());
+        org.junit.jupiter.api.Assertions.assertNotNull(session.getEndedAt());
+        verify(parkingSessionRepository).save(session);
+        verify(paymentEventPublisher).publish(payment, "PAYMENT_DECLINED");
+    }
+
+    @Test
+    void definitiveExtensionFailureNeverCancelsTheActiveParkingSession() {
+        OffsetDateTime now = OffsetDateTime.now();
+        ParkingSession session = createSession("ACTIVE", now.minusMinutes(20), now.plusMinutes(40), 240);
+        Payment payment = createPayment(session.getId());
+        SessionExtension extension = createExtension(session.getId(), payment.getId(), now.plusMinutes(40), now.plusMinutes(70));
+        when(paymentRepository.findById(payment.getId())).thenReturn(Optional.of(payment));
+        when(parkingSessionRepository.findByIdForUpdate(session.getId())).thenReturn(Optional.of(session));
+        when(sessionExtensionRepository.findByPaymentId(payment.getId())).thenReturn(Optional.of(extension));
+        when(sessionExtensionRepository.save(any(SessionExtension.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.fail(payment.getId(), "Provider failed payment");
+
+        assertEquals("FAILED", payment.getStatus());
+        assertEquals("ACTIVE", session.getStatus());
+        assertEquals("FAILED", extension.getStatus());
+        verify(parkingSessionRepository, never()).save(any(ParkingSession.class));
+    }
+
+    @Test
     void shouldApproveExtensionDuringGracePeriod() {
         OffsetDateTime now = OffsetDateTime.now();
 

@@ -66,6 +66,59 @@ public class PaymentIntegrationService {
   catch(RuntimeException unavailable) {throw new PaymentProviderUnavailableException();}
   return apply(payment.getProvider(),id,result,payment.getProviderOperationKey());
  }
+ /**
+  * Reconcile expired provider operations before releasing their temporary checkout hold.
+  * Providers must honor the operation idempotency key for cancellation; an unknown response
+  * deliberately leaves the payment/session pending for another verification pass.
+  */
+ public int recoverExpiredPending(java.time.Duration age) {
+  if(age==null || age.isNegative() || age.isZero())throw new IllegalArgumentException("Positive recovery age required");
+  var cutoff=java.time.OffsetDateTime.now().minus(age);
+  var ids=jdbc.queryForList("""
+   SELECT p.id FROM payments.payments p JOIN parking.parking_sessions s ON s.id=p.parking_session_id
+   WHERE s.status='PENDING_PAYMENT' AND p.status IN ('PENDING','PROCESSING')
+     AND p.provider_operation_status IN ('REQUESTED','UNKNOWN','CONFIRMED')
+     AND p.provider_operation_key IS NOT NULL AND p.updated_at<=?
+   ORDER BY p.updated_at,p.id LIMIT 200
+   """,UUID.class,cutoff);
+  int recovered=0;
+  for(UUID id:ids)if(recoverOneExpiredPending(id))recovered++;
+  return recovered;
+ }
+ private boolean recoverOneExpiredPending(UUID id) {
+  var payment=payments.findById(id);
+  if(payment==null || !Set.of("PENDING","PROCESSING").contains(payment.getStatus())
+      || payment.getProviderOperationKey()==null)return false;
+  var provider=registry.resolve(payment.getProvider());
+  UUID operation=payment.getProviderOperationKey();
+  PaymentProviderRequest providerRequest=request(payment,operation);
+  PaymentProviderResult result;
+  try {
+   result=provider.queryPayment(payment.getProviderPaymentId(),providerRequest);
+  } catch(RuntimeException unavailable) {
+   markRecoveryUnknown(id,operation);
+   return false;
+  }
+  Payment checked=apply(payment.getProvider(),id,result,operation);
+  // An UNKNOWN query is not evidence that the provider still has a cancellable
+  // pending transaction. Keep the temporary hold until a verified status exists.
+  if(!"PENDING".equals(checked.getStatus()) || !"CONFIRMED".equals(checked.getProviderOperationStatus()))return false;
+  try {
+   PaymentProviderResult cancelled=provider.cancelPayment(checked.getProviderPaymentId(),providerRequest);
+   Payment afterCancel=apply(checked.getProvider(),id,cancelled,operation);
+   return Set.of("APPROVED","DECLINED","FAILED","CANCELLED").contains(afterCancel.getStatus());
+  } catch(RuntimeException unavailable) {
+   markRecoveryUnknown(id,operation);
+   return false;
+  }
+ }
+ private void markRecoveryUnknown(UUID id,UUID operation) {
+  tx.executeWithoutResult(s -> {
+   lock(id);
+   int changed=jdbc.update("UPDATE payments.payments SET provider_operation_status='UNKNOWN',updated_at=CURRENT_TIMESTAMP WHERE id=? AND provider_operation_key=? AND status IN ('PENDING','PROCESSING')",id,operation);
+   if(changed>0)findings.report("PAYMENT",id,"PAYMENT_PROVIDER_RESULT_UNRESOLVED","MANUAL_REVIEW_REQUIRED","NONE","PAYMENT_PROVIDER_STATUS_REVIEW_REQUIRED");
+  });
+ }
  public Payment apply(String provider,UUID id,PaymentProviderResult response) {
   return apply(provider,id,response,null);
  }
