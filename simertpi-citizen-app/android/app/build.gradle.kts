@@ -1,7 +1,24 @@
+import java.util.Base64
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+// A build explicitly marked push-capable must carry the complete public client config.
+val pushDefines = providers.gradleProperty("dart-defines").orNull.orEmpty()
+    .split(",").filter { it.isNotBlank() }.mapNotNull {
+        runCatching { String(Base64.getDecoder().decode(it), Charsets.UTF_8) }.getOrNull()
+    }.associate { it.substringBefore("=") to it.substringAfter("=", "") }
+if (pushDefines["FCM_REQUIRED"] == "true") {
+    require(listOf("FCM_FIREBASE_API_KEY", "FCM_FIREBASE_APP_ID", "FCM_FIREBASE_SENDER_ID", "FCM_FIREBASE_PROJECT_ID")
+        .all { !pushDefines[it].isNullOrBlank() }) {
+        "FCM_REQUIRED: incomplete Android client configuration; build refused"
+    }
+    require(pushDefines["ENVIRONMENT"] == "dev" && pushDefines["FCM_FIREBASE_PROJECT_ID"] == "simertpi-dev") {
+        "FCM_REQUIRED: expected existing DEV Firebase project"
+    }
 }
 
 android {

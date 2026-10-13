@@ -19,6 +19,16 @@ class GuardedFirebaseMessagingService : FlutterFirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         val data = message.data
         if (!SimertpiPushGate.allows(this, data)) return
+        if (!PushDeliveryPolicy.fresh(data, System.currentTimeMillis())) return
+        // FlutterFire's existing broadcast receiver forwards foreground messages;
+        // its service implementation is a no-op. Do not create a second inbox event.
+        val owner = data.getValue("recipientOwnerId")
+        val prefs = getSharedPreferences("simertpi_push_seen", Context.MODE_PRIVATE)
+        val seenKey = "$owner:${data.getValue("notificationId")}"
+        if (prefs.contains(seenKey)) return
+        val contractKey = "contract:$owner:${data.getValue("resourceId")}"
+        val previousEnd = prefs.getLong(contractKey, 0L)
+        if (!PushDeliveryPolicy.currentContract(data, previousEnd)) return
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         if (!NotificationManagerCompat.from(this).areNotificationsEnabled()) return
@@ -54,7 +64,14 @@ class GuardedFirebaseMessagingService : FlutterFirebaseMessagingService() {
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .build()
         try {
-            NotificationManagerCompat.from(this).notify(notificationId.hashCode(), notification)
+            NotificationManagerCompat.from(this).notify(notificationId, 0, notification)
+            // Bounded persistent deduplication; account is part of every key.
+            val edit = prefs.edit()
+            prefs.all.entries.sortedBy { (it.value as? Long) ?: 0L }
+                .take((prefs.all.size - 255).coerceAtLeast(0)).forEach { edit.remove(it.key) }
+            val end=data["contractEndEpoch"]?.toLongOrNull()
+            if(end!=null) edit.putLong(contractKey, maxOf(previousEnd,end))
+            edit.putLong(seenKey, System.currentTimeMillis()).commit()
         } catch (_: SecurityException) {
             // Permission may be revoked between the check and notify.
         }
@@ -76,12 +93,32 @@ class GuardedFirebaseMessagingService : FlutterFirebaseMessagingService() {
 
 internal object PushEventCopy {
     fun forEvent(eventType: String, data: Map<String, String> = emptyMap()): Pair<String, String>? = when (eventType) {
-        "PARKING_STARTED" -> "Estacionamiento iniciado" to started(data)
-        "PARKING_ENDING_SOON" -> "Próximo a vencer" to endingSoon(data)
-        "PARKING_TIME_EXPIRED" -> "Tiempo finalizado" to expired(data)
-        "PARKING_EXTENSION_CONFIRMED" -> "Extensión confirmada" to extension(data)
+        "PARKING_STARTED" -> "Estacionamiento iniciado" to details(data, started(data), true)
+        "PARKING_ENDING_SOON" -> "Próximo a vencer" to details(data, endingSoon(data), false)
+        "PARKING_TIME_EXPIRED" -> "Tiempo finalizado" to details(data, expired(data), true)
+        "PARKING_EXTENSION_CONFIRMED" -> "Extensión confirmada" to details(data, extension(data), false)
         "PARKING_COMPLETED" -> "Estacionamiento finalizado" to completed(data)
         else -> null
+    }
+
+    private fun details(data: Map<String,String>, fallback: String, space: Boolean): String {
+        val fields = mutableListOf(fallback)
+        safeLabel(data["plate"])?.let { fields.add("Vehículo: $it.") }
+        if(space) safeLabel(data["spaceCode"])?.let { fields.add("Espacio: $it.") }
+        if(data["eventType"] == "PARKING_STARTED") safeDate(data["startedAt"])?.let { fields.add("Inicio: $it.") }
+        safeDate(data["expectedEndAt"])?.let { fields.add("Finalización: $it (Ecuador).") }
+        if(data["eventType"] == "PARKING_EXTENSION_CONFIRMED") {
+            val amount = data["amount"]?.takeIf { it.matches(Regex("^[0-9]{1,10}(\\.[0-9]{1,2})?$")) }
+            val currency = data["currency"]?.takeIf { it.matches(Regex("^[A-Z]{3}$")) }
+            if(amount != null && currency != null) fields.add("Pago aprobado: $amount $currency.")
+        }
+        return fields.joinToString(" ")
+    }
+    private fun safeLabel(value: String?): String? = value?.takeIf {
+        it.length in 1..40 && it.matches(Regex("^[A-Za-z0-9 -]+$"))
+    }
+    private fun safeDate(value: String?): String? = value?.takeIf {
+        it.matches(Regex("^[0-9]{2}/[0-9]{2}/[0-9]{4} [0-9]{2}:[0-9]{2}$"))
     }
 
     private fun started(data: Map<String, String>): String {
@@ -118,5 +155,18 @@ internal object PushEventCopy {
 
     private fun safeTime(value: String?): String? = value?.takeIf {
         it.matches(Regex("^(?:[01]\\d|2[0-3]):[0-5]\\d$"))
+    }
+}
+
+/** Missing expiry is accepted only for historical backend payload compatibility. */
+internal object PushDeliveryPolicy {
+    fun currentContract(data: Map<String,String>, latestEnd: Long): Boolean {
+        if(data["eventType"] !in setOf("PARKING_ENDING_SOON","PARKING_TIME_EXPIRED")) return true
+        val end=data["contractEndEpoch"]?.toLongOrNull() ?: return latestEnd == 0L
+        return end >= latestEnd
+    }
+    fun fresh(data: Map<String,String>, now: Long): Boolean {
+        val expiry = data["validUntil"] ?: return true
+        return expiry.toLongOrNull()?.let { it > now } ?: false
     }
 }

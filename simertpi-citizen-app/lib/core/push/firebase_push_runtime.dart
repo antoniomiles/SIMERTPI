@@ -30,6 +30,11 @@ class FirebasePushRuntime implements PushRuntime {
     const senderId = String.fromEnvironment('FCM_FIREBASE_SENDER_ID');
     const projectId = String.fromEnvironment('FCM_FIREBASE_PROJECT_ID');
     if ([apiKey, appId, senderId, projectId].any((value) => value.isEmpty)) {
+      if (const bool.fromEnvironment('FCM_REQUIRED')) {
+        throw StateError(
+          'FCM_REQUIRED: configuración Firebase Android incompleta',
+        );
+      }
       return null;
     }
     return FirebasePushRuntime(

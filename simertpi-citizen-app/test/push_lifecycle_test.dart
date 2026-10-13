@@ -191,6 +191,28 @@ PushNavigationTarget target(String type) => PushNavigationTarget(
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('permission alone never marks registration successful', () async {
+    final runtime = FakeRuntime(), api = FakeApi(), store = FakeStore();
+    final lifecycle = PushDeviceLifecycle(
+      runtime: runtime,
+      api: api,
+      store: store,
+      isAuthenticated: () => true,
+      ownerId: () => ownerA,
+      unreadNotifications: ValueNotifier(0),
+      citizenTab: ValueNotifier(0),
+      parkingSessionTarget: ValueNotifier(null),
+    );
+    await lifecycle.requestPermission(registerImmediately: false);
+    expect(lifecycle.permissionState, PushPermissionState.granted);
+    expect(lifecycle.registrationState, PushRegistrationState.idle);
+    runtime.currentToken = '';
+    await lifecycle.sync();
+    expect(lifecycle.registrationState, PushRegistrationState.failed);
+    expect(runtime.presentationEnabled, isFalse);
+    await lifecycle.dispose();
+    await runtime.dispose();
+  });
   test('no Firebase activation, token fetch or registration before explicit consent', () async {
     final runtime = FakeRuntime(), api = FakeApi(), store = FakeStore();
     final lifecycle = PushDeviceLifecycle(
@@ -215,6 +237,7 @@ void main() {
     expect(runtime.presentationEnabled, isTrue);
     expect(runtime.presentationOwner, ownerA);
     expect(runtime.presentationDeviceId, 'device-1');
+    expect(lifecycle.registrationState, PushRegistrationState.registered);
     await lifecycle.dispose();
     await runtime.dispose();
   });
