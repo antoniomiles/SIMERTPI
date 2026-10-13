@@ -32,6 +32,7 @@ public class ParkingSessionService {
     @org.springframework.beans.factory.annotation.Autowired(required=false)
     private ec.gob.simertpi.application.notifications.NotificationGenerationService notifications;
     @org.springframework.beans.factory.annotation.Autowired(required=false) private ec.gob.simertpi.application.operations.OperationalMetrics metrics;
+    private final ParkingReentryConfigurationService reentry;
 
 
     private static final Set<String> STAFF_ROLES = Set.of(
@@ -58,7 +59,8 @@ public class ParkingSessionService {
             StreetRepository streetRepository,
             ec.gob.simertpi.application.parking.rules.ParkingRulesService rules,
             ZoneRepository zoneRepository,
-            ec.gob.simertpi.domain.parking.extension.repository.SessionExtensionRepository extensions
+            ec.gob.simertpi.domain.parking.extension.repository.SessionExtensionRepository extensions,
+            ParkingReentryConfigurationService reentry
     ) {
         this.parkingSessionRepository = parkingSessionRepository;
         this.userRepository = userRepository;
@@ -68,6 +70,7 @@ public class ParkingSessionService {
         this.rules = rules;
         this.zoneRepository = zoneRepository;
         this.extensions = extensions;
+        this.reentry = reentry;
     }
 
     @Transactional(readOnly = true)
@@ -145,6 +148,8 @@ public class ParkingSessionService {
             );
         }
 
+        reentry.lockVehicleSpace(session.getVehicleId(), session.getParkingSpaceId());
+
         OffsetDateTime now = OffsetDateTime.now();
 
         session.setEndedAt(now);
@@ -205,13 +210,27 @@ public class ParkingSessionService {
             throw new IllegalArgumentException("Vehicle is inactive");
         }
 
+        ParkingSpace parkingSpace = parkingSpaceRepository.findById(parkingSpaceId)
+                .orElseThrow(() -> new ResourceNotFoundException("Parking space not found"));
+
+        // Serialize a same-plate/same-space request with any session closure and
+        // with requests made through another account holding the same plate.
+        reentry.lockVehicleSpace(vehicleId, parkingSpaceId);
+
         // Vehicle row lock serializes creation and lifecycle changes for this association.
         if (parkingSessionRepository.existsByVehicleIdAndStatusIn(vehicleId, ParkingSessionStatus.occupyingCodes())) {
             throw new ec.gob.simertpi.api.ParkingConflictException("VEHICLE_OCCUPIED");
         }
 
-        ParkingSpace parkingSpace = parkingSpaceRepository.findById(parkingSpaceId)
-                .orElseThrow(() -> new ResourceNotFoundException("Parking space not found"));
+        OffsetDateTime reentryNow = OffsetDateTime.now();
+        OffsetDateTime blockedUntil = reentry.blockedUntil(vehicleId, parkingSpaceId, reentryNow);
+        if (blockedUntil != null) {
+                String localTime = blockedUntil.atZoneSameInstant(java.time.ZoneId.of("America/Guayaquil"))
+                        .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"));
+                throw new ec.gob.simertpi.api.ParkingConflictException("VEHICLE_SPACE_REENTRY_COOLDOWN",
+                        "Ya cumpliste las 4 horas continuas en este espacio. Podrás volver a utilizarlo a partir de las "
+                                + localTime + ". Puedes elegir otro espacio disponible.");
+        }
 
         if (!parkingSpace.isActive()) {
             throw new ec.gob.simertpi.api.ParkingConflictException("SPACE_DISABLED");
