@@ -45,10 +45,25 @@ public class MobileAuthService {
   Authentication authentication=provider.authenticate(UsernamePasswordAuthenticationToken.unauthenticated(username,password));
   citizen((UserDetails)authentication.getPrincipal());
   UUID userId=repository.findByUsername(username).orElseThrow(MobileAuthService::invalid).getId();
+  return issue(userId,"PASSWORD");
+ }
+ @Transactional
+ public SessionResponse issueDeviceSession(UUID userId) {
+  citizen(details(userId));return issue(userId,"DEVICE");
+ }
+ @Transactional(readOnly=true)
+ public UUID deviceOwner(String access, boolean recentPassword) {
+  authenticate(access);
+  var owners=jdbc.query("SELECT user_id FROM identity.mobile_sessions WHERE access_hash=? AND revoked_at IS NULL AND access_expires_at>CURRENT_TIMESTAMP AND refresh_expires_at>CURRENT_TIMESTAMP"+
+   (recentPassword?" AND authentication_method='PASSWORD' AND created_at>CURRENT_TIMESTAMP-INTERVAL '5 minutes'":""),
+   (rs,n)->rs.getObject(1,UUID.class),hash(access));
+  if(owners.isEmpty())throw invalid();return owners.getFirst();
+ }
+ private SessionResponse issue(UUID userId, String method) {
   OffsetDateTime now=OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(java.time.temporal.ChronoUnit.MICROS),expires=now.plus(refreshTtl);
   String access=token(),refresh=token();UUID id=UUID.randomUUID();
-  jdbc.update("INSERT INTO identity.mobile_sessions(id,user_id,access_hash,access_expires_at,refresh_expires_at) VALUES (?,?,?,?,?)",
-    id,userId,hash(access),now.plus(accessTtl),expires);
+  jdbc.update("INSERT INTO identity.mobile_sessions(id,user_id,access_hash,access_expires_at,refresh_expires_at,authentication_method) VALUES (?,?,?,?,?,?)",
+    id,userId,hash(access),now.plus(accessTtl),expires,method);
   jdbc.update("INSERT INTO identity.mobile_refresh_tokens(token_hash,session_id) VALUES (?,?)",hash(refresh),id);
   return new SessionResponse(userId,"Bearer",access,refresh,now.plus(accessTtl),expires);
  }
