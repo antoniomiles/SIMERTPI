@@ -336,7 +336,8 @@ class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupp
         var available=objectMapper.readTree(own.getForObject("http://localhost:"+port+"/api/v1/parking-spaces/availability",String.class));
         for(var space:available) if(space.get("parkingSpaceId").asText().equals(fixture.spaceA.toString()))
             assertThat(space.get("selectable").asBoolean()).isTrue();
-        assertThat(post("citizen-a-"+fixture.tag,"AFTER-WARNING-CLOSE",fixture.spaceA,fixture.vehicleA).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        var sameSpaceReentry=post("citizen-a-"+fixture.tag,"AFTER-WARNING-CLOSE",fixture.spaceA,fixture.vehicleA);
+        assertThat(sameSpaceReentry.getStatusCode()).isEqualTo(contracted==240?HttpStatus.CONFLICT:HttpStatus.CREATED);
     }
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(ints={5,11})
@@ -411,6 +412,7 @@ class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupp
 
     @BeforeEach
     void setUp() {
+        jdbc.update("UPDATE configuration.parking_reentry_settings SET cooldown_minutes=5,updated_at=CURRENT_TIMESTAMP,updated_by=NULL WHERE id=1");
         fixture = new Fixture();
         OffsetDateTime now = OffsetDateTime.now().truncatedTo(ChronoUnit.MICROS);
         UUID citizenRoleId = jdbc.queryForObject(
@@ -440,9 +442,115 @@ class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupp
         createSpace(fixture.spaceE, "05");
     }
 
+    @Test void sameVehicleSpaceReentryRequiresConfiguredCooldownButOtherVehiclesAndSpacesDoNot() throws Exception {
+        String owner="citizen-a-"+fixture.tag;
+        UUID id=UUID.fromString(objectMapper.readTree(post(owner,"REENTRY-MAX",fixture.spaceA,fixture.vehicleA,240).getBody()).get("id").asText());
+        // Contracted for four hours, but the citizen leaves after 220 minutes.
+        jdbc.update("UPDATE parking.parking_sessions SET status='ACTIVE',started_at=CURRENT_TIMESTAMP-INTERVAL '220 minutes',expected_end_at=CURRENT_TIMESTAMP+INTERVAL '20 minutes',ended_at=NULL WHERE id=?",id);
+        var own=restTemplate.withBasicAuth(owner,"integration-password");
+        assertThat(own.postForEntity("http://localhost:"+port+"/api/v1/parking-sessions/"+id+"/close",null,String.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+        var availability=objectMapper.readTree(own.getForObject("http://localhost:"+port+"/api/v1/parking-spaces/availability",String.class));
+        JsonNode space=null;for(var item:availability)if(item.get("parkingSpaceId").asText().equals(fixture.spaceA.toString()))space=item;
+        assertThat(space).isNotNull();assertThat(space.get("operationalStatus").asText()).isEqualTo("AVAILABLE");assertThat(space.get("selectable").asBoolean()).isTrue();
+        var blocked=post(owner,"REENTRY-SAME",fixture.spaceA,fixture.vehicleA);
+        assertThat(blocked.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(blocked.getBody()).contains("VEHICLE_SPACE_REENTRY_COOLDOWN","Podrás volver a utilizarlo a partir de");
+        assertThat(post(owner,"REENTRY-OTHER-SPACE",fixture.spaceB,fixture.vehicleA).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        jdbc.update("UPDATE parking.parking_sessions SET status='CANCELLED' WHERE vehicle_id=? AND status='PENDING_PAYMENT'",fixture.vehicleA);
+        // A duplicate plate under another account cannot bypass the cooldown.
+        jdbc.update("UPDATE identity.vehicles SET plate=(SELECT plate FROM identity.vehicles WHERE id=?) WHERE id=?",fixture.vehicleA,fixture.vehicleB);
+        assertThat(post("citizen-b-"+fixture.tag,"REENTRY-SAME-PLATE-OTHER-ACCOUNT",fixture.spaceA,fixture.vehicleB).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        // A different plate can use the globally available space immediately.
+        assertThat(post(owner,"REENTRY-OTHER-PLATE",fixture.spaceA,fixture.vehicleA2).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+    }
+
+    @Test void sameSpaceReentryCooldownUsesCurrentAdminSettingAndExcludesShortOrCancelledSessions() throws Exception {
+        String owner="citizen-a-"+fixture.tag;
+        UUID id=UUID.fromString(objectMapper.readTree(post(owner,"REENTRY-ONE-MINUTE",fixture.spaceA,fixture.vehicleA).getBody()).get("id").asText());
+        jdbc.update("UPDATE parking.parking_sessions SET status='COMPLETED',started_at=CURRENT_TIMESTAMP-INTERVAL '240 minutes',expected_end_at=CURRENT_TIMESTAMP,ended_at=CURRENT_TIMESTAMP-INTERVAL '2 minutes' WHERE id=?",id);
+        UUID adminRole=jdbc.queryForObject("SELECT id FROM identity.roles WHERE code='SIMERTPI_ADMIN'",UUID.class);
+        jdbc.update("INSERT INTO identity.user_roles(user_id,role_id) VALUES (?,?)",fixture.userA,adminRole);
+        String configUrl="http://localhost:"+port+"/api/v1/admin/parking/reentry-configuration";
+        assertThat(restTemplate.withBasicAuth(owner,"integration-password").getForEntity(configUrl,String.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+        var changed=restTemplate.withBasicAuth(owner,"integration-password").exchange(configUrl,HttpMethod.PUT,
+                new HttpEntity<>(Map.of("cooldownMinutes",30),jsonHeaders()),String.class);
+        assertThat(changed.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(objectMapper.readTree(changed.getBody()).get("cooldownMinutes").asInt()).isEqualTo(30);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM audit.functional_audit_log WHERE action='PARKING_REENTRY_COOLDOWN_CHANGED' AND actor_id=?",Integer.class,fixture.userA)).isEqualTo(1);
+        assertThat(post(owner,"REENTRY-THIRTY-MINUTE-LIVE-POLICY",fixture.spaceA,fixture.vehicleA).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        changed=restTemplate.withBasicAuth(owner,"integration-password").exchange(configUrl,HttpMethod.PUT,
+                new HttpEntity<>(Map.of("cooldownMinutes",1),jsonHeaders()),String.class);
+        assertThat(changed.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(post(owner,"REENTRY-ONE-MINUTE-ELAPSED",fixture.spaceA,fixture.vehicleA).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+    }
+
+    @Test void reentryConfigurationIsAdminOnlyAndRangeValidated() {
+        String configUrl="http://localhost:"+port+"/api/v1/admin/parking/reentry-configuration";
+        assertThat(restTemplate.withBasicAuth("citizen-a-"+fixture.tag,"integration-password").getForEntity(configUrl,String.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        var adminRole=jdbc.queryForObject("SELECT id FROM identity.roles WHERE code='SIMERTPI_ADMIN'",UUID.class);
+        jdbc.update("INSERT INTO identity.user_roles(user_id,role_id) VALUES (?,?)",fixture.userA,adminRole);
+        var admin=restTemplate.withBasicAuth("citizen-a-"+fixture.tag,"integration-password");
+        assertThat(admin.exchange(configUrl,HttpMethod.PUT,new HttpEntity<>(Map.of("cooldownMinutes",0),jsonHeaders()),String.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(admin.exchange(configUrl,HttpMethod.PUT,new HttpEntity<>(Map.of("cooldownMinutes",1441),jsonHeaders()),String.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test void anonymousAndCitizenCannotModifyReentrySettings() {
+        String configUrl="http://localhost:"+port+"/api/v1/admin/parking/reentry-configuration";
+        var request=new HttpEntity<>(Map.of("cooldownMinutes",5),jsonHeaders());
+        assertThat(restTemplate.getForEntity(configUrl,String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(restTemplate.exchange(configUrl,HttpMethod.PUT,request,String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(restTemplate.withBasicAuth("citizen-a-"+fixture.tag,"integration-password")
+                .exchange(configUrl,HttpMethod.PUT,request,String.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(jdbc.queryForObject("SELECT cooldown_minutes FROM configuration.parking_reentry_settings WHERE id=1",Integer.class)).isEqualTo(5);
+    }
+
+    @Test void cooldownDoesNotApplyToShortOrCancelledSessionsAndExpiresAtConfiguredBoundary() throws Exception {
+        String owner="citizen-a-"+fixture.tag;
+        UUID shortId=UUID.fromString(objectMapper.readTree(post(owner,"REENTRY-SHORT",fixture.spaceA,fixture.vehicleA).getBody()).get("id").asText());
+        jdbc.update("UPDATE parking.parking_sessions SET status='COMPLETED',started_at=CURRENT_TIMESTAMP-INTERVAL '60 minutes',expected_end_at=CURRENT_TIMESTAMP+INTERVAL '60 minutes',ended_at=CURRENT_TIMESTAMP WHERE id=?",shortId);
+        assertThat(post(owner,"REENTRY-AFTER-SHORT",fixture.spaceA,fixture.vehicleA).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        UUID cancelledId=UUID.fromString(objectMapper.readTree(post(owner,"REENTRY-CANCELLED",fixture.spaceC,fixture.vehicleA2).getBody()).get("id").asText());
+        jdbc.update("UPDATE parking.parking_sessions SET status='CANCELLED',started_at=CURRENT_TIMESTAMP-INTERVAL '240 minutes',expected_end_at=CURRENT_TIMESTAMP,ended_at=CURRENT_TIMESTAMP WHERE id=?",cancelledId);
+        jdbc.update("UPDATE parking.parking_sessions SET status='CANCELLED' WHERE vehicle_id=? AND status='PENDING_PAYMENT'",fixture.vehicleA);
+        assertThat(post(owner,"REENTRY-AFTER-CANCELLED",fixture.spaceA,fixture.vehicleA).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(post(owner,"REENTRY-AFTER-CANCELLED-SAME-PAIR",fixture.spaceC,fixture.vehicleA2).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        jdbc.update("UPDATE parking.parking_sessions SET status='CANCELLED' WHERE vehicle_id=? AND status='PENDING_PAYMENT'",fixture.vehicleA2);
+
+        UUID boundaryVehicle=fixture.vehicleA2;
+        UUID boundaryId=UUID.fromString(objectMapper.readTree(post(owner,"REENTRY-BOUNDARY-SEED",fixture.spaceC,boundaryVehicle).getBody()).get("id").asText());
+        jdbc.update("UPDATE parking.parking_sessions SET status='COMPLETED',started_at=CURRENT_TIMESTAMP-INTERVAL '245 minutes',expected_end_at=CURRENT_TIMESTAMP-INTERVAL '5 minutes',ended_at=CURRENT_TIMESTAMP-INTERVAL '5 minutes' WHERE id=?",boundaryId);
+        assertThat(post(owner,"REENTRY-AT-FIVE-MINUTES",fixture.spaceC,boundaryVehicle).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+    }
+
+    @Test void confirmedExtensionsAccumulatingToFourHoursTriggerCooldownAfterEarlyClose() throws Exception {
+        String owner="citizen-a-"+fixture.tag;
+        UUID sessionId=UUID.fromString(objectMapper.readTree(post(owner,"REENTRY-EXTENDED-240",fixture.spaceA,fixture.vehicleA).getBody()).get("id").asText());
+        jdbc.update("UPDATE parking.parking_sessions SET status='ACTIVE',started_at=CURRENT_TIMESTAMP-INTERVAL '30 minutes',expected_end_at=CURRENT_TIMESTAMP+INTERVAL '30 minutes' WHERE id=?",sessionId);
+        var own=restTemplate.withBasicAuth(owner,"integration-password");
+        String base="http://localhost:"+port+"/api/v1/parking-sessions/"+sessionId+"/extensions";
+        for(int index=1;index<=3;index++) {
+            var quote=objectMapper.readTree(own.getForEntity(base+"/quote?additionalMinutes=60",String.class).getBody());
+            assertThat(quote.get("extensionAllowed").asBoolean()).isTrue();
+            var request=Map.of("additionalMinutes",60,"paymentMethod","TEST","idempotencyKey","REENTRY-EXT-"+index,
+                    "expectedAmount",quote.get("calculatedAmount").decimalValue(),"expectedEndAt",quote.get("expiresAt").asText());
+            var response=own.postForEntity(base+"/mobile",request,String.class);
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+            UUID paymentId=UUID.fromString(objectMapper.readTree(response.getBody()).get("paymentId").asText());
+            lifecyclePayments.approve(paymentId,"REENTRY-EXT-APPROVED-"+index);
+        }
+        assertThat(jdbc.queryForObject("SELECT extract(epoch FROM (expected_end_at-started_at))/60 FROM parking.parking_sessions WHERE id=?",Double.class,sessionId)).isEqualTo(240.0);
+        String closeUrl="http://localhost:"+port+"/api/v1/parking-sessions/"+sessionId+"/close";
+        assertThat(own.postForEntity(closeUrl,null,String.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(post(owner,"REENTRY-EXTENDED-BLOCKED",fixture.spaceA,fixture.vehicleA).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(post(owner,"REENTRY-EXTENDED-OTHER-SPACE",fixture.spaceB,fixture.vehicleA).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+    }
+
+    private HttpHeaders jsonHeaders() { HttpHeaders headers=new HttpHeaders();headers.setContentType(MediaType.APPLICATION_JSON);return headers; }
+
     @AfterEach
     void cleanUp() {
         if (fixture == null) return;
+        jdbc.update("UPDATE configuration.parking_reentry_settings SET cooldown_minutes=5,updated_by=NULL,updated_at=CURRENT_TIMESTAMP WHERE updated_by IN (?,?)",fixture.userA,fixture.userB);
         jdbc.update("DELETE FROM enforcement.verbal_warnings WHERE parking_session_id IN (SELECT id FROM parking.parking_sessions WHERE user_id IN (?, ?))", fixture.userA, fixture.userB);
         jdbc.update("DELETE FROM audit.idempotency_keys WHERE user_id IN (?, ?)", fixture.userA, fixture.userB);
         jdbc.update("DELETE FROM notification.notifications WHERE user_id IN (?, ?)", fixture.userA, fixture.userB);

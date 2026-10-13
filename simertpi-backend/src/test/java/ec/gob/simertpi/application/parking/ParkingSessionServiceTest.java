@@ -68,6 +68,9 @@ class ParkingSessionServiceTest {
     @Mock
     private ec.gob.simertpi.domain.parking.extension.repository.SessionExtensionRepository extensions;
 
+    @Mock
+    private ParkingReentryConfigurationService reentry;
+
     @InjectMocks
     private ParkingSessionService parkingSessionService;
 

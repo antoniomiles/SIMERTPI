@@ -16,7 +16,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(ParkingConflictException.class)
     public ResponseEntity<Map<String,Object>> parkingConflict(ParkingConflictException exception) {
-        return ResponseEntity.status(409).body(Map.of("code",exception.code(),"status",409,"message","Parking conditions changed"));
+        return ResponseEntity.status(409).body(Map.of("code",exception.code(),"status",409,"message",exception.userMessage()));
     }
 
     @ExceptionHandler(ec.gob.simertpi.domain.vehicles.VehicleAssociationConflictException.class)
