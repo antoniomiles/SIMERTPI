@@ -408,7 +408,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('Inicia sesión'), findsOneWidget);
+    expect(find.text('Crear cuenta'), findsOneWidget);
   });
   testWidgets(
     'Map renders supplied coordinates and accessible markers without network',
@@ -453,6 +453,59 @@ void main() {
       }
     },
   );
+  testWidgets('Citizen map filters occupied markers without changing catalog', (
+    tester,
+  ) async {
+    const yellow = CatalogSpace(
+      'yellow',
+      't',
+      'SPACE-YELLOW',
+      'QY',
+      '2',
+      true,
+      latitude: -3.001,
+      longitude: -79.001,
+      operationalStatus: 'ENDING_SOON',
+      backendSelectable: false,
+    );
+    const occupied = CatalogSpace(
+      'occupied',
+      't',
+      'SPACE-OCCUPIED',
+      'QO',
+      '3',
+      true,
+      latitude: -3.002,
+      longitude: -79.002,
+      operationalStatus: 'OCCUPIED',
+      backendSelectable: false,
+    );
+    final catalog = ParkingCatalog([zone], [street], [space, yellow, occupied]);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ParkingMap(
+            spaces: catalog.spaces,
+            catalog: catalog,
+            config: MapConfig.parse(
+              'https://tiles.fixture.invalid/{z}/{x}/{y}.png',
+              'Fixture attribution',
+            ),
+            tileProvider: FixtureTiles(),
+            enabled: true,
+            onSelect: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(catalog.spaces, hasLength(3));
+    expect(find.byType(ParkingMapMarker), findsNWidgets(2));
+    expect(find.byTooltip('Espacio 3'), findsNothing);
+    expect(find.text('Próximo a finalizar'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'Viewport fits backend markers and keeps attribution visible at 200%',
     (tester) async {
@@ -468,9 +521,11 @@ void main() {
         'S2',
         'Q2',
         '2',
-        false,
+        true,
         latitude: -3.001,
         longitude: -79.002,
+        operationalStatus: 'AVAILABLE',
+        backendSelectable: true,
       );
       final catalog = ParkingCatalog([zone], [street], [space, second]);
       await tester.pumpWidget(

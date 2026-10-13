@@ -7,6 +7,7 @@ import '../../core/widgets/app_feedback.dart';
 import '../../core/widgets/operational_ui.dart';
 import 'activity_service.dart';
 import '../../core/push/push_lifecycle.dart';
+import '../auth/presentation/security_settings.dart';
 
 class CitizenProfilePage extends StatefulWidget {
   const CitizenProfilePage({super.key, this.gateway, this.onNotifications});
@@ -122,6 +123,8 @@ class _CitizenProfilePageState extends State<CitizenProfilePage> {
               title: const Text('Cerrar sesión'),
               onTap: () => AppScope.of(context).auth.logout(),
             ),
+            const SizedBox(height: 16),
+            const SecuritySettings(),
           ],
         ),
       ),

@@ -270,7 +270,7 @@ void main() {
             : findsOneWidget,
       );
       expect(
-        find.text('Finalizar'),
+        find.text('Finalizar y confirmar salida'),
         {'MAX_TIME_REACHED', 'EXPIRED'}.contains(state)
             ? findsNothing
             : findsOneWidget,
@@ -287,17 +287,17 @@ void main() {
       final c = controller(g);
       await c.load();
       await tester.pumpWidget(panel(c));
-      await tester.tap(find.text('Finalizar'));
+      await tester.tap(find.text('Finalizar y confirmar salida'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Cancelar'));
       await tester.pumpAndSettle();
       expect(g.closes, 0);
-      await tester.tap(find.text('Finalizar'));
+      await tester.tap(find.text('Finalizar y confirmar salida'));
       await tester.pumpAndSettle();
       await tester.tap(
         find.descendant(
           of: find.byType(AlertDialog),
-          matching: find.text('Finalizar'),
+          matching: find.text('Finalizar y confirmar salida'),
         ),
       );
       await tester.pumpAndSettle();

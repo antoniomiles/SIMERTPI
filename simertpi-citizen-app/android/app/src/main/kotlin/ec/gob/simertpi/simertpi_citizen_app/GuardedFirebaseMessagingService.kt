@@ -25,7 +25,7 @@ class GuardedFirebaseMessagingService : FlutterFirebaseMessagingService() {
 
         ensureChannel()
         val eventType = data.getValue("eventType")
-        val copy = PushEventCopy.forEvent(eventType) ?: return
+        val copy = PushEventCopy.forEvent(eventType, data) ?: return
         val notificationId = data.getValue("notificationId")
         val tap = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -75,12 +75,48 @@ class GuardedFirebaseMessagingService : FlutterFirebaseMessagingService() {
 
 
 internal object PushEventCopy {
-    fun forEvent(eventType: String): Pair<String, String>? = when (eventType) {
-        "PARKING_STARTED" -> "Estacionamiento iniciado" to "Tu estacionamiento está activo."
-        "PARKING_ENDING_SOON" -> "Próximo a vencer" to "Tu tiempo está próximo a finalizar."
-        "PARKING_TIME_EXPIRED" -> "Tiempo finalizado" to "El tiempo contratado ha finalizado."
-        "PARKING_EXTENSION_CONFIRMED" -> "Extensión confirmada" to "Tu extensión fue confirmada."
-        "PARKING_COMPLETED" -> "Estacionamiento finalizado" to "Tu estacionamiento fue finalizado correctamente."
+    fun forEvent(eventType: String, data: Map<String, String> = emptyMap()): Pair<String, String>? = when (eventType) {
+        "PARKING_STARTED" -> "Estacionamiento iniciado" to started(data)
+        "PARKING_ENDING_SOON" -> "Próximo a vencer" to endingSoon(data)
+        "PARKING_TIME_EXPIRED" -> "Tiempo finalizado" to expired(data)
+        "PARKING_EXTENSION_CONFIRMED" -> "Extensión confirmada" to extension(data)
+        "PARKING_COMPLETED" -> "Estacionamiento finalizado" to completed(data)
         else -> null
+    }
+
+    private fun started(data: Map<String, String>): String {
+        val minutes = data["contractedMinutes"]?.toIntOrNull()?.takeIf { it in 1..240 }
+        val time = safeTime(data["expectedEndTime"])
+        return if (minutes != null && time != null)
+            "Tu estacionamiento se inició correctamente por $minutes minutos. Finaliza a las $time."
+        else "Tu estacionamiento se inició correctamente."
+    }
+
+    private fun endingSoon(data: Map<String, String>): String {
+        val minutes = data["minutesRemaining"]?.toIntOrNull()?.takeIf { it in 1..240 }
+        return if (minutes != null) "Quedan $minutes minutos para que finalice tu estacionamiento."
+        else "Tu tiempo está próximo a finalizar."
+    }
+
+    private fun expired(data: Map<String, String>): String = safeTime(data["expectedEndTime"])
+        ?.let { "El tiempo contratado finalizó a las $it. Revisa el estado de tu estacionamiento." }
+        ?: "El tiempo contratado ha finalizado."
+
+    private fun extension(data: Map<String, String>): String {
+        val minutes = data["additionalMinutes"]?.toIntOrNull()?.takeIf { it in 1..240 }
+        val time = safeTime(data["expectedEndTime"])
+        return when {
+            minutes != null && time != null -> "Tu estacionamiento se extendió correctamente por $minutes minutos. Nuevo vencimiento: $time."
+            minutes != null -> "Tu estacionamiento se extendió correctamente por $minutes minutos."
+            else -> "Tu extensión fue confirmada."
+        }
+    }
+
+    private fun completed(data: Map<String, String>): String = safeTime(data["endedAt"])
+        ?.let { "Tu estacionamiento finalizó a las $it." }
+        ?: "Tu estacionamiento ha finalizado."
+
+    private fun safeTime(value: String?): String? = value?.takeIf {
+        it.matches(Regex("^(?:[01]\\d|2[0-3]):[0-5]\\d$"))
     }
 }

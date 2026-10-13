@@ -118,21 +118,24 @@ class PaymentCreationHttpPostgresIntegrationTest extends ec.gob.simertpi.testsup
         assertThat(jdbc.queryForObject("SELECT count(*) FROM payments.payment_attempts WHERE payment_id = ?", Integer.class, paymentId)).isEqualTo(1);
         assertThat(sessionRepository.findById(sessionId).orElseThrow().getStatus()).isEqualTo("PENDING_PAYMENT");
 
-        paymentService.fail(paymentId, "test provider failure");
-        ResponseEntity<String> retry = post("PAY-KEY-002", sessionId);
-        assertThat(retry.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        assertThat(objectMapper.readTree(retry.getBody()).get("id").asText()).isEqualTo(paymentId.toString());
-        assertThat(paymentRepository.findByParkingSessionId(sessionId)).hasSize(1);
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM payments.payment_attempts WHERE payment_id = ?", Integer.class, paymentId)).isEqualTo(2);
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM audit.outbox_events WHERE aggregate_id = ? AND aggregate_type = 'PAYMENT'", Integer.class, paymentId)).isEqualTo(3);
-
         paymentService.approve(paymentId, "TEST-ONLY-TRANSACTION");
         assertThat(sessionRepository.findById(sessionId).orElseThrow().getStatus()).isEqualTo("ACTIVE");
         assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus()).isEqualTo("APPROVED");
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM audit.outbox_events WHERE aggregate_id = ? AND aggregate_type = 'PAYMENT'", Integer.class, paymentId)).isEqualTo(4);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM audit.outbox_events WHERE aggregate_id = ? AND aggregate_type = 'PAYMENT'", Integer.class, paymentId)).isEqualTo(2);
 
         ResponseEntity<String> differentRequest = post("PAY-KEY-001", UUID.randomUUID());
         assertThat(differentRequest.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(paymentRepository.findByParkingSessionId(sessionId)).hasSize(1);
+    }
+
+    @Test
+    void definitiveFailureReleasesCheckoutAndCannotBeRetriedOnCancelledSession() throws Exception {
+        var created=post("PAY-FAIL-001",sessionId);
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        UUID paymentId=UUID.fromString(objectMapper.readTree(created.getBody()).get("id").asText());
+        paymentService.fail(paymentId,"test definitive provider failure");
+        assertThat(sessionRepository.findById(sessionId).orElseThrow().getStatus()).isEqualTo("CANCELLED");
+        assertThat(post("PAY-FAIL-002",sessionId).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(paymentRepository.findByParkingSessionId(sessionId)).hasSize(1);
     }
 

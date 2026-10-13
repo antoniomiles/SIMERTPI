@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
 
-// Verified citizen auth Figma nodes 5:591 and 5:607; tokens shared centrally.
+// Citizen visual identity tokens shared centrally.
 abstract final class AppColors {
-  static const primary = Color(0xFF05306B);
-  static const accent = Color(0xFF05A1D1);
+  /// Approved SIMERTPI green sampled from the citizen welcome action.
+  static const brandGreen = Color(0xFF0B6B3A);
+
+  /// Sampled from the dark blue mountain range in simertpinoche.png.
+  static const brandNightBlue = Color(0xFF020562);
+  static const primary = brandGreen;
+  static const accent = Color(0xFFF2C230);
   static const canvas = Color(0xFFF7F9FC);
-  static const action = Color(0xFF0D6EFD);
+  static const action = brandGreen;
   static const successSurface = Color(0xFFE8F7EE);
   static const warningSurface = Color(0xFFFFF5D9);
   static const criticalSurface = Color(0xFFFAD9DD);
@@ -14,7 +19,7 @@ abstract final class AppColors {
   static const ink = Color(0xFF141F2E);
   static const muted = Color(0xFF616E7D);
   static const parkingHint = Color(0xFFEBF5FF);
-  static const input = Color(0xFFF5F7FA);
+  static const input = Color(0xFFEEF4FA);
   static const outline = Color(0xFFCDD6DB);
   static const skeleton = Color(0xFFE5EBEE);
   static const available = Color(0xFF167344);
@@ -22,6 +27,38 @@ abstract final class AppColors {
   static const endingSoon = Color(0xFF8A6400);
   static const occupied = Color(0xFFA32835);
   static const danger = Color(0xFFA32835);
+}
+
+@immutable
+class AppBrandPalette extends ThemeExtension<AppBrandPalette> {
+  const AppBrandPalette({required this.isNight, required this.primary});
+
+  static const day = AppBrandPalette(
+    isNight: false,
+    primary: AppColors.brandGreen,
+  );
+  static const night = AppBrandPalette(
+    isNight: true,
+    primary: AppColors.brandNightBlue,
+  );
+
+  final bool isNight;
+  final Color primary;
+
+  @override
+  AppBrandPalette copyWith({bool? isNight, Color? primary}) => AppBrandPalette(
+    isNight: isNight ?? this.isNight,
+    primary: primary ?? this.primary,
+  );
+
+  @override
+  AppBrandPalette lerp(ThemeExtension<AppBrandPalette>? other, double t) {
+    if (other is! AppBrandPalette) return this;
+    return AppBrandPalette(
+      isNight: t < .5 ? isNight : other.isNight,
+      primary: Color.lerp(primary, other.primary, t) ?? primary,
+    );
+  }
 }
 
 abstract final class AppSpace {

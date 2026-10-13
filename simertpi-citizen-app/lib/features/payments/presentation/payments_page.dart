@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import '../../vehicles/presentation/vehicle_plate.dart';
 import '../../active_parking/state/active_parking_controller.dart';
 import '../../discovery/data/parking_catalog.dart';
+import '../data/checkout_abandonment.dart';
 import '../../../app/router/app_router.dart';
 
 import 'package:flutter/material.dart';
@@ -14,6 +17,7 @@ import '../../../core/widgets/app_layout.dart';
 import '../../../core/widgets/app_skeleton.dart';
 import '../../../core/widgets/operational_ui.dart';
 import '../../parking/data/parking_contract.dart';
+import '../../parking/state/parking_controller.dart';
 import '../../vehicles/data/vehicle_service.dart';
 import '../data/payment_contract.dart';
 import '../data/payment_intent_store.dart';
@@ -23,12 +27,16 @@ class PaymentsPage extends StatefulWidget {
   const PaymentsPage({
     super.key,
     this.sessionId,
+    this.parkingController,
     this.controller,
     this.extensionController,
+    this.checkoutAbandonment,
   });
   final String? sessionId;
+  final ParkingController? parkingController;
   final PaymentsController? controller;
   final ActiveParkingController? extensionController;
+  final CheckoutAbandonment? checkoutAbandonment;
   @override
   State<PaymentsPage> createState() => _PaymentsPageState();
 }
@@ -36,6 +44,8 @@ class PaymentsPage extends StatefulWidget {
 class _PaymentsPageState extends State<PaymentsPage> {
   PaymentsController? _controller;
   bool _reviewing = false;
+  bool _checkoutPopAllowed = false;
+  bool _abandoningCheckout = false;
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -55,7 +65,12 @@ class _PaymentsPageState extends State<PaymentsPage> {
           ),
           dev: scope.config.environment == AppEnvironment.dev,
         );
-    _controller!.load(widget.sessionId);
+    if (widget.parkingController != null) {
+      _controller!.stageDraft(widget.parkingController!);
+      _reviewing = true;
+    } else {
+      _controller!.load(widget.sessionId);
+    }
   }
 
   @override
@@ -67,9 +82,50 @@ class _PaymentsPageState extends State<PaymentsPage> {
   }
 
   Future<void> _confirm() async {
-    await _controller!.confirm();
+    if (widget.parkingController != null) {
+      await _controller!.startParking();
+    } else {
+      await _controller!.confirm();
+    }
     if (mounted && _controller!.phase == PaymentPhase.ready) {
-      setState(() => _reviewing = false);
+      setState(() => _reviewing = widget.parkingController != null);
+    }
+  }
+
+  Future<void> _abandonCheckoutAndPop(PaymentsController controller) async {
+    if (_abandoningCheckout || controller.busy || controller.activated) return;
+    final sessionId = widget.sessionId;
+    if (sessionId == null) {
+      setState(() => _checkoutPopAllowed = true);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.of(context).pop();
+      });
+      return;
+    }
+    setState(() => _abandoningCheckout = true);
+    try {
+      final abandonment =
+          widget.checkoutAbandonment ??
+          (AppScope.of(context).api == null
+              ? null
+              : ApiCheckoutAbandonment(AppScope.of(context).api!));
+      if (abandonment == null) throw StateError('Parking API unavailable');
+      await abandonment.abandon(sessionId);
+      if (!mounted) return;
+      setState(() {
+        _checkoutPopAllowed = true;
+        _abandoningCheckout = false;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.of(context).pop(true);
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _abandoningCheckout = false);
+      AppSnackbar.show(
+        context,
+        'No pudimos liberar esta solicitud. Comprueba tu conexión e inténtalo nuevamente.',
+      );
     }
   }
 
@@ -84,21 +140,32 @@ class _PaymentsPageState extends State<PaymentsPage> {
         final q = c.quote;
         final p = c.payment;
         return PopScope(
-          canPop: !c.busy,
+          canPop:
+              !c.busy &&
+              !_abandoningCheckout &&
+              (_checkoutPopAllowed ||
+                  widget.sessionId == null ||
+                  c.intent != null ||
+                  c.activated),
+          onPopInvokedWithResult: (didPop, result) {
+            if (!didPop && !_abandoningCheckout) {
+              unawaited(_abandonCheckoutAndPop(c));
+            }
+          },
           child: AppPage(
-            showNavigation: !c.busy,
+            fitTitle: true,
+            showNavigation: !c.busy && !_abandoningCheckout,
             title: c.activated
-                ? 'Estacionamiento confirmado'
+                ? 'Pago confirmado'
                 : c.phase == PaymentPhase.result
                 ? 'Resultado de pago'
                 : c.phase == PaymentPhase.processing
                 ? 'Procesando pago'
-                : _reviewing
-                ? 'Resumen del estacionamiento'
-                : 'Resumen del estacionamiento',
+                : 'Confirmar pago',
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                if (_abandoningCheckout) const LinearProgressIndicator(),
                 if (c.phase == PaymentPhase.loading ||
                     c.phase == PaymentPhase.initial)
                   const SkeletonList(count: 2)
@@ -139,7 +206,9 @@ class _PaymentsPageState extends State<PaymentsPage> {
                   ] else if (c.phase == PaymentPhase.error)
                     ErrorState(
                       message: c.message ?? 'No pudimos preparar el pago.',
-                      onRetry: () => c.load(widget.sessionId),
+                      onRetry: widget.parkingController == null
+                          ? () => c.load(widget.sessionId)
+                          : c.reviewStartedCheckout,
                     )
                   else if (c.phase == PaymentPhase.uncertain) ...[
                     const SizedBox(height: AppSpace.md),
@@ -148,7 +217,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
                       style: Theme.of(context).textTheme.headlineSmall,
                     ),
                     const Text(
-                      'No realices otro pago para esta solicitud. Puedes volver y consultar desde Inicio. Si todavía no hay una referencia, recuperar puede completar la solicitud original que no había sido recibida; no crea un intento distinto.',
+                      'No realices otro pago para esta solicitud. El estado se verificará con el proveedor antes de permitir otro intento.',
                     ),
                     const SizedBox(height: AppSpace.md),
                     if (c.intent != null)
@@ -158,6 +227,11 @@ class _PaymentsPageState extends State<PaymentsPage> {
                             : 'Comprobar resultado',
                         processingLabel: 'Comprobando...',
                         onPressed: c.check,
+                      ),
+                    if (c.intent == null && widget.parkingController != null)
+                      AsyncButton(
+                        label: 'Verificar operación',
+                        onPressed: c.reviewStartedCheckout,
                       ),
                   ] else if (c.phase == PaymentPhase.processing) ...[
                     const SizedBox(height: 64),
@@ -286,7 +360,9 @@ class _PaymentsPageState extends State<PaymentsPage> {
                         processingLabel: 'Comprobando...',
                         onPressed: c.check,
                       ),
-                    if (p != null && !p.waiting)
+                    if (p != null &&
+                        !p.waiting &&
+                        widget.parkingController == null)
                       SecondaryButton(
                         label: 'Ver solicitudes pendientes',
                         onPressed: c.busy ? null : c.pendingRequests,
@@ -299,7 +375,9 @@ class _PaymentsPageState extends State<PaymentsPage> {
                           if (mounted) setState(() => _reviewing = false);
                         },
                       ),
-                  ] else if (q != null && c.session != null) ...[
+                  ] else if (q != null &&
+                      (c.session != null ||
+                          widget.parkingController != null)) ...[
                     if (!_reviewing && c.dev)
                       OperationalCard(
                         onTap: c.busy ? null : c.chooseMethod,
@@ -334,10 +412,17 @@ class _PaymentsPageState extends State<PaymentsPage> {
                           SummaryRow('Zona', c.zoneName ?? ''),
                           SummaryRow('Espacio', c.spaceCode ?? ''),
                           SummaryRow('Vehículo', visualPlate(c.vehicle!.plate)),
-                          SummaryRow('Tiempo', durationLabel(q.minutes!)),
+                          SummaryRow(
+                            widget.parkingController == null
+                                ? 'Tiempo'
+                                : 'Tiempo contratado',
+                            durationLabel(q.minutes!),
+                          ),
                           const Divider(height: 24),
                           SummaryRow(
-                            'Total',
+                            widget.parkingController == null
+                                ? 'Total'
+                                : 'Total a pagar',
                             displayMoney(q.currency, q.amount),
                             important: true,
                           ),
@@ -369,6 +454,8 @@ class _PaymentsPageState extends State<PaymentsPage> {
                         label: 'Revisar datos',
                         onPressed: c.busy
                             ? null
+                            : widget.parkingController != null
+                            ? () => Navigator.of(context).pop()
                             : () => setState(() => _reviewing = false),
                       ),
                     ] else

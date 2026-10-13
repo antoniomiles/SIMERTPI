@@ -107,6 +107,7 @@ public class PaymentService {
         Payment saved = paymentRepository.save(payment);
         updateLatestAttempt(payment, "DECLINED", null, failureReason);
         finishRejectedExtension(paymentId, "DECLINED", now);
+        releaseRejectedInitialCheckout(payment, now);
         eventPublisher.publish(payment, "PAYMENT_DECLINED");
         return saved;
     }
@@ -134,8 +135,26 @@ public class PaymentService {
         Payment saved = paymentRepository.save(payment);
         updateLatestAttempt(payment, "FAILED", null, failureReason);
         finishRejectedExtension(paymentId, "FAILED", now);
+        releaseRejectedInitialCheckout(payment, now);
         eventPublisher.publish(payment, "PAYMENT_FAILED");
         return saved;
+    }
+
+    /** A definitive rejection releases only an initial unpaid checkout, never an extension. */
+    private void releaseRejectedInitialCheckout(Payment payment, OffsetDateTime now) {
+        if (sessionExtensionRepository.findByPaymentId(payment.getId()).isPresent()) return;
+        ParkingSession session = parkingSessionRepository.findByIdForUpdate(payment.getParkingSessionId())
+                .orElseThrow(() -> new ResourceNotFoundException("Parking session not found"));
+        if (!"PENDING_PAYMENT".equals(session.getStatus())) return;
+        boolean anotherUnresolvedPayment = paymentRepository.findByParkingSessionId(session.getId()).stream()
+                .filter(other -> !other.getId().equals(payment.getId()))
+                .anyMatch(other -> "PENDING".equals(other.getStatus()) || "PROCESSING".equals(other.getStatus())
+                        || "APPROVED".equals(other.getStatus()));
+        if (anotherUnresolvedPayment) return;
+        session.setStatus("CANCELLED");
+        session.setEndedAt(now);
+        session.setUpdatedAt(now);
+        parkingSessionRepository.save(session);
     }
 
     @Transactional

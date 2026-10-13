@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import '../citizen_activity/activity_pages.dart';
 import '../citizen_activity/profile_page.dart';
@@ -24,17 +24,20 @@ import '../../core/theme/app_tokens.dart';
 import '../../core/theme/app_typography.dart';
 import '../vehicles/data/vehicle_service.dart';
 import '../vehicles/state/vehicles_controller.dart';
+import '../auth/state/auth_controller.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({
     super.key,
     this.controller,
     this.activeController,
+    this.activityGateway,
     this.initialTab = 0,
   });
   final int initialTab;
   final VehiclesController? controller;
   final ActiveParkingController? activeController;
+  final ActivityGateway? activityGateway;
   @override
   State<HomePage> createState() => _HomePageState();
 }
@@ -45,7 +48,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   int tab = 0, mapRefresh = 0;
   int unreadCount = 0;
   int inboxRefresh = 0;
-  ActivityService? activity;
+  ActivityGateway? activity;
+  AuthController? _auth;
+  bool _wasLocked = false;
+  void _sessionLockChanged() {
+    final locked = _auth?.isLocked ?? false;
+    if (_wasLocked && !locked && _auth?.isAuthenticated == true && mounted) {
+      // Reuse existing reads, preserving tab/route and all business operations.
+      _active?.load();
+      _vehicles?.load();
+      refreshUnread();
+    }
+    _wasLocked = locked;
+  }
+
   Future<void> refreshUnread() async {
     final scope = AppScope.of(context);
     final owner = scope.auth.userId;
@@ -78,7 +94,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _showPushOnboarding() async {
     if (!mounted || _pushOnboardingStarted) return;
-    _pushOnboardingStarted = true;
     final scope = AppScope.of(context);
     final push = scope.pushLifecycle;
     final owner = scope.auth.userId;
@@ -89,15 +104,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     try {
       preferences = await activity!.preferences();
     } catch (_) {
+      // Retry when the authenticated Home resumes; a transient request failure
+      // must not consume this account/device's first-use invitation.
       return;
     }
     if (!mounted) {
       return;
     }
-    if (preferences['PUSH'] == true) {
-      await push.markOnboardingSeen();
-      return;
-    }
+    _pushOnboardingStarted = true;
     final activate = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
@@ -244,7 +258,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       tab = 2;
     }
     _initialTabApplied = true;
-    activity = ActivityService(scope.api);
+    activity = widget.activityGateway ?? ActivityService(scope.api);
     refreshUnread();
     _citizenTab = scope.citizenTab;
     _citizenTab?.value = tab;
@@ -257,6 +271,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       });
     }
     _parkingConfirmed = scope.parkingConfirmed;
+    _auth = scope.auth;
+    _wasLocked = _auth!.isLocked;
+    _auth!.addListener(_sessionLockChanged);
+    _auth!.inactivity?.addListener(_sessionLockChanged);
     _parkingConfirmed?.addListener(_confirmed);
     // A vehicles controller is only needed when injected by a host/test.
     // The dedicated vehicles route owns its existing controller.
@@ -300,13 +318,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) refreshUnread();
+    if (state == AppLifecycleState.resumed) {
+      refreshUnread();
+      unawaited(_showPushOnboarding());
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _parkingConfirmed?.removeListener(_confirmed);
+    _auth?.removeListener(_sessionLockChanged);
+    _auth?.inactivity?.removeListener(_sessionLockChanged);
     _citizenTab?.removeListener(_requestedTab);
     _parkingSessionTarget?.removeListener(_parkingTargetChanged);
     if (widget.controller == null) _vehicles?.dispose();
@@ -324,7 +347,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       appBar: tab == 0
           ? AppBar(
               title: const Text('SIMERTPI', style: AppTypography.brand),
-              backgroundColor: AppColors.primary,
+              backgroundColor: Theme.of(context).colorScheme.primary,
               foregroundColor: Colors.white,
               actions: [
                 IconButton(
@@ -356,8 +379,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   const SizedBox(height: AppSpace.lg),
                   ActiveParkingPanel(controller: _active!),
                   OperationalCard(
-                    color: AppColors.action,
-                    border: AppColors.action,
+                    color: Theme.of(context).colorScheme.primary,
+                    border: Theme.of(context).colorScheme.primary,
                     onTap: () => _launch(AppRoute.startParking),
                     child: Row(
                       children: [
@@ -494,11 +517,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         ],
                       );
                     },
-                  ),
-                  const SizedBox(height: AppSpace.md),
-                  TextButton(
-                    onPressed: () => _launch(AppRoute.payments),
-                    child: const Text('Consultar pago pendiente'),
                   ),
                 ],
               ),

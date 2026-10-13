@@ -8,6 +8,7 @@ import 'package:simertpi_citizen_app/app/bootstrap/bootstrap.dart';
 import 'package:simertpi_citizen_app/app/router/app_router.dart';
 import 'package:simertpi_citizen_app/core/config/app_config.dart';
 import 'package:simertpi_citizen_app/core/errors/app_failure.dart';
+import 'package:simertpi_citizen_app/features/payments/data/checkout_abandonment.dart';
 
 import 'package:simertpi_citizen_app/core/theme/app_theme.dart';
 import 'package:simertpi_citizen_app/features/auth/state/auth_controller.dart';
@@ -119,6 +120,66 @@ Future<Widget> page(PaymentsController c, {double scale = 1}) async {
 }
 
 void main() {
+  testWidgets(
+    'Opening an existing payment screen never submits a payment automatically',
+    (tester) async {
+      final gateway = FakePayments();
+      final c = controller(payments: gateway);
+      await tester.pumpWidget(await page(c));
+      expect(find.text('Resumen del estacionamiento'), findsNothing);
+      await tester.pump();
+      expect(find.text('Resumen del estacionamiento'), findsNothing);
+      await tester.pumpAndSettle();
+
+      expect(gateway.creates, 0);
+      expect(c.phase, PaymentPhase.ready);
+      expect(c.payment, isNull);
+      expect(tester.takeException(), isNull);
+      c.dispose();
+    },
+  );
+
+  testWidgets('Back cancels an unpaid initial checkout before returning', (
+    tester,
+  ) async {
+    final c = controller();
+    final abandon = FakeCheckoutAbandonment();
+    final auth = AuthController(FakeAuthGateway(), store: MemorySessionStore());
+    await auth.login('fixture-citizen', 'fixture-password');
+    await tester.pumpWidget(
+      AppScope(
+        config: AppConfig.parse(environment: 'dev'),
+        auth: auth,
+        child: MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<bool>(
+                    builder: (_) => PaymentsPage(
+                      controller: c,
+                      sessionId: 'receipt',
+                      checkoutAbandonment: abandon,
+                    ),
+                  ),
+                ),
+                child: const Text('Abrir pago'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Abrir pago'));
+    await tester.pumpAndSettle();
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(abandon.sessionIds, ['receipt']);
+    expect(find.text('Abrir pago'), findsOneWidget);
+    c.dispose();
+    auth.dispose();
+  });
   test('Summary uses real pending session, owner vehicle and backend quote; DEV method must be selected', () async {
     final c = controller();
     await c.load('receipt');
@@ -442,8 +503,18 @@ void main() {
       );
       await tester.pumpWidget(authTestApp(auth, route: AppRoute.payments));
       await tester.pumpAndSettle();
-      expect(find.text('Inicia sesión'), findsOneWidget);
+      expect(find.text('Crear cuenta'), findsOneWidget);
       expect(find.byType(PaymentsPage), findsNothing);
     },
   );
+}
+
+class FakeCheckoutAbandonment implements CheckoutAbandonment {
+  final sessionIds = <String>[];
+  Object? failure;
+  @override
+  Future<void> abandon(String parkingSessionId) async {
+    sessionIds.add(parkingSessionId);
+    if (failure != null) throw failure!;
+  }
 }

@@ -25,6 +25,7 @@ import java.util.UUID;
 public class ParkingSessionController {
 
     private final ParkingSessionService parkingSessionService;
+    private final ec.gob.simertpi.application.parking.AbandonUnpaidCheckoutService abandonCheckoutService;
     private final IdempotentParkingSessionCreationService idempotentCreationService;
     private final ParkingSpaceRepository parkingSpaceRepository;
     private final VehicleRepository vehicleRepository;
@@ -33,6 +34,7 @@ public class ParkingSessionController {
     private final ec.gob.simertpi.application.parking.ParkingAvailabilityService availability;
 
     public ParkingSessionController(ParkingSessionService parkingSessionService,
+                                    ec.gob.simertpi.application.parking.AbandonUnpaidCheckoutService abandonCheckoutService,
                                     IdempotentParkingSessionCreationService idempotentCreationService,
                                     ParkingSpaceRepository parkingSpaceRepository,
                                     VehicleRepository vehicleRepository,
@@ -40,11 +42,23 @@ public class ParkingSessionController {
                                     ec.gob.simertpi.application.parking.rules.ParkingRulesService rules,
                                     ec.gob.simertpi.application.parking.ParkingAvailabilityService availability) {
         this.parkingSessionService = parkingSessionService;
+        this.abandonCheckoutService = abandonCheckoutService;
         this.idempotentCreationService = idempotentCreationService;
         this.parkingSpaceRepository = parkingSpaceRepository;
         this.vehicleRepository = vehicleRepository;
         this.tariffRepository = tariffRepository;
         this.rules=rules; this.availability=availability;
+    }
+
+    @PostMapping("/parking/sessions/{id}/abandon")
+    public ResponseEntity<Void> abandonUnpaidCheckout(@PathVariable UUID id,
+                                                       Authentication authentication) {
+        if (authentication == null || !authentication.isAuthenticated()
+                || "anonymousUser".equals(authentication.getPrincipal())) {
+            throw new AuthenticationRequiredException();
+        }
+        abandonCheckoutService.abandon(id, authentication.getName());
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/parking/sessions")

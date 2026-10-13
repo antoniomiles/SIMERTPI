@@ -205,12 +205,12 @@ void main() {
       await tester.pumpWidget(a.panel(c));
       await tester.pump();
       expect(find.text('Extender'), findsNothing);
-      expect(find.text('Finalizar'), findsNothing);
+      expect(find.text('Finalizar y confirmar salida'), findsNothing);
       gateway.allowed = false;
       await c.load();
       await tester.pump();
       expect(find.text('Extender'), findsNothing);
-      expect(find.text('Finalizar'), findsNothing);
+      expect(find.text('Finalizar y confirmar salida'), findsNothing);
       expect(await c.closeSession('receipt'), false);
       expect(gateway.closes, 0);
       await tester.pumpWidget(const SizedBox());
@@ -330,7 +330,7 @@ void main() {
               : AppColors.successSurface,
         );
         expect(
-          find.text('Finalizar'),
+          find.text('Finalizar y confirmar salida'),
           seconds == 0 ? findsNothing : findsOneWidget,
         );
         await tester.pumpWidget(const SizedBox());
@@ -523,7 +523,7 @@ void main() {
       final close = a.controller(a.FakeActive());
       await close.load();
       await show(a.panel(close), '17-before-close');
-      await tester.tap(find.text('Finalizar'));
+      await tester.tap(find.text('Finalizar y confirmar salida'));
       await tester.pumpAndSettle();
       await capture(tester, key, '17-close-dialog');
       await tester.tap(find.text('Cancelar'));

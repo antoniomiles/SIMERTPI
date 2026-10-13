@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../security/human_activity.dart';
 import 'package:flutter/services.dart';
 
 import '../theme/app_tokens.dart';
@@ -11,16 +12,27 @@ class AppPage extends StatelessWidget {
     required this.child,
     this.showNavigation = false,
     this.navigationIndex = 0,
+    this.onNavigationSelected,
+    this.fitTitle = false,
   });
   final String title;
   final Widget child;
   final bool showNavigation;
   final int navigationIndex;
+  final ValueChanged<int>? onNavigationSelected;
+  final bool fitTitle;
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(title)),
+    appBar: AppBar(
+      title: fitTitle
+          ? FittedBox(fit: BoxFit.scaleDown, child: Text(title, maxLines: 1))
+          : Text(title),
+    ),
     bottomNavigationBar: showNavigation
-        ? CitizenNavigation(selected: navigationIndex)
+        ? CitizenNavigation(
+            selected: navigationIndex,
+            onSelected: onNavigationSelected,
+          )
         : null,
     body: SafeArea(
       top: false,
@@ -97,7 +109,10 @@ class AppTextField extends StatelessWidget {
           obscureText: obscureText,
           validator: validator,
           enabled: enabled,
-          onChanged: onChanged,
+          onChanged: (value) {
+            HumanActivity.record(context);
+            onChanged?.call(value);
+          },
           inputFormatters: inputFormatters,
           autofillHints: autofillHints,
           textInputAction: textInputAction,

@@ -9,9 +9,24 @@ class MobileSession {
     required this.refreshToken,
     required this.accessExpiresAt,
     required this.refreshExpiresAt,
+    this.username,
+    this.refreshBlocked = false,
   });
   final String userId, accessToken, refreshToken;
   final DateTime accessExpiresAt, refreshExpiresAt;
+  final String? username;
+  // Persisted before sending a rotating refresh; a lost response requires password.
+  final bool refreshBlocked;
+  MobileSession copyWith({String? username, bool? refreshBlocked}) =>
+      MobileSession(
+        userId: userId,
+        accessToken: accessToken,
+        refreshToken: refreshToken,
+        accessExpiresAt: accessExpiresAt,
+        refreshExpiresAt: refreshExpiresAt,
+        username: username ?? this.username,
+        refreshBlocked: refreshBlocked ?? this.refreshBlocked,
+      );
   factory MobileSession.fromJson(Object? data) {
     if (data is! Map ||
         data['tokenType'] != 'Bearer' ||
@@ -35,6 +50,8 @@ class MobileSession {
       refreshToken: data['refreshToken'] as String,
       accessExpiresAt: access,
       refreshExpiresAt: refresh,
+      username: data['username'] is String ? data['username'] as String : null,
+      refreshBlocked: data['refreshBlocked'] == true,
     );
   }
   Map<String, Object> toJson() => {
@@ -44,6 +61,8 @@ class MobileSession {
     'refreshToken': refreshToken,
     'accessExpiresAt': accessExpiresAt.toIso8601String(),
     'refreshExpiresAt': refreshExpiresAt.toIso8601String(),
+    'username': ?username,
+    if (refreshBlocked) 'refreshBlocked': true,
   };
   @override
   String toString() => 'MobileSession[redacted]';

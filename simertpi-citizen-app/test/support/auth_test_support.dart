@@ -48,10 +48,16 @@ Widget authTestApp(
   AuthController auth, {
   AppRoute route = AppRoute.login,
   Key? key,
+  DateTime Function()? utcNow,
 }) => AppScope(
   config: AppConfig.parse(environment: 'dev'),
   auth: auth,
-  child: SimertpiApp(key: key, auth: auth, initialRoute: route.path),
+  child: SimertpiApp(
+    key: key,
+    auth: auth,
+    initialRoute: route.path,
+    utcNow: utcNow,
+  ),
 );
 Future<Widget> citizenApp({AppRoute route = AppRoute.home, Key? key}) async {
   final auth = AuthController(FakeAuthGateway(), store: MemorySessionStore());

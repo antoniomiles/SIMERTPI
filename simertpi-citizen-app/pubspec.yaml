@@ -23,3 +23,21 @@ dev_dependencies:
   flutter_lints: ^6.0.0
 flutter:
   uses-material-design: true
+  assets:
+    - assets/branding/simertpi_icono.png
+    - assets/branding/simertpi_logo_principal.png
+    - assets/branding/simertpi_logo_blanco.png
+    - assets/branding/SIMERTPI_logotipo_blanco.png
+    - assets/branding/SIMERTPI_logotipo_negro.png
+    - assets/welcome/simertpidia.png
+    - assets/welcome/simertpinoche.png
+    - assets/fonts/OFL.txt
+  fonts:
+    - family: Poppins
+      fonts:
+        - asset: assets/fonts/Poppins-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Poppins-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Poppins-SemiBold.ttf
+          weight: 600

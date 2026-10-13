@@ -2,8 +2,10 @@ import '../../features/citizen_activity/activity_pages.dart';
 import '../../features/active_parking/presentation/active_parking_panel.dart';
 import '../../features/active_parking/state/active_parking_controller.dart';
 import '../../features/payments/presentation/payments_page.dart';
+import '../../features/parking/state/parking_controller.dart';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../features/auth/state/auth_controller.dart';
 import '../../features/parking/presentation/parking_page.dart';
@@ -14,15 +16,19 @@ import '../../features/discovery/presentation/space_selection_page.dart';
 import '../../features/auth/presentation/login_page.dart';
 import '../../features/auth/presentation/register_page.dart';
 import '../../features/splash/splash_page.dart';
+import '../../features/welcome/welcome_page.dart';
 import '../../features/showcase/home_page.dart' as showcase;
 import '../../features/home/home_page.dart';
 import '../../features/home/start_parking_page.dart';
 import '../../features/vehicles/presentation/vehicles_page.dart';
 import '../../features/showcase/components_page.dart';
 import '../../features/showcase/states_page.dart';
+import '../../core/theme/app_theme.dart';
+import '../../features/welcome/welcome_theme.dart';
 
 enum AppRoute {
   splash('/'),
+  welcome('/welcome'),
   login('/login'),
   register('/register'),
   home('/home'),
@@ -44,74 +50,108 @@ enum AppRoute {
 
   const AppRoute(this.path);
   final String path;
-  bool get isPublic => this == splash || this == login || this == register;
+  bool get isPublic =>
+      this == splash || this == welcome || this == login || this == register;
 }
 
 abstract final class AppRouter {
-  static Route<void> generate(RouteSettings settings, AuthController auth) {
+  static Route<dynamic> generate(
+    RouteSettings settings,
+    AuthController auth, {
+    ValueListenable<WelcomeMode>? brandMode,
+  }) {
     final selected =
         AppRoute.values.where((r) => r.path == settings.name).firstOrNull ??
         AppRoute.home;
-    return MaterialPageRoute<void>(
+    return MaterialPageRoute<dynamic>(
       settings: settings,
-      builder: (context) => ListenableBuilder(
-        listenable: auth,
-        builder: (context, _) {
-          if (!selected.isPublic && !auth.isAuthenticated) {
-            return const LoginPage();
-          }
-          if ((selected == AppRoute.login || selected == AppRoute.register) &&
-              auth.isAuthenticated) {
-            return const HomePage();
-          }
-          return switch (selected) {
-            AppRoute.splash => const SplashPage(),
-            AppRoute.login => const LoginPage(),
-            AppRoute.register => const RegisterPage(),
-            AppRoute.activeParking =>
-              settings.arguments is ActiveParkingController
-                  ? ExtensionPage(
-                      controller: settings.arguments as ActiveParkingController,
-                    )
-                  : const HomePage(),
-            AppRoute.history => const ActivityListPage(resource: 'history'),
-            AppRoute.home => const HomePage(),
-            AppRoute.map => const HomePage(initialTab: 1),
-            AppRoute.notifications => const HomePage(initialTab: 2),
-            AppRoute.profile => const HomePage(initialTab: 3),
-            AppRoute.startParking => const StartParkingPage(),
-            AppRoute.vehicles => const VehiclesPage(),
-            AppRoute.discovery => const DiscoveryPage(),
-            AppRoute.qr => const QrScanPage(),
-            AppRoute.space =>
-              settings.arguments is IdentifiedSpace
-                  ? SpaceSelectionPage(
-                      result: settings.arguments! as IdentifiedSpace,
-                    )
-                  : const DiscoveryPage(),
-            AppRoute.parking =>
-              settings.arguments is IdentifiedSpace
-                  ? ParkingPage(
-                      selected: settings.arguments! as IdentifiedSpace,
-                    )
-                  : const DiscoveryPage(),
-            AppRoute.payments =>
-              settings.arguments is ActiveParkingController
-                  ? PaymentsPage(
-                      extensionController:
-                          settings.arguments! as ActiveParkingController,
-                    )
-                  : PaymentsPage(
-                      sessionId: settings.arguments is String
-                          ? settings.arguments! as String
-                          : null,
-                    ),
-            AppRoute.showcase => const showcase.HomePage(),
-            AppRoute.components => const ComponentsPage(),
-            AppRoute.states => const StatesPage(),
-          };
-        },
-      ),
+      builder: (context) {
+        final page = ListenableBuilder(
+          listenable: auth,
+          builder: (context, _) {
+            if (!selected.isPublic && !auth.isAuthenticated) {
+              return const WelcomePage();
+            }
+            if ((selected == AppRoute.welcome ||
+                    selected == AppRoute.login ||
+                    selected == AppRoute.register) &&
+                auth.isAuthenticated &&
+                !auth.awaitingInvitation) {
+              return const HomePage();
+            }
+            return switch (selected) {
+              AppRoute.splash => const SplashPage(),
+              AppRoute.welcome => const WelcomePage(),
+              AppRoute.login => LoginPage(
+                configureBiometrics: settings.arguments == true,
+              ),
+              AppRoute.register => const RegisterPage(),
+              AppRoute.activeParking =>
+                settings.arguments is ActiveParkingController
+                    ? ExtensionPage(
+                        controller:
+                            settings.arguments as ActiveParkingController,
+                      )
+                    : const HomePage(),
+              AppRoute.history => const ActivityListPage(resource: 'history'),
+              AppRoute.home => const HomePage(),
+              AppRoute.map => const HomePage(initialTab: 1),
+              AppRoute.notifications => const HomePage(initialTab: 2),
+              AppRoute.profile => const HomePage(initialTab: 3),
+              AppRoute.startParking => const StartParkingPage(),
+              AppRoute.vehicles => const VehiclesPage(),
+              AppRoute.discovery => const DiscoveryPage(),
+              AppRoute.qr => const QrScanPage(),
+              AppRoute.space =>
+                settings.arguments is IdentifiedSpace
+                    ? SpaceSelectionPage(
+                        result: settings.arguments! as IdentifiedSpace,
+                      )
+                    : const DiscoveryPage(),
+              AppRoute.parking =>
+                settings.arguments is IdentifiedSpace
+                    ? ParkingPage(
+                        selected: settings.arguments! as IdentifiedSpace,
+                      )
+                    : const DiscoveryPage(),
+              AppRoute.payments =>
+                settings.arguments is ParkingController
+                    ? PaymentsPage(
+                        parkingController:
+                            settings.arguments as ParkingController,
+                      )
+                    : settings.arguments is ActiveParkingController
+                    ? PaymentsPage(
+                        extensionController:
+                            settings.arguments! as ActiveParkingController,
+                      )
+                    : settings.arguments is Map &&
+                          (settings.arguments! as Map)['sessionId'] is String
+                    ? PaymentsPage(
+                        sessionId:
+                            (settings.arguments! as Map)['sessionId'] as String,
+                      )
+                    : PaymentsPage(
+                        sessionId: settings.arguments is String
+                            ? settings.arguments! as String
+                            : null,
+                      ),
+              AppRoute.showcase => const showcase.HomePage(),
+              AppRoute.components => const ComponentsPage(),
+              AppRoute.states => const StatesPage(),
+            };
+          },
+        );
+        if (brandMode == null) return page;
+        return ValueListenableBuilder<WelcomeMode>(
+          valueListenable: brandMode,
+          child: page,
+          builder: (context, mode, child) => Theme(
+            data: AppTheme.forNight(mode == WelcomeMode.night),
+            child: child!,
+          ),
+        );
+      },
     );
   }
 }

@@ -39,6 +39,8 @@ android {
 }
 
 dependencies {
+    // Stable AndroidX biometric: CryptoObject + Class 3 Keystore authorization.
+    implementation("androidx.biometric:biometric:1.1.0")
     // The app's guarded MessagingService subclasses the FlutterFire service,
     // so its Firebase Messaging API must be on the app compile classpath too.
     implementation(platform("com.google.firebase:firebase-bom:34.19.0"))

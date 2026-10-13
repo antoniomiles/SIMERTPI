@@ -89,7 +89,7 @@ void main() {
     await tester.pumpWidget(a.panel(c));
     await tester.pump();
     expect(find.text('Estacionamiento activo'), findsOneWidget);
-    expect(find.text('Finalizar'), findsOneWidget);
+    expect(find.text('Finalizar y confirmar salida'), findsOneWidget);
     clock = end.subtract(const Duration(minutes: 8));
     await tester.pump(const Duration(seconds: 1));
     expect(find.text('Próximo a vencer'), findsOneWidget);
@@ -98,7 +98,7 @@ void main() {
     await tester.pump();
     expect(find.text('Tu tiempo de estacionamiento terminó'), findsOneWidget);
     expect(find.text('Extender'), findsNothing);
-    expect(find.text('Finalizar'), findsNothing);
+    expect(find.text('Finalizar y confirmar salida'), findsNothing);
     await tester.pumpWidget(const SizedBox());
     c.dispose();
   });

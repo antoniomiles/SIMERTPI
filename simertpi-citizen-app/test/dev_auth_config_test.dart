@@ -95,7 +95,7 @@ void main() {
       expect(error.kind, FailureKind.unauthorized);
       expect(
         authErrorMessage(error),
-        'No pudimos verificar tu usuario y contraseña.',
+        'Usuario o contraseña incorrectos. Verifica tus datos',
       );
       expect(
         authErrorMessage(error, registration: true),

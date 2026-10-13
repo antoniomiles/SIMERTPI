@@ -101,15 +101,25 @@ Future<void> screen(
   t.view.devicePixelRatio = 1;
   addTearDown(t.view.resetPhysicalSize);
   addTearDown(t.view.resetDevicePixelRatio);
+  final auth = AuthController(
+    auth_fixture.FakeAuthGateway(),
+    store: auth_fixture.MemorySessionStore(),
+  );
+  await auth.login('fixture-citizen', 'test-only-password');
+  addTearDown(auth.dispose);
   await t.pumpWidget(
-    MaterialApp(
-      theme: AppTheme.light,
-      builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(context)
-            .copyWith(textScaler: TextScaler.linear(scale)),
-        child: child!,
+    AppScope(
+      config: AppConfig.parse(environment: 'dev'),
+      auth: auth,
+      child: MaterialApp(
+        theme: AppTheme.light,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: TextScaler.linear(scale)),
+          child: child!,
+        ),
+        home: page,
       ),
-      home: page,
     ),
   );
   await t.pumpAndSettle();

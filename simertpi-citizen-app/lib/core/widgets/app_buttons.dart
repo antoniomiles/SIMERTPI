@@ -28,7 +28,7 @@ class SecondaryButton extends StatelessWidget {
     style: filled
         ? OutlinedButton.styleFrom(
             backgroundColor: AppColors.input,
-            foregroundColor: AppColors.primary,
+            foregroundColor: Theme.of(context).colorScheme.primary,
             side: BorderSide.none,
             minimumSize: const Size(AppSize.touchTarget, 54),
           )

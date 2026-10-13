@@ -61,6 +61,9 @@ void main() {
       fake.pending = Completer<void>();
       final a = auth.recoverUnauthorized(header);
       final b = auth.recoverUnauthorized(header);
+      await Future<void>.delayed(
+        Duration.zero,
+      ); // Durable journal precedes HTTP.
       expect(fake.refreshes, 1);
       fake.pending!.complete();
       expect(await a, true);
@@ -71,7 +74,7 @@ void main() {
     },
   );
   test(
-    'Uncertain refresh clears session instead of replaying consumed token',
+    'Uncertain refresh preserves session and prevents replay of consumed token',
     () async {
       final fake = FakeAuthGateway();
       final store = MemorySessionStore();
@@ -82,8 +85,12 @@ void main() {
         outcomeUnknown: true,
       );
       expect(await auth.renew(), false);
-      expect(store.session, isNull);
-      expect(auth.isAuthenticated, false);
+      expect(store.session, isNotNull);
+      expect(store.session!.refreshBlocked, true);
+      expect(auth.isAuthenticated, true);
+      expect(auth.isLocked, true);
+      expect(await auth.renew(), false);
+      expect(fake.refreshes, 1);
       auth.dispose();
     },
   );

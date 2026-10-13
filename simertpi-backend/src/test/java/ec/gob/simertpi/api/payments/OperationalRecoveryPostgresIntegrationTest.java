@@ -131,7 +131,7 @@ class OperationalRecoveryPostgresIntegrationTest extends ec.gob.simertpi.testsup
 
     private UUID payment(String state) {
         UUID id=UUID.randomUUID(); OffsetDateTime now=OffsetDateTime.now();
-        jdbc.update("INSERT INTO payments.payments(id,parking_session_id,provider,idempotency_key,amount,currency,status,created_at,updated_at,paid_at,provider_transaction_id) VALUES(?,?,'TEST_ONLY',?,1.25,'USD',?,?,?,?,?)",
+        jdbc.update("INSERT INTO payments.payments(id,parking_session_id,provider,idempotency_key,amount,currency,status,created_at,updated_at,paid_at,provider_transaction_id,provider_operation_status) VALUES(?,?,'TEST_ONLY',?,1.25,'USD',?,?,?,?,?,'NOT_STARTED')",
             id,sessionId,id.toString(),state,now.minusHours(1),now,"APPROVED".equals(state)?now:null,"APPROVED".equals(state)?"TEST-"+id:null);
         jdbc.update("UPDATE parking.parking_sessions SET total_amount=1.25 WHERE id=?",sessionId);
         jdbc.update("INSERT INTO payments.payment_attempts(id,payment_id,attempt_number,status,created_at) VALUES(?,?,1,?,CURRENT_TIMESTAMP-INTERVAL '1 hour')",UUID.randomUUID(),id,state);
@@ -157,6 +157,14 @@ class OperationalRecoveryPostgresIntegrationTest extends ec.gob.simertpi.testsup
     }
     @Test void expiresSessionWithoutPayment() {oldSession();expire();assertThat(state()).isEqualTo("CANCELLED");}
     @Test void expiresProcessingPayment() {oldSession();UUID id=payment("PROCESSING");expire();assertThat(jdbc.queryForObject("SELECT status FROM payments.payments WHERE id=?",String.class,id)).isEqualTo("CANCELLED");}
+    @Test void unresolvedProviderOperationIsNeverExpiredOrReleased() {
+        oldSession();UUID id=payment("PROCESSING");
+        jdbc.update("UPDATE payments.payments SET provider_operation_status='UNKNOWN',provider_operation_key=? WHERE id=?",UUID.randomUUID(),id);
+        expire();
+        assertThat(state()).isEqualTo("PENDING_PAYMENT");
+        assertThat(jdbc.queryForObject("SELECT status FROM payments.payments WHERE id=?",String.class,id)).isEqualTo("PROCESSING");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM audit.reconciliation_findings WHERE resource_type='PAYMENT' AND resource_id=? AND issue_code='PAYMENT_PROVIDER_RESULT_UNRESOLVED'",Integer.class,id)).isEqualTo(1);
+    }
     @Test void recentSessionIsRetained() {payment("PENDING");expire();assertThat(state()).isEqualTo("PENDING_PAYMENT");}
     @Test void recentAttemptRetainsItsWindow() {oldSession();UUID id=payment("PENDING");jdbc.update("UPDATE payments.payments SET created_at=CURRENT_TIMESTAMP WHERE id=?",id);expire();assertThat(state()).isEqualTo("PENDING_PAYMENT");}
     @Test void freshRetryOfOldPaymentRetainsConfiguredWindow() {

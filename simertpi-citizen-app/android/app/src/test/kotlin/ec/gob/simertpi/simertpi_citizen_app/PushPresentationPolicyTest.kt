@@ -21,21 +21,36 @@ class PushPresentationPolicyTest {
     }
 
     @Test fun rendersEventSpecificPrivacySafeCopy() {
-        val started = PushEventCopy.forEvent("PARKING_STARTED")!!
+        val started = PushEventCopy.forEvent("PARKING_STARTED", mapOf("contractedMinutes" to "60", "expectedEndTime" to "11:00"))!!
         assertTrue(started.first.contains("iniciado"))
-        assertTrue(started.second.contains("activo"))
+        assertTrue(started.second.contains("60 minutos"))
+        assertTrue(started.second.contains("11:00"))
         val ending = PushEventCopy.forEvent("PARKING_ENDING_SOON")!!
         assertTrue(ending.first.contains("vencer"))
-        val expired = PushEventCopy.forEvent("PARKING_TIME_EXPIRED")!!
+        val detailedEnding = PushEventCopy.forEvent("PARKING_ENDING_SOON", mapOf("minutesRemaining" to "9"))!!
+        assertTrue(detailedEnding.second.contains("9 minutos"))
+        val expired = PushEventCopy.forEvent("PARKING_TIME_EXPIRED", mapOf("expectedEndTime" to "11:00"))!!
+        assertTrue(expired.second.contains("11:00"))
         assertTrue(expired.second.contains("contratado"))
-        val extension = PushEventCopy.forEvent("PARKING_EXTENSION_CONFIRMED")!!
+        val extension = PushEventCopy.forEvent("PARKING_EXTENSION_CONFIRMED", mapOf("additionalMinutes" to "30", "expectedEndTime" to "11:30"))!!
         assertTrue(extension.first.contains("confirmada"))
+        assertTrue(extension.second.contains("30 minutos"))
+        assertTrue(extension.second.contains("11:30"))
         val completed = PushEventCopy.forEvent("PARKING_COMPLETED")!!
         assertTrue(completed.first.contains("finalizado"))
         assertFalse(started.second.contains("USD"))
         assertFalse(started.second.contains("PIN-"))
         assertFalse(started.second.contains("1234"))
         assertFalse(PushEventCopy.forEvent("UNKNOWN_EVENT") != null)
+    }
+
+    @Test fun pushCopyRejectsUntrustedDisplayFieldsAndFallsBackSafely() {
+        val started = PushEventCopy.forEvent("PARKING_STARTED", mapOf("contractedMinutes" to "999", "expectedEndTime" to "DROP TABLE"))!!
+        assertTrue(started.second.contains("se inició correctamente"))
+        assertFalse(started.second.contains("999"))
+        val completed = PushEventCopy.forEvent("PARKING_COMPLETED", mapOf("endedAt" to "23:90"))!!
+        assertTrue(completed.second.contains("ha finalizado"))
+        assertFalse(completed.second.contains("23:90"))
     }
 
     @Test fun staleOwnerPayloadIsDroppedAfterAccountSwitchOrGateClear() {
