@@ -61,7 +61,7 @@ class VehiclePlate extends StatelessWidget {
             style: const TextStyle(
               color: AppColors.ink,
               fontSize: 28,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ),

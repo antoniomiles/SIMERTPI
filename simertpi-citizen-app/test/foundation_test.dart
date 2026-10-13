@@ -12,6 +12,7 @@ import 'package:simertpi_citizen_app/core/theme/app_tokens.dart';
 import 'package:simertpi_citizen_app/core/widgets/app_buttons.dart';
 import 'package:simertpi_citizen_app/core/widgets/app_feedback.dart';
 import 'package:simertpi_citizen_app/core/widgets/app_skeleton.dart';
+import 'package:simertpi_citizen_app/features/welcome/welcome_page.dart';
 
 import 'support/auth_test_support.dart';
 
@@ -136,10 +137,14 @@ void main() {
     (tester) async {
       await tester.pumpWidget(const Bootstrap());
       await tester.pumpAndSettle();
-      expect(find.text('SIMERTPI'), findsOneWidget);
-      expect(find.text('Inicia sesión'), findsOneWidget);
-      final context = tester.element(find.text('Inicia sesión'));
-      expect(Theme.of(context).colorScheme.primary, AppColors.primary);
+      expect(find.byType(WelcomePage), findsOneWidget);
+      expect(find.text('Crear cuenta'), findsOneWidget);
+      final context = tester.element(find.text('Crear cuenta'));
+      final theme = Theme.of(context);
+      expect(
+        theme.colorScheme.primary,
+        theme.extension<AppBrandPalette>()!.primary,
+      );
       expect(AppScope.of(context).config.environment, AppEnvironment.dev);
     },
   );

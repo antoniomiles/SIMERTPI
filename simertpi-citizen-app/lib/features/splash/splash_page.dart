@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../app/router/app_router.dart';
@@ -10,17 +12,24 @@ class SplashPage extends StatefulWidget {
   State<SplashPage> createState() => _SplashPageState();
 }
 
-class _SplashPageState extends State<SplashPage> {
+class _SplashPageState extends State<SplashPage>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _transition;
+
   @override
   void initState() {
     super.initState();
+    _transition = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 620),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       final auth = AppScope.of(context).auth;
-      await auth.restore();
+      await Future.wait([auth.restore(), _transition.forward()]);
       if (mounted) {
         Navigator.of(context).pushNamedAndRemoveUntil(
-          auth.isAuthenticated ? AppRoute.home.path : AppRoute.login.path,
+          auth.isAuthenticated ? AppRoute.home.path : AppRoute.welcome.path,
           (_) => false,
         );
       }
@@ -28,18 +37,39 @@ class _SplashPageState extends State<SplashPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    body: SafeArea(
-      child: Center(
-        child: Padding(
-          padding: AppSpace.page,
-          child: Text(
-            'SIMERTPI',
-            semanticsLabel: 'SIMERTPI, iniciando aplicación',
-            style: Theme.of(context).textTheme.headlineMedium,
+  void dispose() {
+    _transition.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final brand =
+        Theme.of(context).extension<AppBrandPalette>() ?? AppBrandPalette.day;
+    final night = brand.isNight;
+    return Scaffold(
+      backgroundColor: night ? AppColors.brandNightBlue : Colors.white,
+      body: SafeArea(
+        child: Center(
+          child: FadeTransition(
+            opacity: CurvedAnimation(
+              parent: _transition,
+              curve: Curves.easeOut,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Image.asset(
+                night
+                    ? 'assets/branding/SIMERTPI_logotipo_blanco.png'
+                    : 'assets/branding/SIMERTPI_logotipo_negro.png',
+                height: 86,
+                fit: BoxFit.contain,
+                semanticLabel: 'SIMERTPI, Tu estacionamiento municipal',
+              ),
+            ),
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }

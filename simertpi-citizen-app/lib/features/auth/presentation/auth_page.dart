@@ -15,49 +15,64 @@ class AuthPage extends StatelessWidget {
   final Widget child;
   final bool canGoBack;
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      automaticallyImplyLeading: canGoBack,
-      backgroundColor: AppColors.primary,
-      foregroundColor: Colors.white,
-      toolbarHeight: AppSize.brandHeader,
-      title: const Text('SIMERTPI'),
-      titleTextStyle: const TextStyle(
-        fontSize: 23,
-        fontWeight: FontWeight.w700,
-        color: Colors.white,
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        automaticallyImplyLeading: canGoBack,
+        backgroundColor: Colors.white,
+        foregroundColor: AppColors.ink,
+        toolbarHeight: 68,
       ),
-    ),
-    body: SafeArea(
-      top: false,
-      child: Align(
-        alignment: Alignment.topCenter,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: AppSize.contentWidth),
-          child: SingleChildScrollView(
-            padding: AppSpace.page,
-            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Semantics(
-                  header: true,
-                  child: Text(
-                    title,
-                    style: Theme.of(context).textTheme.headlineMedium,
-                  ),
+      body: SafeArea(
+        top: false,
+        child: ColoredBox(
+          color: Colors.white,
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: AppSize.contentWidth),
+              child: SingleChildScrollView(
+                padding: AppSpace.page,
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Center(
+                      child: Image.asset(
+                        'assets/branding/SIMERTPI_logotipo_negro.png',
+                        key: const ValueKey('auth-brand-logo'),
+                        width: 156,
+                        height: 52,
+                        fit: BoxFit.contain,
+                        semanticLabel: 'SIMERTPI, Tu estacionamiento municipal',
+                      ),
+                    ),
+                    const SizedBox(height: AppSpace.md),
+                    Semantics(
+                      header: true,
+                      child: Text(
+                        title,
+                        style: Theme.of(context).textTheme.headlineMedium,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpace.sm),
+                    Text(
+                      subtitle,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: AppSpace.xl),
+                    child,
+                  ],
                 ),
-                const SizedBox(height: AppSpace.sm),
-                Text(subtitle, style: Theme.of(context).textTheme.bodyMedium),
-                const SizedBox(height: AppSpace.xl),
-                child,
-              ],
+              ),
             ),
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class AuthMessage extends StatelessWidget {
