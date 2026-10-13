@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'home_greeting_controller.dart';
+
 import '../citizen_activity/activity_pages.dart';
 import '../citizen_activity/profile_page.dart';
 import '../citizen_activity/activity_service.dart';
@@ -51,13 +53,23 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   ActivityGateway? activity;
   AuthController? _auth;
   bool _wasLocked = false;
+  String? _homeOwner;
+  int _homeRevision = 0;
+  HomeGreetingController? _greeting;
   void _sessionLockChanged() {
     final locked = _auth?.isLocked ?? false;
+    if (_auth?.isAuthenticated != true || _auth?.userId != _homeOwner) {
+      _homeRevision++;
+      _greeting?.invalidate();
+      if (mounted) setState(() {});
+      return;
+    }
     if (_wasLocked && !locked && _auth?.isAuthenticated == true && mounted) {
       // Reuse existing reads, preserving tab/route and all business operations.
       _active?.load();
       _vehicles?.load();
       refreshUnread();
+      _greeting?.load();
     }
     _wasLocked = locked;
   }
@@ -78,8 +90,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   bool mapOpened = false;
-  bool _initialTabApplied = false;
-  String? greeting;
   bool _pushOnboardingStarted = false;
   ValueNotifier<int>? _parkingConfirmed, _citizenTab;
   ValueNotifier<String?>? _parkingSessionTarget;
@@ -88,7 +98,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (target == null || !mounted) return;
     _parkingSessionTarget!.value = null;
     _active?.prioritizeSession(target);
-    _tab(0);
+    _tab(0, refresh: false);
     unawaited(_resolveParkingTarget(target));
   }
 
@@ -97,12 +107,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final scope = AppScope.of(context);
     final push = scope.pushLifecycle;
     final owner = scope.auth.userId;
-    if (push == null || owner == null || !await push.shouldShowOnboarding()) {
+    if (push == null || owner == null) return;
+    await push.onAuthenticated();
+    if (!mounted ||
+        scope.auth.userId != owner ||
+        !await push.shouldShowOnboarding()) {
       return;
     }
-    Map<String, bool> preferences;
     try {
-      preferences = await activity!.preferences();
+      await activity!.preferences();
     } catch (_) {
       // Retry when the authenticated Home resumes; a transient request failure
       // must not consume this account/device's first-use invitation.
@@ -139,7 +152,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         scope.auth.userId != owner) {
       return;
     }
-    final permission = await push.requestPermission(registerImmediately: false);
+    final permission = await push.requestPermission();
     if (permission != PushPermissionState.granted ||
         !mounted ||
         scope.auth.userId != owner) {
@@ -152,12 +165,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       return;
     }
     try {
-      await activity!.savePreferences({...preferences, 'PUSH': true});
-      await push.sync();
+      // Lifecycle owns account-bound preference and device synchronization.
       if (mounted) {
         AppSnackbar.show(
           context,
-          'Notificaciones activadas en este dispositivo.',
+          push.registrationState == PushRegistrationState.registered
+              ? 'Notificaciones activadas en este dispositivo.'
+              : 'La activaci\u00f3n est\u00e1 pendiente. Puedes intentarlo desde Perfil.',
         );
       }
     } catch (_) {
@@ -170,32 +184,44 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
+  bool _currentHome(int revision) =>
+      mounted &&
+      revision == _homeRevision &&
+      _auth?.isAuthenticated == true &&
+      _auth?.userId == _homeOwner;
+
   Future<void> _resolveParkingTarget(String target) async {
     final active = _active;
-    if (active == null) return;
+    final revision = _homeRevision;
+    if (active == null || !_currentHome(revision)) return;
     await active.load();
-    for (var i = 0; i < 300 && active.loading && mounted; i++) {
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-    }
-    if (!mounted || !AppScope.of(context).auth.isAuthenticated) return;
+    if (!mounted || !_currentHome(revision)) return;
     AppScope.of(context).pushLifecycle?.completeParkingTarget(target);
     if (!active.sessions.any((session) => session.id == target)) {
       try {
         final detail = await activity!.detail('history', target);
-        if (!mounted || !AppScope.of(context).auth.isAuthenticated) return;
+        if (!mounted || !_currentHome(revision)) return;
+        if (detail['userId'] != null && detail['userId'] != _homeOwner) return;
         await Navigator.of(context).push(
           MaterialPageRoute<void>(
             builder: (_) => ActivityDetailPage(history: true, data: detail),
           ),
         );
       } catch (_) {
-        if (mounted) _tab(2);
+        if (mounted && _currentHome(revision)) {
+          AppSnackbar.show(
+            context,
+            'No pudimos abrir el estacionamiento. Intenta nuevamente.',
+          );
+        }
       }
     }
   }
 
   void _requestedTab() {
-    if (mounted && _citizenTab!.value != tab) _tab(_citizenTab!.value);
+    if (_currentHome(_homeRevision) && _citizenTab!.value != tab) {
+      _tab(_citizenTab!.value);
+    }
   }
 
   void _confirmed() {
@@ -220,7 +246,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     mapOpened = tab == 1;
   }
 
-  void _tab(int value) {
+  void _tab(int value, {bool refresh = true}) {
     refreshUnread();
     setState(() {
       tab = value;
@@ -231,7 +257,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
     });
     if (_citizenTab?.value != value) _citizenTab?.value = value;
-    if (value == 0) {
+    if (value == 0 && refresh) {
       _active?.load();
       _vehicles?.load();
     }
@@ -252,12 +278,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     super.didChangeDependencies();
     if (_active != null) return;
     final scope = AppScope.of(context);
-    if (!_initialTabApplied &&
-        widget.initialTab == 0 &&
-        scope.citizenTab?.value == 2) {
-      tab = 2;
-    }
-    _initialTabApplied = true;
     activity = widget.activityGateway ?? ActivityService(scope.api);
     refreshUnread();
     _citizenTab = scope.citizenTab;
@@ -272,6 +292,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     _parkingConfirmed = scope.parkingConfirmed;
     _auth = scope.auth;
+    _homeOwner = scope.auth.userId;
     _wasLocked = _auth!.isLocked;
     _auth!.addListener(_sessionLockChanged);
     _auth!.inactivity?.addListener(_sessionLockChanged);
@@ -296,36 +317,35 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         );
     _active!.load();
     WidgetsBinding.instance.addPostFrameCallback((_) => _showPushOnboarding());
-    scope.api
-        ?.request(ApiMethod.get, 'users/mine')
-        .then((r) {
-          if (mounted &&
-              r.body is Map &&
-              (r.body as Map)['username'] is String) {
-            setState(
-              () => greeting =
-                  ((r.body as Map)['firstName'] as String?)
-                          ?.trim()
-                          .isNotEmpty ==
-                      true
-                  ? (r.body as Map)['firstName'] as String
-                  : (r.body as Map)['username'] as String,
-            );
-          }
-        })
-        .catchError((Object _) {});
+    _greeting = HomeGreetingController(
+      isCurrentSession: () => _currentHome(_homeRevision),
+      read: () async {
+        final api = scope.api;
+        if (api == null) {
+          throw const FormatException('Profile service unavailable');
+        }
+        final response = await api.request(ApiMethod.get, 'users/mine');
+        if (response.body is! Map) {
+          throw const FormatException('Invalid profile');
+        }
+        return Map<String, dynamic>.from(response.body as Map);
+      },
+    )..load();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       refreshUnread();
+      _greeting?.load();
       unawaited(_showPushOnboarding());
     }
   }
 
   @override
   void dispose() {
+    _homeRevision++;
+    _greeting?.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _parkingConfirmed?.removeListener(_confirmed);
     _auth?.removeListener(_sessionLockChanged);
@@ -338,7 +358,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   @override
-  Widget build(BuildContext context) => PopScope(
+  Widget build(BuildContext context) => _currentHome(_homeRevision)
+      ? _homeView(context)
+      : const SizedBox.shrink();
+
+  Widget _homeView(BuildContext context) => PopScope(
     canPop: tab == 0,
     onPopInvokedWithResult: (didPop, result) {
       if (!didPop && tab != 0) _tab(0);
@@ -367,9 +391,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(
-                    greeting == null ? '¡Hola!' : '¡Hola, $greeting!',
-                    style: Theme.of(context).textTheme.headlineMedium,
+                  ListenableBuilder(
+                    listenable: _greeting!,
+                    builder: (context, _) => Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _greeting!.name == null
+                              ? '¡Hola!'
+                              : '¡Hola, ${_greeting!.name}!',
+                          style: Theme.of(context).textTheme.headlineMedium,
+                        ),
+                        if (_greeting!.state == GreetingState.loading)
+                          const Text('Cargando tu perfil...'),
+                        if (_greeting!.state == GreetingState.failed)
+                          TextButton(
+                            onPressed: _greeting!.load,
+                            child: const Text('Reintentar nombre'),
+                          ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: AppSpace.sm),
                   Text(

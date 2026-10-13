@@ -23,12 +23,14 @@ public class VehicleService {
     private static final Set<String> STAFF_ROLES = Set.of(
             "INSPECTOR", "SUPERVISOR", "SIMERTPI_ADMIN", "IT_ADMIN", "AUDITOR");
 
+    private final VehicleEventPublisher events;
     private final VehicleRepository vehicleRepository;
     private final UserRepository userRepository;
     private final ec.gob.simertpi.domain.parking.repository.ParkingSessionRepository sessions;
 
     public VehicleService(VehicleRepository vehicleRepository, UserRepository userRepository,
-                          ec.gob.simertpi.domain.parking.repository.ParkingSessionRepository sessions) {
+                          ec.gob.simertpi.domain.parking.repository.ParkingSessionRepository sessions, VehicleEventPublisher events) {
+        this.events = events;
         this.vehicleRepository = vehicleRepository;
         this.userRepository = userRepository;
         this.sessions = sessions;
@@ -62,7 +64,9 @@ public class VehicleService {
         vehicle.setUpdatedAt(now);
 
         try {
-            return vehicleRepository.save(vehicle);
+            Vehicle saved=vehicleRepository.save(vehicle);
+            events.publish(saved,"VEHICLE_REGISTERED");
+            return saved;
         } catch (DataIntegrityViolationException exception) {
             throw new IllegalArgumentException("La placa ya está registrada");
         }
@@ -95,7 +99,9 @@ public class VehicleService {
         }
         vehicle.setActive(false);
         vehicle.setUpdatedAt(OffsetDateTime.now());
-        return vehicleRepository.save(vehicle);
+        Vehicle saved=vehicleRepository.save(vehicle);
+        events.publish(saved,"VEHICLE_DELETED");
+        return saved;
     }
 
     @Transactional(readOnly = true)

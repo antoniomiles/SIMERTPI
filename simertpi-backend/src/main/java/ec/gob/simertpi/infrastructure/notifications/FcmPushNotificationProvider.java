@@ -25,12 +25,12 @@ public class FcmPushNotificationProvider implements NotificationProvider {
     public NotificationProviderResult send(NotificationProviderRequest request) {
         try {
             String messageId = client.send(request);
-            if (messageId == null || !messageId.matches("[A-Za-z0-9._:/-]{1,150}")) {
+            if (messageId == null || messageId.isBlank()) {
                 return NotificationProviderResult.failure(
                         NotificationProviderResult.Status.UNKNOWN, code(), false, "FCM_RESULT_INVALID");
             }
             return new NotificationProviderResult(
-                    NotificationProviderResult.Status.DELIVERED, code(), messageId, false, null);
+                    NotificationProviderResult.Status.DELIVERED, code(), ec.gob.simertpi.application.notifications.ProviderDeliveryEvidence.storageReference(messageId), false, null);
         } catch (FirebasePushException failure) {
             return switch (failure.kind()) {
                 case INVALID_TOKEN -> NotificationProviderResult.failure(

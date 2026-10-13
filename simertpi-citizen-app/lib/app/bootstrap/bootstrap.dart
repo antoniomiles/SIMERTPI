@@ -50,6 +50,23 @@ class AppScope extends InheritedWidget {
       auth != oldWidget.auth;
 }
 
+/// Session-scoped UI selection; unlocking the same session does not reset navigation.
+class CitizenNavigationSession {
+  CitizenNavigationSession(this.tab, this.parkingTarget);
+  final ValueNotifier<int> tab;
+  final ValueNotifier<String?> parkingTarget;
+  bool _authenticated = false;
+  String? _owner;
+  void update({required bool authenticated, required String? owner}) {
+    if (!authenticated || !_authenticated || owner != _owner) {
+      tab.value = 0;
+      parkingTarget.value = null;
+    }
+    _authenticated = authenticated;
+    _owner = owner;
+  }
+}
+
 class Bootstrap extends StatefulWidget {
   const Bootstrap({super.key, this.pushRuntime});
   final PushRuntime? pushRuntime;
@@ -70,6 +87,10 @@ class _BootstrapState extends State<Bootstrap> with WidgetsBindingObserver {
   final _parkingSessionTarget = ValueNotifier<String?>(null);
   final _unreadNotifications = ValueNotifier<int>(0);
   final _parkingConfirmed = ValueNotifier<int>(0);
+  late final _navigationSession = CitizenNavigationSession(
+    _citizenTab,
+    _parkingSessionTarget,
+  );
   @override
   void initState() {
     super.initState();
@@ -79,6 +100,10 @@ class _BootstrapState extends State<Bootstrap> with WidgetsBindingObserver {
 
   void _authChanged() {
     final authenticated = _auth?.isAuthenticated ?? false;
+    _navigationSession.update(
+      authenticated: authenticated,
+      owner: _auth?.userId,
+    );
     if (!authenticated) {
       _unreadNotifications.value = 0;
     }
@@ -91,6 +116,7 @@ class _BootstrapState extends State<Bootstrap> with WidgetsBindingObserver {
   }
 
   void _configure() {
+    _navigationSession.update(authenticated: false, owner: null);
     _pushLifecycle?.dispose();
     _pushLifecycle = null;
     _welcomePermissionPrompt = null;

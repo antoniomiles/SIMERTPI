@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:developer' as developer;
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -9,7 +10,11 @@ import 'push_lifecycle.dart';
 
 @pragma('vm:entry-point')
 Future<void> simertpiFirebaseBackgroundMessage(RemoteMessage message) async {
-  // The notification is displayed by Android; never create an inbox event here.
+  // Native guarded receiver owns presentation; this route never displays twice.
+  developer.log(
+    "route=FLUTTER_BACKGROUND outcome=RECEIVED",
+    name: "SIMERTPI_PUSH",
+  );
 }
 
 class FirebasePushRuntime implements PushRuntime {
@@ -67,9 +72,13 @@ class FirebasePushRuntime implements PushRuntime {
       return false;
     });
     _tokenSubscription = messaging.onTokenRefresh.listen(_tokenEvents.add);
-    _foregroundSubscription = FirebaseMessaging.onMessage.listen(
-      (_) => _foregroundEvents.add(null),
-    );
+    _foregroundSubscription = FirebaseMessaging.onMessage.listen((_) {
+      developer.log(
+        "route=FLUTTER_FOREGROUND outcome=RECEIVED",
+        name: "SIMERTPI_PUSH",
+      );
+      _foregroundEvents.add(null);
+    });
     _openedSubscription = FirebaseMessaging.onMessageOpenedApp.listen(
       (message) => _openedEvents.add(PushNavigationTarget.parse(message.data)),
     );

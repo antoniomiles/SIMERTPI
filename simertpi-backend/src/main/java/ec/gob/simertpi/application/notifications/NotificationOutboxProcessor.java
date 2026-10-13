@@ -25,7 +25,7 @@ public class NotificationOutboxProcessor {
     private static final Logger log = LoggerFactory.getLogger(NotificationOutboxProcessor.class);
     private static final Set<String> EVENT_TYPES = Set.of("PERMIT_CREATED", "PERMIT_CANCELLED", "PERMIT_EXPIRED",
             "PAYMENT_CREATED", "PAYMENT_APPROVED", "PAYMENT_DECLINED", "PAYMENT_FAILED", "PAYMENT_CANCELLED_TIMEOUT",
-            "PARKING_EXTENSION_CONFIRMED", "PARKING_STARTED");
+            "PARKING_EXTENSION_CONFIRMED", "PARKING_STARTED", "VEHICLE_REGISTERED", "VEHICLE_DELETED");
     private final org.springframework.transaction.support.TransactionTemplate tx;
     private final ec.gob.simertpi.application.reconciliation.RecoveryConfiguration config;
     private final ec.gob.simertpi.application.reconciliation.ReconciliationFindings findings;
@@ -128,6 +128,13 @@ public class NotificationOutboxProcessor {
             String referenceType;
             UUID referenceId = event.aggregateId();
             UUID sourceEventId = event.id();
+            if ("VEHICLE".equals(event.aggregateType())) {
+                var owners=jdbc.queryForList("SELECT user_id FROM identity.vehicles WHERE id=?",event.aggregateId());
+                if(owners.size()!=1 || !owners.getFirst().get("user_id").equals(uuid(values.get("ownerId")))) return;
+                generation.generate((UUID)owners.getFirst().get("user_id"),event.eventType(),event.id(),event.id(),
+                    "VEHICLE",event.aggregateId(),event.occurredAt(),values);
+                return;
+            }
             if ("PERMIT".equals(event.aggregateType())) {
                 userId = uuid(values.get("beneficiaryUserId"));
                 referenceType = "PERMIT";

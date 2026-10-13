@@ -15,6 +15,11 @@
         <meta-data android:name="firebase_analytics_collection_enabled" android:value="false" />
         <service android:name="io.flutter.plugins.firebase.messaging.FlutterFirebaseMessagingService"
             tools:node="remove" />
+        <receiver android:name="io.flutter.plugins.firebase.messaging.FlutterFirebaseMessagingReceiver" tools:node="remove" />
+        <receiver android:name=".GuardedFlutterFirebaseMessagingReceiver" android:exported="true"
+            android:permission="com.google.android.c2dm.permission.SEND">
+            <intent-filter><action android:name="com.google.android.c2dm.intent.RECEIVE" /></intent-filter>
+        </receiver>
         <service android:name=".GuardedFirebaseMessagingService"
             android:exported="false">
             <intent-filter>

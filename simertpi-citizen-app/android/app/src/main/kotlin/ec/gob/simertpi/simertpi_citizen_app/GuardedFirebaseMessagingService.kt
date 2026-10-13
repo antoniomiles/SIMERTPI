@@ -14,85 +14,102 @@ import androidx.core.content.ContextCompat
 import com.google.firebase.messaging.RemoteMessage
 import io.flutter.plugins.firebase.messaging.FlutterFirebaseMessagingService
 
-/** FCM data-only receiver. It never displays a message without the local account gate. */
+/** Both transport routes share a single synchronized native presenter. */
 class GuardedFirebaseMessagingService : FlutterFirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
-        val data = message.data
-        if (!SimertpiPushGate.allows(this, data)) return
-        if (!PushDeliveryPolicy.fresh(data, System.currentTimeMillis())) return
-        // FlutterFire's existing broadcast receiver forwards foreground messages;
-        // its service implementation is a no-op. Do not create a second inbox event.
-        val owner = data.getValue("recipientOwnerId")
-        val prefs = getSharedPreferences("simertpi_push_seen", Context.MODE_PRIVATE)
-        val seenKey = "$owner:${data.getValue("notificationId")}"
-        if (prefs.contains(seenKey)) return
-        val contractKey = "contract:$owner:${data.getValue("resourceId")}"
-        val previousEnd = prefs.getLong(contractKey, 0L)
-        if (!PushDeliveryPolicy.currentContract(data, previousEnd)) return
-        if (Build.VERSION.SDK_INT >= 33 &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-        if (!NotificationManagerCompat.from(this).areNotificationsEnabled()) return
+        NativePushPresenter.present(this, message.data, "NATIVE_SERVICE")
+    }
+}
 
-        ensureChannel()
-        val eventType = data.getValue("eventType")
-        val copy = PushEventCopy.forEvent(eventType, data) ?: return
+internal object NativePushPresenter {
+    const val CHANNEL = "simertpi_updates"
+    @Synchronized fun present(context: Context, data: Map<String, String>, route: String) {
+        PushDiagnostics.record(context, route, "RECEIVED")
+        ensureChannel(context)
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val permissionAllowed = (Build.VERSION.SDK_INT < 33 ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) &&
+            NotificationManagerCompat.from(context).areNotificationsEnabled()
+        val channelAllowed = Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
+            manager.getNotificationChannel(CHANNEL)?.importance != NotificationManager.IMPORTANCE_NONE
+        val authorization = SimertpiPushGate.allows(context, data)
+        val owner = data["recipientOwnerId"] ?: ""
+        val prefs = context.getSharedPreferences("simertpi_push_seen", Context.MODE_PRIVATE)
+        val seenKey = "$owner:${data["notificationId"]}"
+        val contractKey = "contract:$owner:${data["resourceId"]}"
+        val previousEnd = prefs.getLong(contractKey, 0L)
+        val reason = PushPresentationChecks.rejection(
+            permissionAllowed, channelAllowed, authorization,
+            PushDeliveryPolicy.fresh(data, System.currentTimeMillis()),
+            prefs.contains(seenKey), PushDeliveryPolicy.currentContract(data, previousEnd),
+        )
+        if (reason != null) { PushDiagnostics.record(context, route, reason); return }
+        val copy = PushEventCopy.forEvent(data.getValue("eventType"), data)
+        if (copy == null) { PushDiagnostics.record(context, route, "UNSUPPORTED_CONTENT"); return }
         val notificationId = data.getValue("notificationId")
-        val tap = Intent(this, MainActivity::class.java).apply {
+        val tap = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra("simertpi_push_notification_id", notificationId)
             putExtra("simertpi_push_event_type", data.getValue("eventType"))
             putExtra("simertpi_push_resource_type", data.getValue("resourceType"))
             putExtra("simertpi_push_resource_id", data.getValue("resourceId"))
         }
-        val pending = PendingIntent.getActivity(
-            this, notificationId.hashCode(), tap,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val notification = NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(applicationInfo.icon)
-            .setContentTitle(copy.first)
-            .setContentText(copy.second)
+        val pending = PendingIntent.getActivity(context, notificationId.hashCode(), tap,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val notification = NotificationCompat.Builder(context, CHANNEL)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(copy.first).setContentText(copy.second)
             .setStyle(NotificationCompat.BigTextStyle().bigText(copy.second))
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-            .setPublicVersion(NotificationCompat.Builder(this, CHANNEL)
-                .setSmallIcon(applicationInfo.icon)
-                .setContentTitle("SIMERTPI")
-                .setContentText("Tienes una actualización en SIMERTPI")
-                .build())
-            .setContentIntent(pending)
-            .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .build()
+            .setPublicVersion(NotificationCompat.Builder(context, CHANNEL)
+                .setSmallIcon(R.drawable.ic_notification).setContentTitle("SIMERTPI")
+                .setContentText("Tienes una actualizaci\u00f3n en SIMERTPI").build())
+            .setContentIntent(pending).setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT).build()
         try {
-            NotificationManagerCompat.from(this).notify(notificationId, 0, notification)
-            // Bounded persistent deduplication; account is part of every key.
+            NotificationManagerCompat.from(context).notify(notificationId, 0, notification)
+            // notify returning is a request to Android, never proof that the user saw it.
+            PushDiagnostics.record(context, route, "PRESENTATION_REQUESTED")
             val edit = prefs.edit()
             prefs.all.entries.sortedBy { (it.value as? Long) ?: 0L }
                 .take((prefs.all.size - 255).coerceAtLeast(0)).forEach { edit.remove(it.key) }
-            val end=data["contractEndEpoch"]?.toLongOrNull()
-            if(end!=null) edit.putLong(contractKey, maxOf(previousEnd,end))
-            edit.putLong(seenKey, System.currentTimeMillis()).commit()
+            data["contractEndEpoch"]?.toLongOrNull()?.let { edit.putLong(contractKey, maxOf(previousEnd, it)) }
+            if (!edit.putLong(seenKey, System.currentTimeMillis()).commit())
+                PushDiagnostics.record(context, route, "DEDUP_STORE_FAILED")
         } catch (_: SecurityException) {
-            // Permission may be revoked between the check and notify.
+            PushDiagnostics.record(context, route, "PERMISSION_BLOCKED")
+        } catch (_: RuntimeException) {
+            PushDiagnostics.record(context, route, "PRESENTATION_FAILED")
         }
     }
-
-    private fun ensureChannel() {
+    fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(CHANNEL, "Avisos SIMERTPI", NotificationManager.IMPORTANCE_DEFAULT)
             channel.description = "Avisos sobre tu estacionamiento y actividad SIMERTPI"
-            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(channel)
+            (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(channel)
         }
     }
+}
 
-    companion object {
-        private const val CHANNEL = "simertpi_updates"
+/** Pure decision contract shared by the real presenter and JVM tests. */
+internal object PushPresentationChecks {
+    fun rejection(permission: Boolean, channel: Boolean, authorized: Boolean,
+        fresh: Boolean, duplicate: Boolean, currentContract: Boolean): String? = when {
+        !permission -> "PERMISSION_BLOCKED"
+        !channel -> "CHANNEL_BLOCKED"
+        !authorized -> "ACCOUNT_GATE_BLOCKED"
+        !fresh -> "EXPIRED"
+        duplicate -> "DUPLICATE"
+        !currentContract -> "STALE_CONTRACT"
+        else -> null
     }
 }
 
 
 internal object PushEventCopy {
     fun forEvent(eventType: String, data: Map<String, String> = emptyMap()): Pair<String, String>? = when (eventType) {
+        "VEHICLE_REGISTERED" -> safeLabel(data["plate"])?.let { "Vehículo registrado" to "Tu vehículo con placa $it fue registrado correctamente." }
+        "VEHICLE_DELETED" -> safeLabel(data["plate"])?.let { "Vehículo eliminado" to "El vehículo con placa $it fue eliminado de tu cuenta." }
         "PARKING_STARTED" -> "Estacionamiento iniciado" to details(data, started(data), true)
         "PARKING_ENDING_SOON" -> "Próximo a vencer" to details(data, endingSoon(data), false)
         "PARKING_TIME_EXPIRED" -> "Tiempo finalizado" to details(data, expired(data), true)

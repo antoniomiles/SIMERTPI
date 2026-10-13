@@ -146,128 +146,142 @@ class NotificationPreferencesPage extends StatefulWidget {
 }
 
 class _NotificationPreferencesPageState
-    extends State<NotificationPreferencesPage> {
+    extends State<NotificationPreferencesPage>
+    with WidgetsBindingObserver {
   Map<String, bool>? values;
   bool busy = false;
-  bool requestingPermission = false;
   PushPermissionState permissionState = PushPermissionState.notDetermined;
   String? error;
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     widget.pushLifecycle?.registrationStatus.addListener(_registrationChanged);
     load();
-    refreshPermission();
   }
 
   void _registrationChanged() {
-    if (mounted) setState(() {});
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     widget.pushLifecycle?.registrationStatus.removeListener(
       _registrationChanged,
     );
     super.dispose();
   }
 
-  Future<void> refreshPermission() async {
-    final push = widget.pushLifecycle;
-    if (push == null) {
-      var state = PushPermissionState.unavailable;
-      try {
-        state = await const AndroidNotificationPermissionGateway().permission();
-      } catch (_) {}
-      if (mounted) setState(() => permissionState = state);
-      return;
-    }
-    final state = await push.refreshPermission();
-    if (mounted) setState(() => permissionState = state);
-  }
-
-  Future<void> enablePushPermission() async {
-    final push = widget.pushLifecycle;
-    if (push == null) return;
-    setState(() => requestingPermission = true);
-    final state = permissionState == PushPermissionState.systemSettingsRequired
-        ? await push.openSystemSettings().then((_) => push.refreshPermission())
-        : await push.requestPermission(registerImmediately: false);
-    if (mounted) {
-      setState(() {
-        permissionState = state;
-        requestingPermission = false;
-      });
-      if (state == PushPermissionState.granted) {
-        try {
-          final current = values ?? await widget.gateway.preferences();
-          current['PUSH'] = true;
-          await widget.gateway.savePreferences(current);
-          values = current;
-          await push.sync();
-          if (mounted) {
-            AppSnackbar.show(
-              context,
-              push.registrationState == PushRegistrationState.registered
-                  ? 'Dispositivo registrado para recibir push.'
-                  : 'Permiso concedido; no se confirmó el registro push. Inténtalo nuevamente.',
-            );
-          }
-        } catch (_) {
-          if (mounted) {
-            AppSnackbar.show(
-              context,
-              'No pudimos guardar la preferencia. Inténtalo nuevamente.',
-            );
-          }
-        }
-      }
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      load();
     }
   }
 
   Future<void> load() async {
+    if (busy) {
+      return;
+    }
     setState(() {
       busy = true;
       error = null;
     });
     try {
+      final state = widget.pushLifecycle == null
+          ? PushPermissionState.unavailable
+          : await widget.pushLifecycle!.refreshPermission();
       final data = await widget.gateway.preferences();
-      if (mounted) setState(() => values = data);
-    } catch (e) {
+      if (mounted) {
+        setState(() {
+          values = data;
+          permissionState = state;
+        });
+      }
+    } catch (_) {
       if (mounted) {
         setState(
-          () => error = e is AppFailure
-              ? e.message
-              : const AppFailure(FailureKind.unknown).message,
+          () => error =
+              'No pudimos comprobar las notificaciones. Intenta nuevamente.',
         );
       }
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted) {
+        setState(() => busy = false);
+      }
     }
   }
 
-  Future<void> save() async {
+  Future<void> toggle(bool enabled) async {
+    final push = widget.pushLifecycle;
+    if (push == null || busy) {
+      return;
+    }
     setState(() {
       busy = true;
       error = null;
     });
     try {
-      await widget.gateway.savePreferences(values!);
-      await widget.pushLifecycle?.sync();
-      if (mounted) {
-        AppSnackbar.show(context, 'Preferencias guardadas.');
+      if (enabled) {
+        final state = await push.requestPermission();
+        if (mounted) {
+          setState(() => permissionState = state);
+        }
+        if (state == PushPermissionState.systemSettingsRequired) {
+          await push.openSystemSettings();
+          return;
+        }
+        if (state != PushPermissionState.granted) return;
+      } else {
+        await push.disablePushVoluntarily();
       }
-    } catch (e) {
+      final next = await widget.gateway.preferences();
+      if (mounted) {
+        setState(() => values = next);
+      }
+      if (enabled &&
+          push.registrationState != PushRegistrationState.registered &&
+          mounted) {
+        setState(
+          () => error = 'La activación está pendiente. Intenta nuevamente.',
+        );
+      }
+    } catch (_) {
       if (mounted) {
         setState(
-          () => error = e is AppFailure
-              ? e.message
-              : const AppFailure(FailureKind.unknown).message,
+          () => error = 'No pudimos guardar o activar las notificaciones. Intenta nuevamente.',
         );
       }
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted) {
+        setState(() => busy = false);
+      }
     }
+  }
+
+  bool get enabled =>
+      values?['PUSH'] == true &&
+      permissionState == PushPermissionState.granted &&
+      widget.pushLifecycle?.registrationState ==
+          PushRegistrationState.registered;
+  String get status {
+    if (widget.pushLifecycle == null) {
+      return 'Firebase no configurado en esta compilación.';
+    }
+    if (permissionState == PushPermissionState.denied ||
+        permissionState == PushPermissionState.systemSettingsRequired) {
+      return 'Android no permite los avisos. Habilítalos en Ajustes.';
+    }
+    if (enabled) {
+      return 'Notificaciones permitidas en este dispositivo.';
+    }
+    if (values?['PUSH'] == true) {
+      return 'La activación está pendiente. Intenta nuevamente.';
+    }
+    return 'Notificaciones desactivadas.';
   }
 
   @override
@@ -278,77 +292,25 @@ class _NotificationPreferencesPageState
         padding: const EdgeInsets.all(16),
         children: [
           if (busy) const Center(child: CircularProgressIndicator()),
-          if (error != null)
-            ErrorState(message: error!, onRetry: values == null ? load : save),
-          if (values != null) ...[
+          if (values != null)
             SwitchListTile(
-              title: const Text('Notificaciones en el celular'),
-              value: values!['PUSH'] ?? false,
-              onChanged: busy
+              title: const Text('Permitir notificaciones'),
+              value: enabled,
+              onChanged: busy || widget.pushLifecycle == null ? null : toggle,
+            ),
+          Text(status),
+          if (permissionState == PushPermissionState.denied ||
+              permissionState == PushPermissionState.systemSettingsRequired)
+            TextButton(
+              onPressed: busy || widget.pushLifecycle == null
                   ? null
-                  : (v) => setState(() => values!['PUSH'] = v),
+                  : () => widget.pushLifecycle!.openSystemSettings(),
+              child: const Text('Abrir Ajustes'),
             ),
-            SwitchListTile(
-              title: const Text('Correo electrónico'),
-              value: values!['EMAIL'] ?? false,
-              onChanged: busy
-                  ? null
-                  : (v) => setState(() => values!['EMAIL'] = v),
-            ),
-            const InfoCard(
-              'SIMERTPI puede avisarte cuando tu estacionamiento esté próximo a finalizar. Los avisos dentro de la aplicación permanecen disponibles aunque rechaces este permiso.',
-            ),
-            Text(switch (permissionState) {
-              PushPermissionState.granted =>
-                'Permiso del dispositivo activado.',
-              PushPermissionState.systemSettingsRequired => 'El permiso está desactivado. Puedes habilitarlo desde los ajustes del dispositivo.',
-              PushPermissionState.denied =>
-                'El permiso del dispositivo está desactivado.',
-              PushPermissionState.notDetermined =>
-                'El permiso del dispositivo aún no se ha solicitado.',
-              PushPermissionState.unavailable =>
-                widget.pushLifecycle == null
-                    ? 'Firebase no está configurado en esta compilación.'
-                    : 'No pudimos comprobar el permiso o sincronizar el dispositivo.',
-            }, style: Theme.of(context).textTheme.bodySmall),
-            Text(
-              widget.pushLifecycle == null
-                  ? 'Firebase no configurado en esta compilación; registro push no disponible.'
-                  : switch (widget.pushLifecycle!.registrationState) {
-                      PushRegistrationState.registered =>
-                        values?['PUSH'] == true
-                            ? 'Dispositivo registrado para push. La entrega real requiere verificar FCM y Android.'
-                            : 'Preferencia push desactivada.',
-                      PushRegistrationState.syncing =>
-                        'Registrando dispositivo...',
-                      PushRegistrationState.failed => 'Error de sincronización o registro. Reintenta la activación.',
-                      PushRegistrationState.disabled =>
-                        'Registro push desactivado.',
-                      PushRegistrationState.idle =>
-                        'Dispositivo aún no registrado para push.',
-                    },
-            ),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed:
-                  requestingPermission ||
-                      permissionState == PushPermissionState.unavailable ||
-                      widget.pushLifecycle == null
-                  ? null
-                  : enablePushPermission,
-              icon: const Icon(Icons.notifications_active_outlined),
-              label: Text(
-                permissionState == PushPermissionState.systemSettingsRequired
-                    ? 'Abrir ajustes del dispositivo'
-                    : 'Activar notificaciones en este dispositivo',
-              ),
-            ),
-            const SizedBox(height: 16),
-            FilledButton(
-              onPressed: busy ? null : save,
-              child: const Text('Guardar preferencias'),
-            ),
-          ],
+          if (error != null) ErrorState(message: error!, onRetry: load),
+          const InfoCard(
+            'Los avisos dentro de la aplicación permanecen disponibles aunque desactives las notificaciones del celular.',
+          ),
         ],
       ),
     ),

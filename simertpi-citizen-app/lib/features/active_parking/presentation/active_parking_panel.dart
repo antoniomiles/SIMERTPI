@@ -159,7 +159,11 @@ class _ActiveParkingPanelState extends State<ActiveParkingPanel>
           if (c.loading && !c.loaded) const SkeletonCard(),
           if (c.message != null)
             ErrorState(message: c.message!, onRetry: c.load),
-          for (final s in c.sessions) _card(context, c, s),
+          for (final s in c.sessions)
+            KeyedSubtree(
+              key: ValueKey('parking-session-${s.id}'),
+              child: _card(context, c, s),
+            ),
         ],
       );
     },
@@ -209,9 +213,12 @@ class _ActiveParkingPanelState extends State<ActiveParkingPanel>
           : soon
           ? AppColors.warningSurface
           : AppColors.successSurface,
-      border: Colors.transparent,
+      border: c.focusedSessionId == s.id
+          ? Theme.of(context).colorScheme.primary
+          : Colors.transparent,
       child: Semantics(
         container: true,
+        selected: c.focusedSessionId == s.id,
         label: label,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,

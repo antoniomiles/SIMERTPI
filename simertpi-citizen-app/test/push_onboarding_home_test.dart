@@ -93,7 +93,7 @@ void main() {
           // request it a second time. Device registration follows app consent.
           expect(runtime.prompts, 0);
           expect(pushApi.registrations, ['token-a']);
-          expect(activity.saved?['PUSH'], isTrue);
+          expect(pushApi.preferenceWrites, [true]);
         } else {
           await tester.tap(find.text('Ahora no'));
           await tester.pumpAndSettle();
