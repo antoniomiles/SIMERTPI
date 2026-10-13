@@ -1,0 +1,84 @@
+{
+  "base_sha": "37bb3e29c2d16a13353aa103dcd875c45701ac60",
+  "branch": "fix/cp19.1-vehicle-push-20261013",
+  "diagnosis_existing_event": "VEHICLE_DEACTIVATED is audit only; no existing vehicle push rules in code or DEV",
+  "new_events": [
+    "VEHICLE_REGISTERED",
+    "VEHICLE_DELETED"
+  ],
+  "migration": "V40__vehicle_push_notifications.sql",
+  "prior_migrations_unchanged": true,
+  "backend_tests": [
+    {
+      "name": "ec.gob.simertpi.api.vehicles.VehicleControllerIntegrationTest",
+      "tests": "17",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    },
+    {
+      "name": "ec.gob.simertpi.api.vehicles.VehiclePushIntegrationTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    },
+    {
+      "name": "ec.gob.simertpi.application.notifications.FcmPushNotificationProviderTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    },
+    {
+      "name": "ec.gob.simertpi.testsupport.VehiclePushMigrationIntegrationTest",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    }
+  ],
+  "backend_unique_pass": 29,
+  "flutter_pass": 15,
+  "flutter_focused_analyze": "PASS",
+  "android_jvm_pass": 12,
+  "firebase_boundary": "mocked only; no real messages sent",
+  "initial_failure": "Shared synthetic outbox fixture corrected; six affected tests rerun PASS",
+  "changed_files": [
+    "simertpi-backend/docs/CP19_1_VEHICLE_PUSH_20261013.md",
+    "simertpi-backend/src/main/java/ec/gob/simertpi/application/notifications/NotificationDispatcher.java",
+    "simertpi-backend/src/main/java/ec/gob/simertpi/application/notifications/NotificationOutboxProcessor.java",
+    "simertpi-backend/src/main/java/ec/gob/simertpi/application/vehicles/VehicleEventPublisher.java",
+    "simertpi-backend/src/main/java/ec/gob/simertpi/application/vehicles/VehicleService.java",
+    "simertpi-backend/src/main/resources/db/migration/V40__vehicle_push_notifications.sql",
+    "simertpi-backend/src/test/java/ec/gob/simertpi/api/vehicles/VehiclePushIntegrationTest.java",
+    "simertpi-backend/src/test/java/ec/gob/simertpi/testsupport/VehiclePushMigrationIntegrationTest.java",
+    "simertpi-citizen-app/android/app/src/main/kotlin/ec/gob/simertpi/simertpi_citizen_app/GuardedFirebaseMessagingService.kt",
+    "simertpi-citizen-app/android/app/src/main/kotlin/ec/gob/simertpi/simertpi_citizen_app/SimertpiPushGate.kt",
+    "simertpi-citizen-app/android/app/src/test/kotlin/ec/gob/simertpi/simertpi_citizen_app/PushPresentationPolicyTest.kt",
+    "simertpi-citizen-app/lib/core/push/push_lifecycle.dart",
+    "simertpi-citizen-app/test/push_lifecycle_test.dart"
+  ],
+  "sha256": {
+    "simertpi-backend/docs/CP19_1_VEHICLE_PUSH_20261013.md": "f108f2bea39ba9bed0377a72fa1b64c9443353b73b1f485799221b9821601720",
+    "simertpi-backend/src/main/java/ec/gob/simertpi/application/notifications/NotificationDispatcher.java": "7c0a83260e447bf81adc2fc3946e280ecc3d0dff5b087b1cf09d21820b84f0bd",
+    "simertpi-backend/src/main/java/ec/gob/simertpi/application/notifications/NotificationOutboxProcessor.java": "0588fdeb6706653ad6909474725a07a8c365d1a3e5f12e230159a9ce80126226",
+    "simertpi-backend/src/main/java/ec/gob/simertpi/application/vehicles/VehicleEventPublisher.java": "b686df19006de19006a963b46f53a9b3c0a471db776525a3c849c07a6f0bda9b",
+    "simertpi-backend/src/main/java/ec/gob/simertpi/application/vehicles/VehicleService.java": "3311787adeb77373fcfb476de8fa41fe323ac3475ae5af0bf0468584abb7cb32",
+    "simertpi-backend/src/main/resources/db/migration/V40__vehicle_push_notifications.sql": "cc78ed29cde8b5e3817a72c5a91a3ba59291b088ca24ad3774ee2ad0aeeb1a75",
+    "simertpi-backend/src/test/java/ec/gob/simertpi/api/vehicles/VehiclePushIntegrationTest.java": "f089a4fddbb3ad86393ac01bebb732ed01ca0056caa1d5ba941a9a6a9b3276aa",
+    "simertpi-backend/src/test/java/ec/gob/simertpi/testsupport/VehiclePushMigrationIntegrationTest.java": "b091eba8ec635b2e27a6e183abf4a97df343b1c38c84b1a2c99dee7daf8fe7b4",
+    "simertpi-citizen-app/android/app/src/main/kotlin/ec/gob/simertpi/simertpi_citizen_app/GuardedFirebaseMessagingService.kt": "5bb30636cb5adddd2368f0f9dd1e11767de1e141359635c7ceb35b6b041f2c4f",
+    "simertpi-citizen-app/android/app/src/main/kotlin/ec/gob/simertpi/simertpi_citizen_app/SimertpiPushGate.kt": "1e4c14ffb73a0700a58d0cd0534a5932de94538cfbab5e042845bc103dd65bf5",
+    "simertpi-citizen-app/android/app/src/test/kotlin/ec/gob/simertpi/simertpi_citizen_app/PushPresentationPolicyTest.kt": "481edce0455b8d7203c26749e1ecfcad4f419433420ee03e476c1c66a2023943",
+    "simertpi-citizen-app/lib/core/push/push_lifecycle.dart": "a8132a64fdf304ba646441a2c617aa18567538945cf253cf1a8574c360b1f8bc",
+    "simertpi-citizen-app/test/push_lifecycle_test.dart": "a7ffe1fc6dda71437814b5624fc77f64d41293bde956690e6c1d3e9ef86dc848"
+  },
+  "private_keys_or_actual_tokens_included": false,
+  "apk_generated": false,
+  "deployed": false,
+  "dev_database_modified": false,
+  "original_workspace_modified": false,
+  "physical_android_validation": "PENDING",
+  "commit_push_merge": "NOT EXECUTED"
+}

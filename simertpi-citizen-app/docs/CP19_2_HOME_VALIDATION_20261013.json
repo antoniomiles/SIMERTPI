@@ -1,0 +1,58 @@
+{
+  "branch": "fix/cp19.2-citizen-home-20261013",
+  "base_sha": "37bb3e29c2d16a13353aa103dcd875c45701ac60",
+  "tests": {
+    "cp192_greeting": 8,
+    "cp192_parking_order": 8,
+    "cp192_navigation": 10,
+    "existing_focused_regressions": 5,
+    "unique_pass": 31,
+    "failures_remaining": 0
+  },
+  "static_analysis": "No issues found",
+  "diff_check": "PASS",
+  "initial_test_incident": "Late history fixture shadowed activity list request count; renamed detailRequests and reran only that case PASS",
+  "protected": {
+    "cp191_latest_hashes_verified": true,
+    "workspace_original_not_written": true,
+    "backend_unchanged": true,
+    "parking_business_methods_unchanged": true,
+    "firebase_registration_permission_preference_methods_unchanged": true,
+    "native_push_unchanged": true,
+    "notification_inbox_unchanged": true,
+    "Home_push_onboarding_unchanged": true
+  },
+  "conflicts_with_cp191": [
+    "simertpi-citizen-app/lib/features/home/home_page.dart",
+    "simertpi-citizen-app/lib/core/push/push_lifecycle.dart",
+    "simertpi-citizen-app/test/push_lifecycle_test.dart"
+  ],
+  "modified_files": [
+    "simertpi-citizen-app/lib/app/bootstrap/bootstrap.dart",
+    "simertpi-citizen-app/lib/core/push/push_lifecycle.dart",
+    "simertpi-citizen-app/lib/features/active_parking/presentation/active_parking_panel.dart",
+    "simertpi-citizen-app/lib/features/active_parking/state/active_parking_controller.dart",
+    "simertpi-citizen-app/lib/features/home/home_greeting_controller.dart",
+    "simertpi-citizen-app/lib/features/home/home_page.dart",
+    "simertpi-citizen-app/test/cp192_greeting_test.dart",
+    "simertpi-citizen-app/test/cp192_home_support.dart",
+    "simertpi-citizen-app/test/cp192_navigation_test.dart",
+    "simertpi-citizen-app/test/cp192_parking_order_test.dart",
+    "simertpi-citizen-app/test/push_lifecycle_test.dart"
+  ],
+  "source_sha256": {
+    "simertpi-citizen-app/lib/app/bootstrap/bootstrap.dart": "7ffdbce80ad7373f991e90509302ee3a1223ae2cd0f6f24ccca569fbbd8006f0",
+    "simertpi-citizen-app/lib/core/push/push_lifecycle.dart": "3f9b6e4706e4c61a3fa5b14edf341615d54b7326191bcb929e4eb032d0d5b71a",
+    "simertpi-citizen-app/lib/features/active_parking/presentation/active_parking_panel.dart": "de92ad86043ba2f2de4b219647b6096327865753903a839fafd827389d1f2c8a",
+    "simertpi-citizen-app/lib/features/active_parking/state/active_parking_controller.dart": "4d9fb07d08b5a9833ccaed238c542369f125eddb867eaa5aed73eb6312b1097f",
+    "simertpi-citizen-app/lib/features/home/home_greeting_controller.dart": "2cec8858560460c56df2b5fb8758d437393f6a923beb9e501e9f95511445bb8c",
+    "simertpi-citizen-app/lib/features/home/home_page.dart": "89ce883eef6816b0ef9d77136ef10f4f49aa7084fafd55ab32a1e55847e5a5ed",
+    "simertpi-citizen-app/test/cp192_greeting_test.dart": "6f6b3df231d5e668e28134adfe437c2b663193defa37750a73688c0ee81334c7",
+    "simertpi-citizen-app/test/cp192_home_support.dart": "a3652dfe9a7d72c447f503a257815c22c78551ca8a75f07d7fe18525fff79ecc",
+    "simertpi-citizen-app/test/cp192_navigation_test.dart": "8caa4e83ceef2d940b914120045919b52bc481a86a7a1356e0f7d2a931d25e6e",
+    "simertpi-citizen-app/test/cp192_parking_order_test.dart": "5642e38d81c25373e88ea0d1ec162adaa74b3adbac948fe8a76538d24f03197b",
+    "simertpi-citizen-app/test/push_lifecycle_test.dart": "a07ace554177bb2113d3d0ef76b04c3d0f6def4f3c77d0fc095aa399021a9f98"
+  },
+  "commit_push_merge_deploy_apk": "NOT_EXECUTED",
+  "physical_android": "NOT_TESTED"
+}

@@ -1,0 +1,112 @@
+{
+  "branch": "fix/cp19.1-vehicle-push-20261013",
+  "head": "37bb3e29c2d16a13353aa103dcd875c45701ac60",
+  "changed_by_corrections": [
+    "simertpi-backend/src/main/java/ec/gob/simertpi/application/notifications/NotificationDispatcher.java",
+    "simertpi-backend/src/main/java/ec/gob/simertpi/application/notifications/ProviderDeliveryEvidence.java",
+    "simertpi-backend/src/main/java/ec/gob/simertpi/infrastructure/notifications/FcmPushNotificationProvider.java",
+    "simertpi-backend/src/test/java/ec/gob/simertpi/api/vehicles/VehiclePushIntegrationTest.java",
+    "simertpi-backend/src/test/java/ec/gob/simertpi/application/notifications/FcmPushNotificationProviderTest.java",
+    "simertpi-backend/src/test/java/ec/gob/simertpi/application/notifications/ProviderDeliveryEvidenceTest.java",
+    "simertpi-citizen-app/android/app/src/main/AndroidManifest.xml",
+    "simertpi-citizen-app/android/app/src/main/kotlin/ec/gob/simertpi/simertpi_citizen_app/GuardedFirebaseMessagingService.kt",
+    "simertpi-citizen-app/android/app/src/main/kotlin/ec/gob/simertpi/simertpi_citizen_app/GuardedFlutterFirebaseMessagingReceiver.kt",
+    "simertpi-citizen-app/android/app/src/main/kotlin/ec/gob/simertpi/simertpi_citizen_app/MainActivity.kt",
+    "simertpi-citizen-app/android/app/src/main/kotlin/ec/gob/simertpi/simertpi_citizen_app/PushDiagnostics.kt",
+    "simertpi-citizen-app/android/app/src/main/kotlin/ec/gob/simertpi/simertpi_citizen_app/SimertpiPushGate.kt",
+    "simertpi-citizen-app/android/app/src/main/res/drawable/ic_notification.xml",
+    "simertpi-citizen-app/android/app/src/test/kotlin/ec/gob/simertpi/simertpi_citizen_app/PushPresentationChecksTest.kt",
+    "simertpi-citizen-app/lib/core/push/firebase_push_runtime.dart",
+    "simertpi-citizen-app/lib/core/push/push_lifecycle.dart",
+    "simertpi-citizen-app/lib/features/citizen_activity/profile_page.dart",
+    "simertpi-citizen-app/test/citizen_activity_test.dart",
+    "simertpi-citizen-app/test/push_lifecycle_test.dart",
+    "simertpi-citizen-app/test/push_preferences_test.dart",
+    "simertpi-citizen-app/test/push_revalidation_test.dart"
+  ],
+  "backend": [
+    {
+      "name": "FcmPushNotificationProviderTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0
+    },
+    {
+      "name": "ProviderDeliveryEvidenceTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0
+    },
+    {
+      "name": "VehiclePushIntegrationTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0
+    }
+  ],
+  "flutter": {
+    "lifecycle": 15,
+    "revalidation": 7,
+    "preferences": 5,
+    "activity_preferences_only": 1,
+    "total_unique_pass": 28
+  },
+  "android": [
+    {
+      "name": "ec.gob.simertpi.simertpi_citizen_app.PushPresentationChecksTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0
+    },
+    {
+      "name": "ec.gob.simertpi.simertpi_citizen_app.PushPresentationPolicyTest",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0
+    }
+  ],
+  "total_unique_pass": 64,
+  "static_analysis": "No issues found",
+  "diff_check": "PASS",
+  "private_key_scan": [],
+  "vehicle_sources_unchanged": true,
+  "V40_unchanged": true,
+  "V40_sha256": "cc78ed29cde8b5e3817a72c5a91a3ba59291b088ca24ad3774ee2ad0aeeb1a75",
+  "local_flyway": "39 migrations: V1-V35,V37-V40, PostgreSQL16.15; V36 absent",
+  "manifest_merge": "guarded Flutter receiver replaces plugin receiver; guarded service retained",
+  "physical_reception": "NOT_VERIFIED",
+  "fcm_real_send": "NOT_EXECUTED",
+  "dev_modified": false,
+  "apk_generated": false,
+  "commit_push_merge": "NOT_EXECUTED",
+  "initial_validation_incidents": [
+    "PostgreSQL startup timeout: isolated retry of eight integration tests PASS",
+    "permission-denied fixture corrected and affected case PASS",
+    "UTF-8 regression restored from verified backup; Android revalidation PASS",
+    "Preferences test missing native channel: absent-runtime path corrected and six UI cases PASS",
+    "lint correction temporarily invalidated collection syntax; corrected and final analyze/UI PASS"
+  ],
+  "source_sha256": {
+    "simertpi-backend/src/main/java/ec/gob/simertpi/application/notifications/NotificationDispatcher.java": "af0e166bda1c448714db6c5e3f1df92f2234c2a9ec7255ccf9dcdf3e309127c2",
+    "simertpi-backend/src/main/java/ec/gob/simertpi/application/notifications/ProviderDeliveryEvidence.java": "1d267b4c4a577147d7353ff87b7deb548e653c656c3b4ef634c0a3ab0878d881",
+    "simertpi-backend/src/main/java/ec/gob/simertpi/infrastructure/notifications/FcmPushNotificationProvider.java": "d94ac6fb3c70adcf37b1ed1c9123375a5e0a668cb622c5c62050df0a60e18ee5",
+    "simertpi-backend/src/test/java/ec/gob/simertpi/api/vehicles/VehiclePushIntegrationTest.java": "83bd906c8cbc7e3f095ba1d0471d688a3dbbdf193265a7a67d6c75d1786a24b6",
+    "simertpi-backend/src/test/java/ec/gob/simertpi/application/notifications/FcmPushNotificationProviderTest.java": "7f5f952dd57f43acc3c154c6c5747697175693788c3ab39e2d643ee33d112d14",
+    "simertpi-backend/src/test/java/ec/gob/simertpi/application/notifications/ProviderDeliveryEvidenceTest.java": "510f4fbc3381ff2d5aae2162e5f7b71acb77b908882d9df73f0cce8920772b80",
+    "simertpi-citizen-app/android/app/src/main/AndroidManifest.xml": "26f1f736f694a06bc3105b8b17fc3569bd1c6bafeef5f164d8a2bf8672a60588",
+    "simertpi-citizen-app/android/app/src/main/kotlin/ec/gob/simertpi/simertpi_citizen_app/GuardedFirebaseMessagingService.kt": "a045691a6fa0778d68cb91ca79a284000fc8e3000990d69c79f57ad0e6e91914",
+    "simertpi-citizen-app/android/app/src/main/kotlin/ec/gob/simertpi/simertpi_citizen_app/GuardedFlutterFirebaseMessagingReceiver.kt": "0300662ed38400226020117a3322bdfc34b92314d7e7b3d5c936b66519551f32",
+    "simertpi-citizen-app/android/app/src/main/kotlin/ec/gob/simertpi/simertpi_citizen_app/MainActivity.kt": "6ada55d8c7350b433d28cd112a9440541838fbde120197a02f8f010e4622ed5f",
+    "simertpi-citizen-app/android/app/src/main/kotlin/ec/gob/simertpi/simertpi_citizen_app/PushDiagnostics.kt": "aecaf542b7d392a16dd9920d5c8d43937c979ad1d23fbb77680f93d27423b954",
+    "simertpi-citizen-app/android/app/src/main/kotlin/ec/gob/simertpi/simertpi_citizen_app/SimertpiPushGate.kt": "61cb5c4f9b7d9be0aa6f36b939983177a58891c14e68d5f7b5dc0eb406c33faf",
+    "simertpi-citizen-app/android/app/src/main/res/drawable/ic_notification.xml": "068416e13fed1fd61150df4d39718a0b39bf3cf8ea3875851a86a97081ad9003",
+    "simertpi-citizen-app/android/app/src/test/kotlin/ec/gob/simertpi/simertpi_citizen_app/PushPresentationChecksTest.kt": "49aee09cd74f2622dc7e4251d1b25104e6ddeb8fcb6ce9127e36b34aa8ed7a7e",
+    "simertpi-citizen-app/lib/core/push/firebase_push_runtime.dart": "285a5e97b3b52a525affb218019395758dbad5f40edb8be62c4e24caad8d1684",
+    "simertpi-citizen-app/lib/core/push/push_lifecycle.dart": "550cbdb5313c5d2a9c9e8db73d58bb22e085a379b6798ff0482452af6d4b0062",
+    "simertpi-citizen-app/lib/features/citizen_activity/profile_page.dart": "d6f4cdaa37ead884a08adb99ba29ba6bef879e89e4b795d467e2276aae9ee358",
+    "simertpi-citizen-app/test/citizen_activity_test.dart": "8b78863379224acfb75e169e944a03102d7e547bf6fdb377b80bf0c973eed156",
+    "simertpi-citizen-app/test/push_lifecycle_test.dart": "636a32a413a1d0da6b22187ea8337d0d868bad0cef60d178611a771d6c1c13f2",
+    "simertpi-citizen-app/test/push_preferences_test.dart": "a3631f18cb48685b96873b6781575e74b17ccb7731625e0ab07401031ccfebb6",
+    "simertpi-citizen-app/test/push_revalidation_test.dart": "7a773dcab5b47cf7e0269aec7d01a594bfb1f661cf3e00af95d8acb51d216a50"
+  }
+}

@@ -46,6 +46,7 @@ class MainActivity : FlutterFragmentActivity() {
         pushChannel?.setMethodCallHandler { call, result ->
                 when (call.method) {
                     "permissionStatus" -> result.success(permissionStatus())
+                    "pushDiagnostics" -> result.success(PushDiagnostics.snapshot(this))
                     "requestNotificationPermission" -> requestNotificationPermission(result)
                     "setPresentationGate" -> {
                         val args = call.arguments as? Map<*, *>
@@ -131,6 +132,13 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun permissionStatus(): String {
+        NativePushPresenter.ensureChannel(this)
+        val managerForChannel = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            managerForChannel.getNotificationChannel(NativePushPresenter.CHANNEL)?.importance == NotificationManager.IMPORTANCE_NONE)
+            return "systemSettingsRequired"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && !managerForChannel.areNotificationsEnabled()) return "systemSettingsRequired"
+
         if (Build.VERSION.SDK_INT >= 33) {
             return if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) "granted" else "denied"
         }

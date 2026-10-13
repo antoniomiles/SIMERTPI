@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../../parking/data/parking_contract.dart';
@@ -26,17 +28,22 @@ class ActiveParkingController extends ChangeNotifier {
   final bool dev;
   final DateTime Function() now;
   List<ParkingReceipt> sessions = [];
-  String? _preferredSessionId;
+  String? focusedSessionId;
   void prioritizeSession(String id) {
-    _preferredSessionId = id;
-    sessions.sort(
-      (a, b) => a.id == id
-          ? -1
-          : b.id == id
-          ? 1
-          : 0,
-    );
+    focusedSessionId = id; // Focus is presentation state, never a sorting rule.
     emit();
+  }
+
+  int _readRevision = 0;
+  bool _reloadRequested = false;
+  Completer<void>? _loadCompletion;
+  static int compareSessions(ParkingReceipt a, ParkingReceipt b) {
+    int group(ParkingReceipt value) =>
+        {'ACTIVE', 'EXTENDED'}.contains(value.status) ? 0 : 1;
+    final status = group(a).compareTo(group(b));
+    if (status != 0) return status;
+    final started = b.startedAt.compareTo(a.startedAt);
+    return started != 0 ? started : a.id.compareTo(b.id);
   }
 
   ParkingCatalog? locations;
@@ -55,68 +62,106 @@ class ActiveParkingController extends ChangeNotifier {
   bool extensionConfirmed = false;
   Map<String, List<ParkingRules>> extensionOptions = {};
   void emit() {
-    if (!_disposed) notifyListeners();
+    if (_disposed) return;
+    // Existing mutations may finish while a read is waiting. Invalidate that snapshot.
+    if (busy && loading) {
+      _readRevision++;
+      _reloadRequested = true;
+    }
+    notifyListeners();
+    if (!busy && !loading && _reloadRequested) {
+      unawaited(_drainLoads());
+    }
   }
 
-  Future<void> load() async {
+  Future<void> load() {
+    if (_disposed) return Future.value();
+    _readRevision++;
+    _reloadRequested = true;
+    final completion = _loadCompletion ??= Completer<void>();
+    if (!loading && !busy) {
+      unawaited(_drainLoads());
+    }
+    return completion.future;
+  }
+
+  Future<void> _drainLoads() async {
     if (loading || busy || _disposed) return;
     loading = true;
     message = null;
     emit();
     try {
-      final all = await gateway.mine(owner);
-      if (all.any((s) => s.owner != owner)) throw invalidParking;
-      if (_disposed) return;
-      for (final session in all) {
-        session.anchor(now());
-      }
-      sessions = all
-          .where((s) => openParkingStates.contains(s.status))
-          .toList();
-      final preferred = _preferredSessionId;
-      if (preferred != null) {
-        sessions.sort(
-          (a, b) => a.id == preferred
-              ? -1
-              : b.id == preferred
-              ? 1
-              : 0,
-        );
-      }
-      extensionOptions = {};
-      if (gateway is DurationOptionsGateway) {
-        for (final session in sessions) {
-          if (!session.extensionAllowed(now())) {
-            continue;
+      while (_reloadRequested && !busy && !_disposed) {
+        _reloadRequested = false;
+        final revision = _readRevision;
+        bool current() => !_disposed && !busy && revision == _readRevision;
+        try {
+          final all = await gateway.mine(owner);
+          if (!current()) continue;
+          if (all.any((session) => session.owner != owner)) {
+            throw invalidParking;
           }
-          try {
-            final values = await (gateway as DurationOptionsGateway).options(
-              session.id,
-            );
-            if (_disposed) return;
-            if (values.any((q) => q.spaceId != session.spaceId)) {
-              throw invalidParking;
+          final next =
+              all
+                  .where(
+                    (session) => openParkingStates.contains(session.status),
+                  )
+                  .toList()
+                ..sort(compareSessions);
+          for (final session in next) {
+            session.anchor(now());
+          }
+          final options = <String, List<ParkingRules>>{};
+          if (gateway is DurationOptionsGateway) {
+            for (final session in next) {
+              if (!session.extensionAllowed(now())) continue;
+              try {
+                final values = await (gateway as DurationOptionsGateway)
+                    .options(session.id);
+                if (!current()) break;
+                if (values.any((quote) => quote.spaceId != session.spaceId)) {
+                  throw invalidParking;
+                }
+                options[session.id] = values;
+              } catch (_) {
+                options[session.id] = [];
+              }
             }
-            extensionOptions[session.id] = values;
+          }
+          if (!current()) continue;
+          var nextLocations = locations;
+          var nextVehicles = vehicleItems;
+          try {
+            nextLocations = await catalog.load();
+            if (!current()) continue;
+            nextVehicles = await vehicles.list();
           } catch (_) {
-            // Unknown eligibility stays disabled; never substitute a local municipal rule.
-            extensionOptions[session.id] = [];
+            /* Preserve sessions when secondary metadata is unavailable. */
+          }
+          if (!current()) continue;
+          sessions = next;
+          extensionOptions = options;
+          locations = nextLocations;
+          vehicleItems = nextVehicles;
+          loaded = true;
+          stale = false;
+          message = null;
+        } catch (error) {
+          if (current()) {
+            stale = true;
+            message = parkingError(error);
           }
         }
       }
-      loaded = true;
-      stale = false;
-      try {
-        locations = await catalog.load();
-        vehicleItems = await vehicles.list();
-      } catch (_) {
-        /* Session stays visible when secondary metadata fails. */
-      }
-    } catch (e) {
-      stale = true;
-      message = parkingError(e);
     } finally {
       loading = false;
+      if (!_reloadRequested || _disposed) {
+        final completion = _loadCompletion;
+        _loadCompletion = null;
+        if (completion != null && !completion.isCompleted) {
+          completion.complete();
+        }
+      }
       emit();
     }
   }
@@ -375,6 +420,10 @@ class ActiveParkingController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _readRevision++;
+    _reloadRequested = false;
+    if (_loadCompletion?.isCompleted == false) _loadCompletion!.complete();
+    _loadCompletion = null;
     super.dispose();
   }
 }

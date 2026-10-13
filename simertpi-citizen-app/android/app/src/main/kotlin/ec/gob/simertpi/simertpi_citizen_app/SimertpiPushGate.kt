@@ -29,9 +29,9 @@ internal object SimertpiPushGate {
         consentGranted: Boolean,
         enabled: Boolean,
     ): Boolean {
-        processGateEnabled = false
         val prefs = preferences(context)
         if (!enabled) {
+            processGateEnabled = false
             val saved = prefs.edit().clear().commit()
             NotificationManagerCompat.from(context).cancelAll()
             return saved
@@ -46,9 +46,20 @@ internal object SimertpiPushGate {
         )
         if (!PushPresentationPolicy.hasCompleteAuthorization(authorization) ||
             !PushPresentationPolicy.canRestore(authorization, notificationsAllowed(context))) {
+            processGateEnabled = false
             prefs.edit().clear().commit()
             return false
         }
+        val previous = PushAuthorization(
+            prefs.getString(OWNER, null), prefs.getString(DEVICE, null),
+            prefs.getBoolean(CONSENT, false), prefs.getBoolean(REGISTERED, false),
+            prefs.getBoolean(ENABLED, false),
+        )
+        if (PushPresentationPolicy.canRetain(previous, authorization, notificationsAllowed(context))) {
+            processGateEnabled = true
+            return true // Same confirmed identity: no clearing, no cancellation, no transient closure.
+        }
+        processGateEnabled = false
 
         // Clear first so a failed write cannot leave an older account authorized.
         if (!prefs.edit().clear().commit()) return false
@@ -124,7 +135,9 @@ internal data class PushAuthorization(
 
 internal object PushPresentationPolicy {
     private val uuid = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
-    private val events = setOf("PARKING_STARTED", "PARKING_ENDING_SOON", "PARKING_TIME_EXPIRED", "PARKING_EXTENSION_CONFIRMED", "PARKING_COMPLETED")
+    private val parkingEvents = setOf("PARKING_STARTED", "PARKING_ENDING_SOON", "PARKING_TIME_EXPIRED", "PARKING_EXTENSION_CONFIRMED", "PARKING_COMPLETED")
+
+    private val vehicleEvents = setOf("VEHICLE_REGISTERED", "VEHICLE_DELETED")
 
     fun hasCompleteAuthorization(authorization: PushAuthorization): Boolean =
         authorization.enabled && authorization.consentGranted &&
@@ -135,10 +148,14 @@ internal object PushPresentationPolicy {
     fun canRestore(authorization: PushAuthorization, notificationsAllowed: Boolean): Boolean =
         notificationsAllowed && hasCompleteAuthorization(authorization)
 
+    fun canRetain(previous: PushAuthorization, next: PushAuthorization, notificationsAllowed: Boolean): Boolean =
+        canRestore(previous, notificationsAllowed) && canRestore(next, notificationsAllowed) &&
+            previous.ownerId == next.ownerId && previous.backendDeviceId == next.backendDeviceId
+
     fun valid(data: Map<String, String>): Boolean =
         data["notificationId"]?.matches(uuid) == true &&
-            data["eventType"] in events &&
-            data["resourceType"] == "PARKING_SESSION" &&
+            ((data["eventType"] in parkingEvents && data["resourceType"] == "PARKING_SESSION") ||
+             (data["eventType"] in vehicleEvents && data["resourceType"] == "VEHICLE")) &&
             data["resourceId"]?.matches(uuid) == true
 
     fun allows(enabled: Boolean, activeOwner: String?, data: Map<String, String>): Boolean =

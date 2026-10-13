@@ -145,6 +145,19 @@ public class NotificationDispatcher {
   return Collections.unmodifiableMap(payload);
  }
  private Map<String,String> withSafeParkingDetails(Map<String,String> source,Map<String,Object> notification,OffsetDateTime now){
+  if("VEHICLE".equals(notification.get("reference_type"))) {
+   var rows=jdbc.queryForList("""
+    SELECT o.payload::jsonb->>'plate' AS plate,o.occurred_at
+    FROM audit.outbox_events o JOIN identity.vehicles v ON v.id=o.aggregate_id
+    WHERE o.id=? AND o.aggregate_type='VEHICLE' AND o.event_type=? AND o.aggregate_id=?
+      AND v.user_id=? AND o.payload::jsonb->>'ownerId'=v.user_id::text
+    """,notification.get("outbox_event_id"),notification.get("notification_type"),notification.get("reference_id"),notification.get("user_id"));
+   if(rows.size()!=1)return Map.of();
+   var data=new LinkedHashMap<>(source);
+   data.put("plate",String.valueOf(rows.getFirst().get("plate")));
+   data.put("validUntil",Long.toString(((java.sql.Timestamp)rows.getFirst().get("occurred_at")).toInstant().plusSeconds(21600).toEpochMilli()));
+   return Collections.unmodifiableMap(data);
+  }
   return new ParkingPushDetails(jdbc).enrich(source,notification,now);
  }
  private void complete(Claim c,NotificationProviderResult result,OffsetDateTime now){
@@ -154,15 +167,15 @@ public class NotificationDispatcher {
   if(result!=null&&result.status()!=null&&c.provider().equals(result.providerCode())){
    status=result.status().name();error=status;
    if("DELIVERED".equals(status)){
-    if(result.externalMessageId()!=null&&!result.externalMessageId().matches("[A-Za-z0-9._:/-]{1,150}")){status="UNKNOWN";error="UNKNOWN";}
-    else{external=result.externalMessageId();error=null;}
+    external=ProviderDeliveryEvidence.storageReference(result.externalMessageId());
+    error=null; // DELIVERED means provider acceptance, never device presentation.
    }
    if("TEMPORARY_FAILURE".equals(status)){
     if(!result.retryable()){status="PERMANENT_FAILURE";}
     else if(c.attempts()>=retry.maximumAttempts()){status="DEAD";}
     else next=retry.nextAttempt(now,c.attempts());
    }
-   if(Set.of("PROVIDER_NOT_CONFIGURED","PROVIDER_UNKNOWN","SANDBOX_DISABLED").contains(result.errorCode()==null?"":result.errorCode()))error=result.errorCode();
+   error=ProviderDeliveryEvidence.safeError(result.errorCode(),error);
   }
   jdbc.update("UPDATE notification.deliveries SET status=?,error_code=?,external_message_id=?,next_attempt_at=?,delivered_at=?,processing_token=null,updated_at=? WHERE id=?",status,error,external,next,"DELIVERED".equals(status)?now:null,now,c.id());
   if(result!=null&&result.status()==NotificationProviderResult.Status.TEMPORARY_FAILURE&&result.retryable()&&c.provider().equals(result.providerCode()))metric(ec.gob.simertpi.application.operations.OperationalMetrics.Event.NOTIFICATION_TEMPORARY_FAILURE);
@@ -175,7 +188,7 @@ public class NotificationDispatcher {
   aggregate((UUID)rows.getFirst().get("notification_id"));
  }
  private void auditDelivery(String action,UUID id,String channel,String status){
-  audit.recordOutcome(action,"NOTIFICATION_DELIVERY",id,"DELIVERED".equals(status)?"SUCCESS":"FAILURE",Map.of("channel",channel,"status",status,"notificationId",jdbc.queryForObject("SELECT notification_id FROM notification.deliveries WHERE id=?",UUID.class,id),"providerCode",jdbc.queryForObject("SELECT provider_code FROM notification.deliveries WHERE id=?",String.class,id)));
+  audit.recordOutcome(action,"NOTIFICATION_DELIVERY",id,"DELIVERED".equals(status)?"SUCCESS":"FAILURE",Map.of("providerOutcome",ProviderDeliveryEvidence.providerOutcome(status),"androidReception","NOT_VERIFIED","channel",channel,"status",status,"notificationId",jdbc.queryForObject("SELECT notification_id FROM notification.deliveries WHERE id=?",UUID.class,id),"providerCode",jdbc.queryForObject("SELECT provider_code FROM notification.deliveries WHERE id=?",String.class,id)));
  }
  private void aggregate(UUID id){
   // Preserve READ and read_at: inbox consumption is independent from external delivery.

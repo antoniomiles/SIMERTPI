@@ -13,6 +13,22 @@ class PushPresentationPolicyTest {
         "recipientOwnerId" to "citizen-a",
     )
 
+    @Test fun vehicleEventsRequireVehicleReferenceAndMatchingOwner() {
+        for(event in listOf("VEHICLE_REGISTERED","VEHICLE_DELETED")) {
+            val payload=valid + mapOf("eventType" to event,"resourceType" to "VEHICLE","plate" to "ABC-1234")
+            assertTrue(PushPresentationPolicy.allows(true,"citizen-a",payload))
+            assertFalse(PushPresentationPolicy.allows(true,"citizen-b",payload))
+            assertFalse(PushPresentationPolicy.valid(payload + ("resourceType" to "PARKING_SESSION")))
+            assertTrue(PushEventCopy.forEvent(event,payload)!!.second.contains("ABC-1234"))
+        }
+    }
+    @Test fun vehicleCopyUsesExactApprovedTextAndNeverInventsMissingPlate() {
+        org.junit.Assert.assertEquals("Tu vehículo con placa ABC-1234 fue registrado correctamente.",
+            PushEventCopy.forEvent("VEHICLE_REGISTERED",mapOf("plate" to "ABC-1234"))!!.second)
+        org.junit.Assert.assertEquals("El vehículo con placa ABC-1234 fue eliminado de tu cuenta.",
+            PushEventCopy.forEvent("VEHICLE_DELETED",mapOf("plate" to "ABC-1234"))!!.second)
+        assertTrue(PushEventCopy.forEvent("VEHICLE_DELETED") == null)
+    }
     @Test fun lateOldReminderCannotOverrideReceivedExtension() {
         assertFalse(PushDeliveryPolicy.currentContract(valid + ("contractEndEpoch" to "1000"),2000))
         assertTrue(PushDeliveryPolicy.currentContract(valid + ("contractEndEpoch" to "2000"),2000))

@@ -12,7 +12,7 @@ const notificationId = '00000000-0000-4000-8000-000000000002';
 class FakeRuntime implements PushRuntime {
   PushPermissionState state = PushPermissionState.granted;
   String currentToken = 'token-a';
-  int tokenReads = 0, activations = 0, prompts = 0;
+  int tokenReads = 0, activations = 0, prompts = 0, gateRevocations = 0;
   PushPermissionState requestResult = PushPermissionState.granted;
   bool deleted = false, autoInit = false;
   String? presentationOwner;
@@ -38,6 +38,7 @@ class FakeRuntime implements PushRuntime {
     required bool enabled,
     String? backendDeviceId,
   }) async {
+    if (!enabled) gateRevocations++;
     presentationOwner = enabled ? ownerId : null;
     presentationDeviceId = enabled ? backendDeviceId : null;
     presentationEnabled = enabled && ownerId != null;
@@ -89,6 +90,31 @@ class FakeStore implements PushDeviceStore, WelcomePermissionPromptStore {
   bool welcomePrompted = false;
   bool cleared = false;
   final consents = <String>{};
+  final voluntaryOff = <String>{}, pendingEnable = <String>{};
+  String? welcomeOwner;
+  @override
+  Future<bool> pushVoluntarilyDisabled(String owner) async =>
+      voluntaryOff.contains(owner);
+  @override
+  Future<void> setPushVoluntarilyDisabled(String owner, bool disabled) async {
+    disabled ? voluntaryOff.add(owner) : voluntaryOff.remove(owner);
+  }
+
+  @override
+  Future<bool> pushEnablePending(String owner) async =>
+      pendingEnable.contains(owner);
+  @override
+  Future<void> setPushEnablePending(String owner, bool pending) async {
+    pending ? pendingEnable.add(owner) : pendingEnable.remove(owner);
+  }
+
+  @override
+  Future<bool> claimWelcomePermission(String owner) async {
+    if (!welcomePrompted) return false;
+    welcomeOwner ??= owner;
+    return welcomeOwner == owner;
+  }
+
   final revocations = <PendingPushRevocation>[];
   @override
   Future<String?> deviceId() async => id;
@@ -163,7 +189,15 @@ class FakeApi implements PushDeviceApi {
   bool failDisable = false;
   String? registerResult;
   int count = 0;
-  bool pushEnabled = true;
+  bool pushEnabled = true, failPreference = false, failSavePreference = false;
+  final preferenceWrites = <bool>[];
+  @override
+  Future<void> setPushPreferenceEnabled(bool enabled) async {
+    if (failSavePreference) throw StateError('offline');
+    preferenceWrites.add(enabled);
+    pushEnabled = enabled;
+  }
+
   @override
   Future<String> register(String token) async {
     registrations.add(token);
@@ -177,7 +211,11 @@ class FakeApi implements PushDeviceApi {
   }
 
   @override
-  Future<bool> pushPreferenceEnabled() async => pushEnabled;
+  Future<bool> pushPreferenceEnabled() async {
+    if (failPreference) throw StateError("offline");
+    return pushEnabled;
+  }
+
   @override
   Future<int> unreadCount() async => count;
 }
@@ -191,6 +229,47 @@ PushNavigationTarget target(String type) => PushNavigationTarget(
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test(
+    'vehicle push opens authenticated Profile without targeting parking',
+    () async {
+      final runtime = FakeRuntime(), api = FakeApi(), store = FakeStore();
+      final tab = ValueNotifier(0), parking = ValueNotifier<String?>(null);
+      final lifecycle = PushDeviceLifecycle(
+        runtime: runtime,
+        api: api,
+        store: store,
+        isAuthenticated: () => true,
+        ownerId: () => ownerA,
+        unreadNotifications: ValueNotifier(0),
+        citizenTab: tab,
+        parkingSessionTarget: parking,
+      )..start();
+      for (final event in ['VEHICLE_REGISTERED', 'VEHICLE_DELETED']) {
+        final parsed = PushNavigationTarget.parse({
+          'notificationId': notificationId,
+          'eventType': event,
+          'resourceType': 'VEHICLE',
+          'resourceId': sessionId,
+        });
+        expect(parsed, isNotNull);
+        expect(
+          PushNavigationTarget.parse({
+            'notificationId': notificationId,
+            'eventType': event,
+            'resourceType': 'PARKING_SESSION',
+            'resourceId': sessionId,
+          }),
+          isNull,
+        );
+        runtime.opened.add(parsed);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(tab.value, 3);
+        expect(parking.value, isNull);
+      }
+      await lifecycle.dispose();
+      await runtime.dispose();
+    },
+  );
   test('permission alone never marks registration successful', () async {
     final runtime = FakeRuntime(), api = FakeApi(), store = FakeStore();
     final lifecycle = PushDeviceLifecycle(
@@ -568,23 +647,26 @@ void main() {
     await lifecycle.dispose();
     await runtime.dispose();
   });
-  test('invalid or unsupported payload falls back to inbox', () async {
-    final runtime = FakeRuntime(), api = FakeApi(), store = FakeStore();
-    final tab = ValueNotifier(0);
-    final lifecycle = PushDeviceLifecycle(
-      runtime: runtime,
-      api: api,
-      store: store,
-      isAuthenticated: () => true,
-      ownerId: () => ownerA,
-      unreadNotifications: ValueNotifier(0),
-      citizenTab: tab,
-      parkingSessionTarget: ValueNotifier(null),
-    )..start();
-    runtime.opened.add(null);
-    await Future<void>.delayed(const Duration(milliseconds: 10));
-    expect(tab.value, 2);
-    await lifecycle.dispose();
-    await runtime.dispose();
-  });
+  test(
+    'absent or unsupported navigation payload leaves current tab unchanged',
+    () async {
+      final runtime = FakeRuntime(), api = FakeApi(), store = FakeStore();
+      final tab = ValueNotifier(0);
+      final lifecycle = PushDeviceLifecycle(
+        runtime: runtime,
+        api: api,
+        store: store,
+        isAuthenticated: () => true,
+        ownerId: () => ownerA,
+        unreadNotifications: ValueNotifier(0),
+        citizenTab: tab,
+        parkingSessionTarget: ValueNotifier(null),
+      )..start();
+      runtime.opened.add(null);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(tab.value, 0);
+      await lifecycle.dispose();
+      await runtime.dispose();
+    },
+  );
 }

@@ -54,8 +54,24 @@ class FcmPushNotificationProviderTest {
         assertThat(result.retryable()).isFalse();
     }
 
-    @Test void invalidProviderMessageIdIsNotReportedAsDelivered() {
-        var provider = new FcmPushNotificationProvider(request -> "bad id\n");
-        assertThat(provider.send(request()).status()).isEqualTo(NotificationProviderResult.Status.UNKNOWN);
+    @Test void opaqueProviderMessageIdIsAcceptedWithoutCharacterWhitelist() {
+        var provider = new FcmPushNotificationProvider(request -> "projects/dev/messages/0:123%abc+");
+        var result = provider.send(request());
+        assertThat(result.status()).isEqualTo(NotificationProviderResult.Status.DELIVERED);
+        assertThat(result.externalMessageId()).isEqualTo("projects/dev/messages/0:123%abc+");
+    }
+    @Test void missingProviderAcknowledgementRemainsUnknown() {
+        for (String value : new String[] { null, "", "   " }) {
+            var result = new FcmPushNotificationProvider(request -> value).send(request());
+            assertThat(result.status()).isEqualTo(NotificationProviderResult.Status.UNKNOWN);
+            assertThat(result.errorCode()).isEqualTo("FCM_RESULT_INVALID");
+        }
+    }
+    @Test void oversizedOrControlBearingAcknowledgementKeepsSafeFingerprint() {
+        for (String id : new String[] { "x".repeat(151), "opaque\nvalue" }) {
+            var result = new FcmPushNotificationProvider(request -> id).send(request());
+            assertThat(result.status()).isEqualTo(NotificationProviderResult.Status.DELIVERED);
+            assertThat(result.externalMessageId()).startsWith("sha256:").hasSize(71);
+        }
     }
 }

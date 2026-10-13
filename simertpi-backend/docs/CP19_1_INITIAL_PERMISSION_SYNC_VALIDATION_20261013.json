@@ -1,0 +1,60 @@
+{
+  "branch": "fix/cp19.1-vehicle-push-20261013",
+  "head": "37bb3e29c2d16a13353aa103dcd875c45701ac60",
+  "scope": "initial permission, account-bound preference intent, Profile synchronization",
+  "modified_source_files": [
+    "simertpi-citizen-app/lib/core/push/push_lifecycle.dart",
+    "simertpi-citizen-app/lib/features/home/home_page.dart",
+    "simertpi-citizen-app/lib/features/citizen_activity/profile_page.dart",
+    "simertpi-citizen-app/test/push_lifecycle_test.dart",
+    "simertpi-citizen-app/test/push_preferences_test.dart",
+    "simertpi-citizen-app/test/push_onboarding_home_test.dart",
+    "simertpi-citizen-app/test/push_initial_permission_sync_test.dart"
+  ],
+  "tests": {
+    "push_initial_permission_sync_test": 11,
+    "push_onboarding_home_test": 2,
+    "push_preferences_test": 5,
+    "unique_pass": 18,
+    "failures_remaining": 0
+  },
+  "initial_incident": "Existing settingsReturn test tapped twice; adjusted to assert automatic ON and affected case revalidated PASS",
+  "static_analysis": "No issues found",
+  "diff_check": "PASS",
+  "prior_64_not_repeated": true,
+  "unaffected_prior_sources_sha256_verified": [
+    "simertpi-backend/src/main/java/ec/gob/simertpi/application/notifications/NotificationDispatcher.java",
+    "simertpi-backend/src/main/java/ec/gob/simertpi/application/notifications/ProviderDeliveryEvidence.java",
+    "simertpi-backend/src/main/java/ec/gob/simertpi/infrastructure/notifications/FcmPushNotificationProvider.java",
+    "simertpi-backend/src/test/java/ec/gob/simertpi/api/vehicles/VehiclePushIntegrationTest.java",
+    "simertpi-backend/src/test/java/ec/gob/simertpi/application/notifications/FcmPushNotificationProviderTest.java",
+    "simertpi-backend/src/test/java/ec/gob/simertpi/application/notifications/ProviderDeliveryEvidenceTest.java",
+    "simertpi-citizen-app/android/app/src/main/AndroidManifest.xml",
+    "simertpi-citizen-app/android/app/src/main/kotlin/ec/gob/simertpi/simertpi_citizen_app/GuardedFirebaseMessagingService.kt",
+    "simertpi-citizen-app/android/app/src/main/kotlin/ec/gob/simertpi/simertpi_citizen_app/GuardedFlutterFirebaseMessagingReceiver.kt",
+    "simertpi-citizen-app/android/app/src/main/kotlin/ec/gob/simertpi/simertpi_citizen_app/MainActivity.kt",
+    "simertpi-citizen-app/android/app/src/main/kotlin/ec/gob/simertpi/simertpi_citizen_app/PushDiagnostics.kt",
+    "simertpi-citizen-app/android/app/src/main/kotlin/ec/gob/simertpi/simertpi_citizen_app/SimertpiPushGate.kt",
+    "simertpi-citizen-app/android/app/src/main/res/drawable/ic_notification.xml",
+    "simertpi-citizen-app/android/app/src/test/kotlin/ec/gob/simertpi/simertpi_citizen_app/PushPresentationChecksTest.kt",
+    "simertpi-citizen-app/lib/core/push/firebase_push_runtime.dart",
+    "simertpi-citizen-app/test/citizen_activity_test.dart",
+    "simertpi-citizen-app/test/push_revalidation_test.dart"
+  ],
+  "V40_unchanged": true,
+  "firebase_native_and_backend_unchanged": true,
+  "backend_contract": "existing authenticated PUT notifications/preferences, PUSH field only",
+  "physical_android_test": "NOT_EXECUTED",
+  "real_fcm_send": "NOT_EXECUTED",
+  "commit_push_merge_deploy_apk": "NOT_EXECUTED",
+  "original_workspace_modified": false,
+  "source_sha256": {
+    "simertpi-citizen-app/lib/core/push/push_lifecycle.dart": "a445b5de6be29b253a6b8dc25a879bdaed8a696198a3dcdcd061cbb7cef5854a",
+    "simertpi-citizen-app/lib/features/home/home_page.dart": "a4fe286e5df57cc3cd6cb12306050968f102c50621300a350d02f97f9232f12e",
+    "simertpi-citizen-app/lib/features/citizen_activity/profile_page.dart": "9d772ff6410fdc0dcfb5381784b928d3bc89a2e670bbf6faa25ae2e57d7efc95",
+    "simertpi-citizen-app/test/push_lifecycle_test.dart": "355aee15e68c07563faeff5e7d944dfdb27dcf51e6e9072ceafc878201facc72",
+    "simertpi-citizen-app/test/push_preferences_test.dart": "662bd9717de13d4ea5f1a079d9e3f4e7224cf4499b419e2a2dabb19d7a233f48",
+    "simertpi-citizen-app/test/push_onboarding_home_test.dart": "6db226baf7676fdd4461f4b89f91a6409919e0000bbbf859bb105e9fae43c851",
+    "simertpi-citizen-app/test/push_initial_permission_sync_test.dart": "b70a652722b16488730882b2451019ae89ca0f35a96e9557f5c3e8e712c2ac03"
+  }
+}
