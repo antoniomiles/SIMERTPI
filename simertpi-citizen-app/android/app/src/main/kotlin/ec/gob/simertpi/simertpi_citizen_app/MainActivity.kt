@@ -134,13 +134,19 @@ class MainActivity : FlutterFragmentActivity() {
     private fun permissionStatus(): String {
         NativePushPresenter.ensureChannel(this)
         val managerForChannel = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        // On Android 13+, areNotificationsEnabled() is false until
+        // POST_NOTIFICATIONS is granted. Classify that state as requestable so
+        // Welcome can show the native prompt on an eligible first install.
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+            return "denied"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
             managerForChannel.getNotificationChannel(NativePushPresenter.CHANNEL)?.importance == NotificationManager.IMPORTANCE_NONE)
             return "systemSettingsRequired"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && !managerForChannel.areNotificationsEnabled()) return "systemSettingsRequired"
 
         if (Build.VERSION.SDK_INT >= 33) {
-            return if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) "granted" else "denied"
+            return "granted"
         }
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && !manager.areNotificationsEnabled()) "denied" else "granted"

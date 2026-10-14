@@ -215,7 +215,7 @@ class _NotificationPreferencesPageState
     }
   }
 
-  Future<void> toggle(bool enabled) async {
+  Future<void> togglePush(bool enabled) async {
     final push = widget.pushLifecycle;
     if (push == null || busy) {
       return;
@@ -225,6 +225,9 @@ class _NotificationPreferencesPageState
       error = null;
     });
     try {
+      // Read the current backend map before any write so the other channels
+      // remain unchanged if the API's preference contract evolves.
+      final before = await widget.gateway.preferences();
       if (enabled) {
         final state = await push.requestPermission();
         if (mounted) {
@@ -239,6 +242,13 @@ class _NotificationPreferencesPageState
         await push.disablePushVoluntarily();
       }
       final next = await widget.gateway.preferences();
+      for (final entry in before.entries.where(
+        (entry) => entry.key != 'PUSH',
+      )) {
+        if (next[entry.key] != entry.value) {
+          throw StateError('Changing PUSH also changed another preference');
+        }
+      }
       if (mounted) {
         setState(() => values = next);
       }
@@ -259,6 +269,39 @@ class _NotificationPreferencesPageState
       if (mounted) {
         setState(() => busy = false);
       }
+    }
+  }
+
+  Future<void> toggleEmail(bool enabled) async {
+    if (busy) return;
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    try {
+      final current = await widget.gateway.preferences();
+      await widget.gateway.savePreferences({...current, 'EMAIL': enabled});
+      final confirmed = await widget.gateway.preferences();
+      if (confirmed['EMAIL'] != enabled) {
+        throw StateError('Email preference was not confirmed by the server');
+      }
+      for (final entry in current.entries.where(
+        (entry) => entry.key != 'EMAIL',
+      )) {
+        if (confirmed[entry.key] != entry.value) {
+          throw StateError('Changing EMAIL also changed another preference');
+        }
+      }
+      if (mounted) setState(() => values = confirmed);
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => error =
+              'No pudimos guardar las preferencias. Intenta nuevamente.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
     }
   }
 
@@ -294,9 +337,17 @@ class _NotificationPreferencesPageState
           if (busy) const Center(child: CircularProgressIndicator()),
           if (values != null)
             SwitchListTile(
-              title: const Text('Permitir notificaciones'),
+              title: const Text('Notificaciones PUSH'),
               value: enabled,
-              onChanged: busy || widget.pushLifecycle == null ? null : toggle,
+              onChanged: busy || widget.pushLifecycle == null
+                  ? null
+                  : togglePush,
+            ),
+          if (values != null)
+            SwitchListTile(
+              title: const Text('Notificaciones por correo electrónico'),
+              value: values!['EMAIL'] ?? false,
+              onChanged: busy ? null : toggleEmail,
             ),
           Text(status),
           if (permissionState == PushPermissionState.denied ||

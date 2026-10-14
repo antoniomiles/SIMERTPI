@@ -190,19 +190,17 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(
-      tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
-      isTrue,
+    final pushSwitch = find.ancestor(
+      of: find.text('Notificaciones PUSH'),
+      matching: find.byType(SwitchListTile),
     );
+    expect(tester.widget<SwitchListTile>(pushSwitch).value, isTrue);
     expect(runtime.prompts, 0);
-    await tester.tap(find.byType(SwitchListTile));
+    await tester.tap(pushSwitch);
     await tester.pumpAndSettle();
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpAndSettle();
-    expect(
-      tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
-      isFalse,
-    );
+    expect(tester.widget<SwitchListTile>(pushSwitch).value, isFalse);
     expect(api.pushEnabled, isFalse);
     await tester.pumpWidget(const SizedBox());
     await push.dispose();
@@ -224,17 +222,15 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(
-        tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
-        isFalse,
+      final pushSwitch = find.ancestor(
+        of: find.text('Notificaciones PUSH'),
+        matching: find.byType(SwitchListTile),
       );
+      expect(tester.widget<SwitchListTile>(pushSwitch).value, isFalse);
       runtime.state = PushPermissionState.granted;
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pumpAndSettle();
-      expect(
-        tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
-        isTrue,
-      );
+      expect(tester.widget<SwitchListTile>(pushSwitch).value, isTrue);
       expect(runtime.prompts, 0);
       await tester.pumpWidget(const SizedBox());
       await push.dispose();
@@ -257,10 +253,11 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(
-      tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
-      isFalse,
+    final pushSwitch = find.ancestor(
+      of: find.text('Notificaciones PUSH'),
+      matching: find.byType(SwitchListTile),
     );
+    expect(tester.widget<SwitchListTile>(pushSwitch).value, isFalse);
     expect(find.textContaining('pendiente'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
     await push.dispose();
