@@ -23,6 +23,35 @@ import '../data/payment_contract.dart';
 import '../data/payment_intent_store.dart';
 import '../state/payments_controller.dart';
 
+class _PaymentMethodOption extends StatelessWidget {
+  const _PaymentMethodOption({
+    required this.selected,
+    this.onTap,
+  });
+
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => OperationalCard(
+    onTap: onTap,
+    color: selected ? AppColors.parkingHint : AppColors.surface,
+    child: Row(
+      children: [
+        Icon(
+          selected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            selected ? 'Método DEV seleccionado' : 'Seleccionar método DEV',
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 class PaymentsPage extends StatefulWidget {
   const PaymentsPage({
     super.key,
@@ -379,28 +408,9 @@ class _PaymentsPageState extends State<PaymentsPage> {
                       (c.session != null ||
                           widget.parkingController != null)) ...[
                     if (!_reviewing && c.dev)
-                      OperationalCard(
+                      _PaymentMethodOption(
+                        selected: c.methodSelected,
                         onTap: c.busy ? null : c.chooseMethod,
-                        color: c.methodSelected
-                            ? AppColors.parkingHint
-                            : AppColors.surface,
-                        child: Row(
-                          children: [
-                            Icon(
-                              c.methodSelected
-                                  ? Icons.radio_button_checked
-                                  : Icons.radio_button_unchecked,
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                c.methodSelected
-                                    ? 'Método DEV seleccionado'
-                                    : 'Seleccionar método DEV',
-                              ),
-                            ),
-                          ],
-                        ),
                       ),
                     if (!c.dev)
                       const InfoCard(
@@ -553,6 +563,8 @@ class _PaymentsPageState extends State<PaymentsPage> {
                     ],
                   ),
                 ),
+                if (c.dev)
+                  const _PaymentMethodOption(selected: true),
                 if (c.dev)
                   const InfoCard(
                     'Método de pago de prueba DEV. Sin transacción bancaria real.',

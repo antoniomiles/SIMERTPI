@@ -353,6 +353,10 @@ void main() {
       expect(g.extensions, 0);
       await tester.pumpAndSettle();
       expect(find.text('Pago de extensión'), findsOneWidget);
+      expect(find.text('Método DEV seleccionado'), findsOneWidget);
+      expect(find.byIcon(Icons.radio_button_checked), findsOneWidget);
+      expect(find.textContaining('Tarjeta'), findsNothing);
+      expect(find.textContaining('Deuna'), findsNothing);
       await tester.tap(find.text('Continuar'));
       await tester.pumpAndSettle();
       final payButton = find.textContaining('Pagar');
