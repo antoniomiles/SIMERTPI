@@ -371,13 +371,20 @@ void main() {
       expect(find.text('Editar'), findsNothing);
     },
   );
-  testWidgets('Preferences exposes one switch and no in-app controls', (t) async {
-    await screen(t, NotificationPreferencesPage(gateway: FakeActivity()));
-    expect(find.byType(SwitchListTile), findsOneWidget);
-    expect(find.text('Permitir notificaciones'), findsOneWidget);
-    expect(find.text('WHATSAPP'), findsNothing);
-    expect(find.text('Guardar preferencias'), findsNothing);
-  });
+  testWidgets(
+    'Preferences exposes exactly two independent switches and no in-app controls',
+    (t) async {
+      await screen(t, NotificationPreferencesPage(gateway: FakeActivity()));
+      expect(find.byType(SwitchListTile), findsNWidgets(2));
+      expect(find.text('Notificaciones PUSH'), findsOneWidget);
+      expect(
+        find.text('Notificaciones por correo electrónico'),
+        findsOneWidget,
+      );
+      expect(find.text('WHATSAPP'), findsNothing);
+      expect(find.text('Guardar preferencias'), findsNothing);
+    },
+  );
   for (final size in [const Size(320, 640), const Size(640, 320)]) {
     for (final scale in [1.0, 2.0]) {
       for (final page in [
