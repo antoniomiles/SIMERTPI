@@ -30,7 +30,9 @@ public class SecurityConfig {
     };
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http, org.springframework.beans.factory.ObjectProvider<ec.gob.simertpi.application.identity.auth.MobileAuthService> mobileAuth) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http,
+            org.springframework.beans.factory.ObjectProvider<ec.gob.simertpi.application.identity.auth.MobileAuthService> mobileAuth,
+            org.springframework.beans.factory.ObjectProvider<ec.gob.simertpi.application.identity.auth.MunicipalAuthService> municipalAuth) throws Exception {
         http
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
@@ -38,6 +40,9 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET,"/actuator/info", "/actuator/metrics", "/actuator/metrics/**", "/actuator/prometheus").hasAuthority("SIMERTPI_ADMIN")
                 .requestMatchers("/actuator/**").denyAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/users").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/v1/municipal/auth/login", "/api/v1/municipal/auth/refresh", "/api/v1/municipal/auth/logout").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/v1/municipal/auth/me").hasAuthority("INSPECTOR")
+                .requestMatchers("/api/v1/municipal/auth/**").denyAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/logout").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/device/challenge", "/api/v1/auth/device/authenticate").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/device/register/challenge", "/api/v1/auth/device/register/verify", "/api/v1/auth/device/unlock/challenge", "/api/v1/auth/device/unlock/verify", "/api/v1/auth/device/revoke").hasAuthority("CITIZEN")
@@ -120,7 +125,11 @@ public class SecurityConfig {
             .httpBasic(Customizer.withDefaults());
 
         var service=mobileAuth.getIfAvailable();
-        if(service!=null) http.addFilterBefore(new MobileBearerFilter(service), org.springframework.security.web.authentication.www.BasicAuthenticationFilter.class);
+        var municipalService=municipalAuth.getIfAvailable();
+        if(service!=null && municipalService!=null) {
+            http.addFilterBefore(new MobileBearerFilter(service), org.springframework.security.web.authentication.www.BasicAuthenticationFilter.class);
+            http.addFilterBefore(new MunicipalBearerFilter(municipalService), MobileBearerFilter.class);
+        }
         return http.build();
     }
 
