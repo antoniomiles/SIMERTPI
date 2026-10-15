@@ -7,6 +7,11 @@ COPY src/main ./src/main
 # QA runs on the host/CI agent with Testcontainers; only production sources enter this build.
 ARG SOURCE_DATE_EPOCH=315532800
 RUN --mount=type=cache,target=/root/.m2 mvn --batch-mode --no-transfer-progress -Dproject.build.outputTimestamp=${SOURCE_DATE_EPOCH} package
+RUN mkdir -p /workspace/exploded \
+    && cd /workspace/exploded \
+    && jar -xf /workspace/target/simertpi-backend-*.jar \
+    && cd /workspace/exploded/BOOT-INF \
+    && { printf '%s' '/app/BOOT-INF/classes'; sed 's/^- "/:\/app\//; s/"$//' classpath.idx | tr -d '\n'; } > /workspace/exploded/classpath.txt
 
 FROM eclipse-temurin:21-jre-alpine@sha256:51ab5e3302e7141ce665ca3ea85e8b5cd648eafbc3c0c90dd79d6537684e4555 AS runtime
 RUN apk add --no-cache curl \
@@ -15,7 +20,8 @@ RUN apk add --no-cache curl \
     && mkdir -p /app /var/lib/simertpi/evidence \
     && chown -R app:app /app /var/lib/simertpi
 WORKDIR /app
-COPY --from=build --chown=10001:10001 /workspace/target/simertpi-backend-*.jar /app/app.jar
+COPY --from=build --chown=10001:10001 /workspace/exploded/BOOT-INF /app/BOOT-INF
+COPY --from=build --chown=10001:10001 /workspace/exploded/classpath.txt /app/classpath.txt
 ARG VCS_REF=unversioned
 LABEL org.opencontainers.image.title="simertpi-backend" \
       org.opencontainers.image.revision=${VCS_REF}
@@ -27,4 +33,4 @@ EXPOSE 8080
 STOPSIGNAL SIGTERM
 HEALTHCHECK --interval=30s --timeout=5s --start-period=75s --retries=3 \
     CMD curl --fail --silent --max-time 3 --output /dev/null "http://127.0.0.1:${SERVER_PORT}/actuator/health/readiness" || exit 1
-ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+ENTRYPOINT ["sh", "-c", "exec java -cp \"$(cat /app/classpath.txt)\" ec.gob.simertpi.SimertpiBackendApplication \"$@\"", "--"]
