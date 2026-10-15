@@ -1,7 +1,6 @@
 import 'municipal_session.dart';
 
-/// App-domain port for a future municipal authentication adapter.
-/// No network implementation exists until the backend contract is approved.
+/// App-domain port for municipal authentication and secure session lifecycle.
 abstract interface class MunicipalAuthRepository {
   Future<MunicipalSession> authenticate({
     required String username,
@@ -10,4 +9,5 @@ abstract interface class MunicipalAuthRepository {
 
   Future<void> signOut();
   Future<MunicipalSession?> restoreSession();
+  Future<MunicipalSession> renewSession();
 }

@@ -1,16 +1,35 @@
 import 'package:flutter/material.dart';
 
 import '../core/config/municipal_app_config.dart';
-import 'bootstrap/municipal_bootstrap_page.dart';
+import '../features/auth/data/municipal_auth_api.dart';
+import '../features/auth/data/municipal_token_store.dart';
+import '../features/auth/domain/municipal_auth_repository.dart';
+import '../features/auth/presentation/municipal_auth_gate.dart';
 
 class SimertpiMunicipalApp extends StatelessWidget {
-  const SimertpiMunicipalApp({super.key, this.config});
+  const SimertpiMunicipalApp({
+    super.key,
+    this.config,
+    this.authRepository,
+    this.tokenStore,
+    this.transport,
+  });
 
   final MunicipalAppConfig? config;
+  final MunicipalAuthRepository? authRepository;
+  final MunicipalTokenStore? tokenStore;
+  final MunicipalHttpTransport? transport;
 
   @override
   Widget build(BuildContext context) {
     final appConfig = config ?? MunicipalAppConfig.fromEnvironment();
+    final repository =
+        authRepository ??
+        createMunicipalAuthRepository(
+          appConfig,
+          tokenStore: tokenStore,
+          transport: transport,
+        );
     return MaterialApp(
       title: 'SIMERTPI Municipal',
       debugShowCheckedModeBanner: false,
@@ -28,7 +47,7 @@ class SimertpiMunicipalApp extends StatelessWidget {
           centerTitle: false,
         ),
       ),
-      home: MunicipalBootstrapPage(config: appConfig),
+      home: MunicipalAuthGate(config: appConfig, repository: repository),
     );
   }
 }
