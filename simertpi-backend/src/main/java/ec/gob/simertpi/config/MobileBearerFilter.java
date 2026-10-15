@@ -13,6 +13,7 @@ public class MobileBearerFilter extends OncePerRequestFilter {
  private final MobileAuthService service;
  public MobileBearerFilter(MobileAuthService service){this.service=service;}
  @Override protected void doFilterInternal(HttpServletRequest request,HttpServletResponse response,FilterChain chain)throws ServletException,IOException{
+  if(SecurityContextHolder.getContext().getAuthentication()!=null){chain.doFilter(request,response);return;}
   String header=request.getHeader("Authorization");
   if(header!=null&&header.regionMatches(true,0,"Bearer ",0,7)) {
    try {
