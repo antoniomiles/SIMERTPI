@@ -33,10 +33,15 @@ void main() {
           environment: MunicipalEnvironment.production,
           apiBaseUrl: 'https://backend.example/api/v1?token=secret',
         );
+        const missingApiPrefix = MunicipalAppConfig(
+          environment: MunicipalEnvironment.production,
+          apiBaseUrl: 'https://backend.example/',
+        );
 
         expect(valid.isApiConfigured, isTrue);
         expect(embeddedCredentials.isApiConfigured, isFalse);
         expect(queryString.isApiConfigured, isFalse);
+        expect(missingApiPrefix.isApiConfigured, isFalse);
       },
     );
 
@@ -98,6 +103,7 @@ void main() {
     final session = MunicipalSession(
       identity: identity,
       authenticatedAt: DateTime.utc(2026, 10, 14),
+      accessExpiresAt: DateTime.utc(2026, 10, 14, 0, 15),
     );
 
     expect(session.identity, same(identity));

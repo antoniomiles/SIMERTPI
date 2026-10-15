@@ -49,6 +49,14 @@ class MunicipalAppConfig {
         uri.hasFragment) {
       return null;
     }
+    final segments = uri.pathSegments
+        .where((segment) => segment.isNotEmpty)
+        .toList();
+    if (segments.length < 2 ||
+        segments[segments.length - 2] != 'api' ||
+        segments.last != 'v1') {
+      return null;
+    }
     if (uri.scheme != 'https' &&
         !(environment == MunicipalEnvironment.development &&
             uri.scheme == 'http' &&
@@ -61,6 +69,6 @@ class MunicipalAppConfig {
   bool get isApiConfigured => apiBaseUri != null;
 
   String get configurationMessage => isApiConfigured
-      ? 'URL base configurada; autenticación municipal aún no integrada.'
+      ? 'Servicio municipal configurado.'
       : 'Backend sin configurar; no se realizarán conexiones.';
 }
