@@ -1,0 +1,107 @@
+<button class="skip-link" type="button" (click)="skipToForm()">Saltar al formulario</button>
+<div class="login-layout">
+  <aside class="login-story" aria-label="SIMERTPI Municipal">
+    <app-brand />
+    <div class="story-content">
+      <p class="eyebrow">GESTIÓN MUNICIPAL · PIÑAS</p>
+      <h1>Una ciudad<br />mejor organizada.</h1>
+      <p>La administración del estacionamiento municipal, en un solo lugar.</p>
+      <div class="city-art" aria-hidden="true">
+        <div class="mountain one"></div>
+        <div class="mountain two"></div>
+        <div class="city-road"></div>
+        <span class="parking-sign">P</span>
+        <div class="building a"></div>
+        <div class="building b"></div>
+        <div class="building c"></div>
+        <span class="art-label">PIÑAS · EL ORO</span>
+      </div>
+      <div class="story-footnote">
+        <span aria-hidden="true">◇</span> Control, trazabilidad y servicio a la ciudadanía.
+      </div>
+    </div>
+    <p class="institution">Sistema Municipal de Estacionamiento Rotativo Tarifado</p>
+  </aside>
+  <main class="login-main" id="login-main">
+    <div class="login-card">
+      <span class="tag institutional-tag">PORTAL ADMINISTRATIVO</span>
+      <h2>Bienvenido a SIMERTPI</h2>
+      <p class="login-intro">Acceso exclusivo para personal municipal autorizado.</p>
+      @if (!enabled) {
+        <div class="notice">
+          <strong>Acceso en preparación</strong>
+          <p>
+            La autenticación administrativa aún no está disponible en la previsualización. Este
+            formulario no envía credenciales.
+          </p>
+        </div>
+      } @else {
+        <div class="notice">
+          <strong>Acceso administrativo seguro</strong>
+          <p>
+            Use su cuenta municipal autorizada. La sesión se gestiona mediante una cookie protegida.
+          </p>
+        </div>
+      }
+      <form [formGroup]="form" (ngSubmit)="submit()" novalidate [attr.aria-busy]="submitting()">
+        <div class="field">
+          <label for="username">Usuario</label
+          ><input
+            id="username"
+            formControlName="username"
+            autocomplete="username"
+            maxlength="100"
+            placeholder="Ingrese su usuario"
+            [attr.aria-invalid]="form.controls.username.touched && form.controls.username.invalid"
+            aria-describedby="username-error"
+          />
+          <small id="username-error" class="field-error">
+            @if (form.controls.username.touched && form.controls.username.invalid) {
+              Ingrese un usuario de hasta 100 caracteres.
+            }
+          </small>
+        </div>
+        <div class="field">
+          <label for="password">Contraseña</label
+          ><input
+            id="password"
+            formControlName="password"
+            type="password"
+            autocomplete="current-password"
+            maxlength="256"
+            placeholder="Ingrese su contraseña"
+            [attr.aria-invalid]="form.controls.password.touched && form.controls.password.invalid"
+            aria-describedby="password-error"
+          />
+          <small id="password-error" class="field-error">
+            @if (form.controls.password.touched && form.controls.password.invalid) {
+              Ingrese su contraseña.
+            }
+          </small>
+        </div>
+        @if (message()) {
+          <div class="error-message" role="alert">{{ message() }}</div>
+        }
+        <button class="button primary login-submit" type="submit" [disabled]="submitting()">
+          {{ submitting() ? 'Procesando…' : 'Iniciar sesión' }} <span aria-hidden="true">→</span>
+        </button>
+      </form>
+      <p class="access-help">
+        El restablecimiento de acceso estará disponible con la autenticación administrativa.
+      </p>
+      @if (canPreview) {
+        <div class="preview-entry">
+          <span class="eyebrow">REVISIÓN DE INTERFAZ</span>
+          <p>Explore el diseño sin iniciar sesión.</p>
+          <a class="button secondary" routerLink="/preview/dashboard"
+            >Abrir previsualización local <span aria-hidden="true">↗</span></a
+          >
+        </div>
+      }
+      <div class="login-security">
+        <span aria-hidden="true">◇</span> Sin autorregistro de funcionarios ni administradores
+      </div>
+    </div>
+    <footer>GAD Municipal de Piñas · El Oro, Ecuador</footer>
+  </main>
+</div>

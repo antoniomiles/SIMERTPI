@@ -1,0 +1,44 @@
+{
+  "name": "simertpi-admin-web",
+  "version": "0.0.0",
+  "scripts": {
+    "ng": "ng",
+    "start": "ng serve --host 127.0.0.1",
+    "preview": "ng serve --host 127.0.0.1 --configuration preview",
+    "build": "ng build",
+    "build:dev": "ng build --configuration dev",
+    "test": "ng test --watch=false",
+    "check:source": "node scripts/check-source.mjs",
+    "test:e2e": "playwright test",
+    "format": "prettier --write src docs *.json playwright.config.ts e2e scripts/check-source.mjs README.md",
+    "test:auth": "node scripts/auth-e2e.mjs",
+    "start:https": "ng serve --host localhost --port 4443 --ssl --ssl-cert ../.local-tools/https/cert.pem --ssl-key ../.local-tools/https/key.pem --proxy-config proxy.local.json"
+  },
+  "private": true,
+  "packageManager": "npm@10.9.9",
+  "dependencies": {
+    "@angular/common": "22.2.3",
+    "@angular/compiler": "22.2.3",
+    "@angular/core": "22.2.3",
+    "@angular/forms": "22.2.3",
+    "@angular/platform-browser": "22.2.3",
+    "@angular/router": "22.2.3",
+    "rxjs": "~7.8.0",
+    "tslib": "^2.3.0"
+  },
+  "devDependencies": {
+    "@angular/build": "22.2.3",
+    "@angular/cli": "22.2.3",
+    "@angular/compiler-cli": "22.2.3",
+    "@axe-core/playwright": "4.14.0",
+    "@playwright/test": "1.64.1",
+    "jsdom": "^30.0.0",
+    "prettier": "^3.8.1",
+    "typescript": "~6.0.2",
+    "vitest": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=22.22.3 <23",
+    "npm": ">=10 <11"
+  }
+}

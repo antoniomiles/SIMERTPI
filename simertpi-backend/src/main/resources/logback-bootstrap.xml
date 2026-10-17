@@ -1,0 +1,4 @@
+<configuration>
+  <!-- Explicit CLI-only configuration: no appenders and no parameter or driver logging. -->
+  <root level="OFF" />
+</configuration>

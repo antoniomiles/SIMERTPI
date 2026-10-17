@@ -1,0 +1,237 @@
+<app-page-heading
+  eyebrow="ADMINISTRACIÓN / PERSONAL MUNICIPAL"
+  title="Personal municipal"
+  description="Gestione el acceso de los funcionarios autorizados de SIMERTPI."
+  ><button class="button primary" (click)="openForm()" type="button">
+    <span aria-hidden="true">＋</span> Revisar alta de inspector
+  </button></app-page-heading
+>
+<div class="notice inline-notice">
+  <strong>Vista de preparación</strong>
+  <p>
+    No se consultaron cuentas. Los filtros y el formulario están listos para revisión visual; no
+    crean ni modifican usuarios.
+  </p>
+</div>
+<section class="card personnel-list" aria-labelledby="personnel-title">
+  <div class="card-heading">
+    <div>
+      <h2 id="personnel-title">Directorio municipal</h2>
+      <p>Inspectores y personal con acceso autorizado.</p>
+    </div>
+    <span class="tag">Sin conexión</span>
+  </div>
+  <form class="filter-row" [formGroup]="filters" (ngSubmit)="$event.preventDefault()">
+    <div class="field search-field">
+      <label for="search">Buscar personal</label
+      ><input
+        id="search"
+        formControlName="search"
+        type="search"
+        placeholder="Nombre, usuario o correo"
+        maxlength="100"
+      />
+    </div>
+    <div class="field">
+      <label for="status">Estado de cuenta</label
+      ><select id="status" formControlName="status">
+        <option value="all">Todos los estados</option>
+        <option value="enabled">Habilitado</option>
+        <option value="disabled">Deshabilitado</option>
+      </select>
+    </div>
+    <button class="button secondary" type="button" disabled aria-describedby="filters-help">
+      Aplicar filtros
+    </button>
+  </form>
+  <p id="filters-help" class="filter-help">
+    Los filtros se habilitarán al conectar el directorio administrativo.
+  </p>
+  <div
+    class="table-scroll"
+    tabindex="0"
+    role="region"
+    aria-label="Directorio municipal, sin datos conectados"
+  >
+    <table>
+      <caption class="sr-only">
+        Estructura del listado de personal municipal. No se han consultado datos.
+      </caption>
+      <thead>
+        <tr>
+          <th scope="col">Funcionario</th>
+          <th scope="col">Usuario</th>
+          <th scope="col">Rol</th>
+          <th scope="col">Estado</th>
+          <th scope="col">Acciones</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <div class="directory-state">
+    @switch (state()) {
+      @case ('loading') {
+        <app-data-state
+          kind="loading"
+          title="Estado visual de carga"
+          description="Así se indicará una consulta en curso. No hay una solicitud real."
+        />
+      }
+      @case ('error') {
+        <app-data-state
+          kind="error"
+          title="Estado visual de error"
+          description="Ejemplo de presentación de un error. No se realizó una solicitud al servidor."
+        />
+      }
+      @default {
+        <app-data-state
+          title="El directorio aún no está conectado"
+          description="Cuando la autenticación y los permisos estén habilitados, aquí podrá consultar al personal municipal."
+        />
+      }
+    }
+  </div>
+  <div class="state-review" aria-label="Revisión local de estados de interfaz">
+    <span>Revisar estado visual:</span
+    ><button type="button" [attr.aria-pressed]="state() === 'empty'" (click)="state.set('empty')">
+      Vacío</button
+    ><button
+      type="button"
+      [attr.aria-pressed]="state() === 'loading'"
+      (click)="state.set('loading')"
+    >
+      Carga</button
+    ><button type="button" [attr.aria-pressed]="state() === 'error'" (click)="state.set('error')">
+      Error
+    </button>
+  </div>
+</section>
+@if (showForm()) {
+  <section class="card inspector-form" aria-labelledby="inspector-title">
+    <div class="card-heading">
+      <div>
+        <span class="eyebrow">REVISIÓN DE FORMULARIO</span>
+        <h2 id="inspector-title">Nuevo inspector municipal</h2>
+        <p>Solo validación local. No se creará una cuenta.</p>
+      </div>
+      <button
+        class="icon-button"
+        type="button"
+        aria-label="Cerrar formulario de inspector"
+        (click)="closeForm()"
+      >
+        ×
+      </button>
+    </div>
+    <form [formGroup]="form" (ngSubmit)="validate()" novalidate>
+      <div class="form-grid">
+        <div class="field">
+          <label for="inspector-user">Usuario <span aria-hidden="true">*</span></label
+          ><input
+            id="inspector-user"
+            formControlName="username"
+            autocomplete="off"
+            maxlength="100"
+            [attr.aria-invalid]="invalid('username')"
+            aria-describedby="inspector-user-error"
+          /><small class="field-error" id="inspector-user-error">
+            @if (invalid('username')) {
+              Use entre 3 y 100 letras, números, puntos, guiones o guiones bajos. Comience con letra
+              o número.
+            }
+          </small>
+        </div>
+        <div class="field">
+          <label for="inspector-role">Rol previsto</label
+          ><input id="inspector-role" value="INSPECTOR · Inspector municipal" disabled /><small
+            >El servidor deberá fijar y autorizar este rol.</small
+          >
+        </div>
+        <div class="field">
+          <label for="first-name">Nombres <span aria-hidden="true">*</span></label
+          ><input
+            id="first-name"
+            formControlName="firstName"
+            autocomplete="given-name"
+            maxlength="100"
+            [attr.aria-invalid]="invalid('firstName')"
+            aria-describedby="first-name-error"
+          /><small class="field-error" id="first-name-error">
+            @if (invalid('firstName')) {
+              Ingrese los nombres, hasta 100 caracteres.
+            }
+          </small>
+        </div>
+        <div class="field">
+          <label for="last-name">Apellidos <span aria-hidden="true">*</span></label
+          ><input
+            id="last-name"
+            formControlName="lastName"
+            autocomplete="family-name"
+            maxlength="100"
+            [attr.aria-invalid]="invalid('lastName')"
+            aria-describedby="last-name-error"
+          /><small class="field-error" id="last-name-error">
+            @if (invalid('lastName')) {
+              Ingrese los apellidos, hasta 100 caracteres.
+            }
+          </small>
+        </div>
+        <div class="field">
+          <label for="email">Correo institucional <span aria-hidden="true">*</span></label
+          ><input
+            id="email"
+            formControlName="email"
+            type="email"
+            autocomplete="email"
+            maxlength="255"
+            [attr.aria-invalid]="invalid('email')"
+            aria-describedby="email-error"
+          /><small class="field-error" id="email-error">
+            @if (invalid('email')) {
+              Ingrese un correo válido, hasta 255 caracteres.
+            }
+          </small>
+        </div>
+        <div class="field">
+          <label for="phone">Teléfono <span class="optional">(opcional)</span></label
+          ><input
+            id="phone"
+            formControlName="phone"
+            type="tel"
+            autocomplete="tel"
+            maxlength="30"
+            [attr.aria-invalid]="invalid('phone')"
+            aria-describedby="phone-error"
+          /><small class="field-error" id="phone-error">
+            @if (invalid('phone')) {
+              Use hasta 30 caracteres de teléfono.
+            }
+          </small>
+        </div>
+      </div>
+      <div class="access-plan">
+        <span class="feature-icon blue" aria-hidden="true">⚿</span>
+        <div>
+          <h3>Activación segura de acceso</h3>
+          <p>
+            La contraseña y su entrega se definirán al implementar el alta real. Esta vista no
+            solicita ni almacena contraseñas de inspectores.
+          </p>
+        </div>
+      </div>
+      @if (validated()) {
+        <p class="success-message" role="status">
+          Formato válido para revisión. No se enviaron datos ni se creó una cuenta.
+        </p>
+      }
+      <div class="form-actions">
+        <span>* Campos obligatorios</span
+        ><button type="button" class="button secondary" (click)="closeForm()">Cancelar</button
+        ><button type="submit" class="button primary">Validar formulario</button>
+      </div>
+    </form>
+  </section>
+}
