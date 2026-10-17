@@ -69,6 +69,10 @@ simertpi:
   auth:
     access-ttl: ${SIMERTPI_AUTH_ACCESS_TTL:15m}
     refresh-ttl: ${SIMERTPI_AUTH_REFRESH_TTL:30d}
+  admin-auth:
+    idle-ttl: ${SIMERTPI_ADMIN_AUTH_IDLE_TTL:15m}
+    absolute-ttl: ${SIMERTPI_ADMIN_AUTH_ABSOLUTE_TTL:8h}
+    allowed-origin: ${SIMERTPI_ADMIN_WEB_ORIGIN:}
   parking:
     availability:
       # UX threshold, not a municipal duration/tolerance rule.

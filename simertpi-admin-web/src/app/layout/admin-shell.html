@@ -1,0 +1,177 @@
+<button class="skip-link" type="button" (click)="skipToMain()">
+  Saltar al contenido principal
+</button>
+<div class="portal-layout" [class.is-collapsed]="isCollapsed()">
+  <aside
+    class="sidebar"
+    id="sidebar"
+    [class.is-open]="opened()"
+    [attr.inert]="compact() && !opened() ? '' : null"
+    aria-label="Navegación administrativa"
+    (scroll)="hideTooltip()"
+  >
+    <div class="sidebar-brand">
+      <app-brand [compact]="true" [iconOnly]="isCollapsed()" />
+      @if (compact()) {
+        <button
+          class="icon-button drawer-close"
+          type="button"
+          aria-label="Cerrar menú de navegación"
+          (click)="closeMenu()"
+        >
+          <app-icon name="close" />
+        </button>
+      }
+    </div>
+    <div class="workspace-label">
+      <span class="workspace-dot" aria-hidden="true"></span
+      ><span class="workspace-text">Municipio de Piñas</span
+      ><span class="tag">{{ environmentLabel }}</span>
+    </div>
+    <nav aria-label="Módulos del portal">
+      @for (group of groups; track group.label) {
+        <div class="nav-group" role="group" [attr.aria-label]="group.label">
+          <p class="nav-group-label">{{ group.label }}</p>
+          @for (item of group.items; track item.label) {
+            @if (item.path) {
+              <a
+                class="nav-item"
+                [routerLink]="[base, item.path]"
+                routerLinkActive="active"
+                ariaCurrentWhenActive="page"
+                [attr.aria-label]="item.label"
+                [attr.aria-describedby]="
+                  tooltip()?.key === item.label ? 'navigation-tooltip' : null
+                "
+                (mouseenter)="showTooltip($event, item.label)"
+                (focus)="showTooltip($event, item.label)"
+                (mouseleave)="scheduleHide($event)"
+                (blur)="scheduleHide()"
+                (click)="selectedRoute()"
+              >
+                <app-icon class="nav-icon" [name]="item.icon" /><span class="nav-label">{{
+                  item.label
+                }}</span>
+              </a>
+            } @else {
+              <span
+                class="nav-item pending"
+                role="link"
+                tabindex="0"
+                aria-disabled="true"
+                [attr.aria-label]="item.label + ' · Pendiente'"
+                [attr.aria-describedby]="
+                  tooltip()?.key === item.label ? 'navigation-tooltip' : null
+                "
+                (mouseenter)="showTooltip($event, item.label, true)"
+                (focus)="showTooltip($event, item.label, true)"
+                (mouseleave)="scheduleHide($event)"
+                (blur)="scheduleHide()"
+              >
+                <app-icon class="nav-icon" [name]="item.icon" /><span class="nav-label">{{
+                  item.label
+                }}</span
+                ><span class="pending-label">Pendiente</span>
+              </span>
+            }
+          }
+        </div>
+      }
+    </nav>
+    <div class="sidebar-footer">
+      <span class="security-dot" aria-hidden="true"></span>
+      <div>
+        <strong>{{ preview ? 'Entorno de revisión local' : 'Sesión administrativa' }}</strong
+        ><small>{{
+          preview ? 'Sin conexión administrativa' : 'Acceso municipal autorizado'
+        }}</small>
+      </div>
+    </div>
+  </aside>
+  @if (tooltip(); as tip) {
+    <div
+      id="navigation-tooltip"
+      class="navigation-tooltip"
+      role="tooltip"
+      [style.top.px]="tip.top"
+      [style.left.px]="tip.left"
+      (mouseenter)="keepTooltip()"
+      (mouseleave)="scheduleHide()"
+    >
+      {{ tip.label }}
+    </div>
+  }
+  @if (opened()) {
+    <button
+      class="sidebar-backdrop"
+      type="button"
+      tabindex="-1"
+      aria-label="Cerrar menú de navegación"
+      (click)="closeMenu()"
+    ></button>
+  }
+  <div class="main-column" [attr.inert]="compact() && opened() ? '' : null">
+    <header class="topbar">
+      <div class="topbar-leading">
+        <button
+          #menuButton
+          type="button"
+          class="icon-button menu-toggle"
+          aria-controls="sidebar"
+          [attr.aria-label]="
+            compact()
+              ? opened()
+                ? 'Cerrar menú de navegación'
+                : 'Abrir menú de navegación'
+              : isCollapsed()
+                ? 'Expandir menú lateral'
+                : 'Contraer menú lateral'
+          "
+          [attr.aria-expanded]="compact() ? opened() : !isCollapsed()"
+          (click)="toggleMenu()"
+        >
+          <app-icon [name]="compact() ? 'menu' : isCollapsed() ? 'panelOpen' : 'panelClose'" />
+        </button>
+        <span class="topbar-title"
+          >Portal administrativo <span class="topbar-divider">/</span
+          ><span class="topbar-place">Piñas, Ecuador</span></span
+        >
+      </div>
+      <div class="session-indicator">
+        @if (preview) {
+          <span class="avatar" aria-hidden="true">PV</span
+          ><span><strong>Previsualización</strong><small>Sin sesión iniciada</small></span
+          ><a routerLink="/login" class="text-link">Salir de vista</a>
+        } @else {
+          <span class="avatar" aria-hidden="true">{{
+            session.identity()?.username?.slice(0, 2)?.toUpperCase()
+          }}</span
+          ><span
+            ><strong>{{ session.identity()?.username }}</strong
+            ><small>Administrador municipal</small></span
+          ><button
+            class="text-link session-logout"
+            type="button"
+            [disabled]="signingOut()"
+            (click)="signOut()"
+          >
+            {{ signingOut() ? 'Cerrando…' : 'Cerrar sesión' }}
+          </button>
+        }
+      </div>
+    </header>
+    @if (preview) {
+      <div class="preview-banner" role="note">
+        <span aria-hidden="true">◈</span><strong>Previsualización local</strong
+        ><span>Vista de diseño. No hay sesión, consultas ni operaciones administrativas.</span>
+      </div>
+    }
+    @if (logoutError()) {
+      <div class="error-message" role="alert">{{ logoutError() }}</div>
+    }
+    <main id="main-content" tabindex="-1" class="main-content"><router-outlet /></main>
+    <footer class="main-footer">
+      <span>SIMERTPI · GAD Municipal de Piñas</span><span>CP25.3-B.1 · Revisión visual</span>
+    </footer>
+  </div>
+</div>
