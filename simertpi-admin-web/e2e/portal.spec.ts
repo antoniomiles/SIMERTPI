@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
-const previews = ['/preview/dashboard', '/preview/personal'];
+const previews = ['/preview/dashboard', '/preview/personal', '/preview/audit'];
 test('login refuses access without transmitting credentials or creating session state', async ({
   page,
 }) => {
@@ -68,6 +68,16 @@ test('personnel preview stays local and validates presentation without calling t
   expect(requests).toEqual([]);
   await page.getByRole('button', { name: 'Cancelar', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Nuevo inspector municipal' })).toHaveCount(0);
+});
+
+test('audit preview does not simulate events or call administrative APIs', async ({ page }) => {
+  const requests: string[] = [];
+  page.on('request', (request) => {
+    if (['fetch', 'xhr'].includes(request.resourceType())) requests.push(request.url());
+  });
+  await page.goto('/preview/audit');
+  await expect(page.getByRole('heading', { name: 'No se pudo cargar la auditoría' })).toBeVisible();
+  expect(requests).toEqual([]);
 });
 
 test('tablet menu supports keyboard, escape and hidden navigation isolation', async ({ page }) => {

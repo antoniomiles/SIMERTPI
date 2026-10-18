@@ -11,6 +11,11 @@ const pages: Routes = [
     title: 'Personal municipal | SIMERTPI',
     loadComponent: () => import('./features/municipal-users/personnel').then((m) => m.Personnel),
   },
+  {
+    path: 'audit',
+    title: 'Auditoría administrativa | SIMERTPI',
+    loadComponent: () => import('./features/audit/audit').then((m) => m.Audit),
+  },
   { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
 ];
 export const routes: Routes = [

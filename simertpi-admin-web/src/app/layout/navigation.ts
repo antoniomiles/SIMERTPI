@@ -38,7 +38,7 @@ export const NAVIGATION: readonly NavigationGroup[] = [
   {
     label: 'Control',
     items: [
-      { label: 'Auditoría', icon: 'audit' },
+      { label: 'Auditoría', icon: 'audit', path: 'audit' },
       { label: 'Notificaciones', icon: 'notifications' },
       { label: 'Monitoreo', icon: 'monitor' },
     ],

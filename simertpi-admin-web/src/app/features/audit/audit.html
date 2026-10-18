@@ -1,0 +1,142 @@
+<app-page-heading
+  eyebrow="CONTROL / AUDITORÍA"
+  title="Auditoría administrativa"
+  description="Consulta de operaciones registradas por el sistema. Los resultados provienen del registro de auditoría del backend."
+>
+  <span class="tag">Solo lectura</span>
+</app-page-heading>
+
+<section class="audit-panel card" aria-labelledby="audit-filters-title">
+  <div class="panel-heading">
+    <div>
+      <p class="eyebrow">BÚSQUEDA</p>
+      <h2 id="audit-filters-title">Filtrar eventos</h2>
+    </div>
+  </div>
+  <form [formGroup]="filters" (ngSubmit)="applyFilters()">
+    <div class="filter-grid">
+      <div class="field">
+        <label for="audit-action">Acción exacta</label>
+        <input id="audit-action" formControlName="action" maxlength="120" autocomplete="off" />
+      </div>
+      <div class="field">
+        <label for="audit-resource">Tipo de recurso</label>
+        <input
+          id="audit-resource"
+          formControlName="resourceType"
+          maxlength="80"
+          autocomplete="off"
+        />
+      </div>
+      <div class="field">
+        <label for="audit-result">Resultado</label>
+        <select id="audit-result" formControlName="result">
+          <option value="">Todos</option>
+          <option value="SUCCESS">Correcto</option>
+          <option value="FAILURE">Fallido</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="audit-correlation">Identificador de correlación</label>
+        <input
+          id="audit-correlation"
+          formControlName="correlationId"
+          maxlength="128"
+          autocomplete="off"
+        />
+      </div>
+      <div class="field">
+        <label for="audit-from">Desde</label>
+        <input id="audit-from" type="datetime-local" formControlName="from" />
+      </div>
+      <div class="field">
+        <label for="audit-to">Hasta</label>
+        <input id="audit-to" type="datetime-local" formControlName="to" />
+      </div>
+    </div>
+    <div class="filter-actions">
+      <button class="button primary" type="submit">Aplicar filtros</button>
+      <button class="button secondary" type="button" (click)="clearFilters()">Limpiar</button>
+    </div>
+  </form>
+</section>
+
+@if (state() === 'loading') {
+  <app-data-state
+    kind="loading"
+    title="Cargando auditoría"
+    description="Consultando los eventos registrados."
+  />
+} @else if (state() === 'error') {
+  <app-data-state
+    kind="error"
+    title="No se pudo cargar la auditoría"
+    [description]="errorMessage()"
+  >
+    <button class="button secondary" type="button" (click)="load(offset())">Reintentar</button>
+  </app-data-state>
+} @else if (state() === 'empty') {
+  <app-data-state
+    kind="empty"
+    title="No hay eventos para mostrar"
+    description="Prueba otros filtros o vuelve a consultar más tarde."
+  />
+} @else {
+  <section class="audit-results card" aria-label="Resultados de auditoría" aria-live="polite">
+    <div class="results-heading">
+      <h2>Eventos administrativos</h2>
+      <span class="tag">{{ rows().length }} en esta página</span>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Fecha y hora</th>
+            <th scope="col">Operador</th>
+            <th scope="col">Acción</th>
+            <th scope="col">Recurso</th>
+            <th scope="col">Resultado</th>
+            <th scope="col">Correlación</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of rows(); track row.id) {
+            <tr>
+              <td>{{ row.occurredAt | date: 'medium' }}</td>
+              <td>
+                <strong>{{ row.actorName || 'Sistema' }}</strong>
+                @if (row.actorRole) {
+                  <small>{{ row.actorRole }}</small>
+                }
+              </td>
+              <td>{{ row.action }}</td>
+              <td>{{ row.resourceType || '—' }}</td>
+              <td>
+                <span class="result-tag" [class.failed]="row.result === 'FAILURE'">{{
+                  row.result
+                }}</span>
+              </td>
+              <td class="correlation">{{ row.correlationId || '—' }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    <nav class="pagination" aria-label="Paginación de auditoría">
+      <span>Registros {{ offset() + 1 }}–{{ offset() + rows().length }}</span>
+      <div>
+        <button
+          class="button secondary"
+          type="button"
+          (click)="previous()"
+          [disabled]="offset() === 0"
+        >
+          Anterior
+        </button>
+        <button class="button secondary" type="button" (click)="next()" [disabled]="!hasNext()">
+          Siguiente
+        </button>
+      </div>
+    </nav>
+  </section>
+}
