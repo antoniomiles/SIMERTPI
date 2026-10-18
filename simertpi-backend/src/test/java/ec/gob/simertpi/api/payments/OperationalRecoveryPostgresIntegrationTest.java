@@ -3,6 +3,7 @@ package ec.gob.simertpi.api.payments;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import ec.gob.simertpi.application.payments.PaymentService;
+import ec.gob.simertpi.testsupport.AdminSessionTestSupport;
 import ec.gob.simertpi.domain.parking.repository.ParkingSessionRepository;
 import ec.gob.simertpi.domain.payments.repository.PaymentRepository;
 import org.junit.jupiter.api.AfterEach;
@@ -10,6 +11,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpEntity;
@@ -19,6 +21,8 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -32,12 +36,14 @@ import java.util.concurrent.Future;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties={"simertpi.notifications.outbox.enabled=false", "simertpi.control.scheduler.enabled=false", "simertpi.outbox.max-attempts=2", "simertpi.outbox.backoff-seconds=60", "simertpi.outbox.processing-timeout-seconds=60"})
+@AutoConfigureMockMvc
 class OperationalRecoveryPostgresIntegrationTest extends ec.gob.simertpi.testsupport.AbstractPostgresIntegrationTest {
 
     private static final String PASSWORD = "payment-flow-test";
 
     @LocalServerPort int port;
     @Autowired TestRestTemplate restTemplate;
+    @Autowired MockMvc mockMvc;
     @Autowired JdbcTemplate jdbc;
     @Autowired PasswordEncoder passwordEncoder;
     @Autowired ObjectMapper objectMapper;
@@ -119,6 +125,7 @@ class OperationalRecoveryPostgresIntegrationTest extends ec.gob.simertpi.testsup
         jdbc.update("DELETE FROM parking.parking_sessions WHERE id = ?", sessionId);
         jdbc.update("DELETE FROM identity.user_roles WHERE user_id = ?", userId);
         jdbc.update("DELETE FROM identity.user_roles WHERE user_id = ?", otherUserId);
+        jdbc.update("DELETE FROM identity.admin_web_sessions WHERE user_id IN (?, ?)", userId, otherUserId);
         jdbc.update("DELETE FROM parking.parking_spaces WHERE id = ?", spaceId);
         jdbc.update("DELETE FROM parking.streets WHERE id = ?", streetId);
         jdbc.update("DELETE FROM parking.zones WHERE id = ?", zoneId);
@@ -270,18 +277,24 @@ class OperationalRecoveryPostgresIntegrationTest extends ec.gob.simertpi.testsup
         String key=evidence(false,false,new byte[]{1});var locked=new CountDownLatch(1);var release=new CountDownLatch(1);var pool=Executors.newFixedThreadPool(2);
         try {var upload=pool.submit(()->{new org.springframework.transaction.support.TransactionTemplate(manager).executeWithoutResult(s->{jdbc.queryForList("SELECT id FROM enforcement.violations WHERE id=? FOR UPDATE",violation);try{storage.putIfAbsent(key,new byte[]{1},"application/pdf");locked.countDown();if(!release.await(10,java.util.concurrent.TimeUnit.SECONDS))throw new IllegalStateException();String hash=key.substring(key.lastIndexOf('/')+1,key.length()-4);jdbc.update("INSERT INTO enforcement.evidence(id,violation_id,evidence_type,storage_key,sha256_hash,file_size,captured_at) VALUES(?,?,'DOCUMENT',?,?,1,CURRENT_TIMESTAMP)",evidenceId,violation,key,hash);}catch(Exception e){throw new RuntimeException(e);}});});assertThat(locked.await(10,java.util.concurrent.TimeUnit.SECONDS)).isTrue();var scan=pool.submit(evidenceRecovery::reconcile);release.countDown();upload.get(10,java.util.concurrent.TimeUnit.SECONDS);assertThat(scan.get(10,java.util.concurrent.TimeUnit.SECONDS)).noneMatch(r->r.issueCode().equals("OBJECT_WITHOUT_METADATA"));}finally{release.countDown();pool.shutdownNow();}
     }
-    private ResponseEntity<String> adminPost(String name,String suffix) {return restTemplate.withBasicAuth(name,PASSWORD).postForEntity("http://localhost:"+port+"/api/v1/admin/reconciliation/"+suffix,null,String.class);}
+    private MvcResult adminPost(String name,String suffix) throws Exception {
+        var session=AdminSessionTestSupport.login(mockMvc,name,PASSWORD);
+        return mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/admin/reconciliation/"+suffix).secure(true)
+                .cookie(AdminSessionTestSupport.sessionCookie(session),AdminSessionTestSupport.csrfCookie(session))
+                .header("X-XSRF-TOKEN",session.csrfToken())).andReturn();
+    }
     private void role(String code) {jdbc.update("DELETE FROM identity.user_roles WHERE user_id=?",userId);jdbc.update("INSERT INTO identity.user_roles(user_id,role_id) SELECT ?,id FROM identity.roles WHERE code=?",userId,code);}
-    @Test void adminCanTriggerSafeReviewWithoutInternalLocations() throws Exception {evidence(true,false,new byte[]{1});role("SIMERTPI_ADMIN");for(String block:List.of("payments","evidence","outbox")){var response=adminPost(username,block);assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);assertThat(response.getBody()).doesNotContain("storageKey","storage_key","violations/",STORAGE.toString(),"sha256");}}
-    @Test void httpCorrelationIsPreservedByReconciliationAudit() {
+    @Test void adminCanTriggerSafeReviewWithoutInternalLocations() throws Exception {evidence(true,false,new byte[]{1});role("SIMERTPI_ADMIN");for(String block:List.of("payments","evidence","outbox")){var response=adminPost(username,block).getResponse();assertThat(response.getStatus()).isEqualTo(200);assertThat(response.getContentAsString()).doesNotContain("storageKey","storage_key","violations/",STORAGE.toString(),"sha256");}}
+    @Test void httpCorrelationIsPreservedByReconciliationAudit() throws Exception {
         payment("APPROVED");jdbc.update("UPDATE parking.parking_sessions SET status='CANCELLED' WHERE id=?",sessionId);role("SIMERTPI_ADMIN");
-        HttpHeaders headers=new HttpHeaders();headers.set("X-Correlation-ID","cp11-http-correlation");
-        var response=restTemplate.withBasicAuth(username,PASSWORD).postForEntity("http://localhost:"+port+"/api/v1/admin/reconciliation/payments",new HttpEntity<>(null,headers),String.class);
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);assertThat(response.getHeaders().getFirst("X-Correlation-ID")).isEqualTo("cp11-http-correlation");
+        var session=AdminSessionTestSupport.login(mockMvc,username,PASSWORD);
+        var response=mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/admin/reconciliation/payments").secure(true)
+                .cookie(AdminSessionTestSupport.sessionCookie(session),AdminSessionTestSupport.csrfCookie(session)).header("X-XSRF-TOKEN",session.csrfToken()).header("X-Correlation-ID","cp11-http-correlation")).andReturn().getResponse();
+        assertThat(response.getStatus()).isEqualTo(200);assertThat(response.getHeader("X-Correlation-ID")).isEqualTo("cp11-http-correlation");
         assertThat(jdbc.queryForObject("SELECT correlation_id FROM audit.functional_audit_log WHERE resource_id=? AND action='PAYMENT_RECONCILIATION_MANUAL_REVIEW'",String.class,sessionId)).isEqualTo("cp11-http-correlation");
     }
-    @Test void citizenCannotTriggerReconciliation() {assertThat(adminPost(username,"payments").getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);}
-    @Test void inspectorCannotTriggerReconciliation() {role("INSPECTOR");assertThat(adminPost(username,"evidence").getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);}
+    @Test void citizenCannotTriggerReconciliation() {assertThat(restTemplate.withBasicAuth(username,PASSWORD).postForEntity("http://localhost:"+port+"/api/v1/admin/reconciliation/payments",null,String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);}
+    @Test void inspectorCannotTriggerReconciliation() {role("INSPECTOR");assertThat(restTemplate.withBasicAuth(username,PASSWORD).postForEntity("http://localhost:"+port+"/api/v1/admin/reconciliation/evidence",null,String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);}
     @Test void anonymousCannotTriggerReconciliation() {assertThat(restTemplate.postForEntity("http://localhost:"+port+"/api/v1/admin/reconciliation/outbox",null,String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);}
-    @Test void flywayValidatesIncludingV27() {flyway.validate();assertThat(Integer.parseInt(flyway.info().current().getVersion().toString())).isGreaterThanOrEqualTo(27);}
+    @Test void flywayValidatesCurrentSchema() {flyway.validate();assertThat(Integer.parseInt(flyway.info().current().getVersion().toString())).isEqualTo(43);}
 }

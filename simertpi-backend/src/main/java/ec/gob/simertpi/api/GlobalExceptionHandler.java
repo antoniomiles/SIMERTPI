@@ -19,6 +19,34 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(409).body(Map.of("code",exception.code(),"status",409,"message",exception.userMessage()));
     }
 
+    @ExceptionHandler(ec.gob.simertpi.application.identity.InspectorAlreadyExistsException.class)
+    public ResponseEntity<Map<String, Object>> inspectorAlreadyExists(
+            ec.gob.simertpi.application.identity.InspectorAlreadyExistsException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                "status", 409, "error", "Conflict", "message", exception.getMessage()));
+    }
+
+    @ExceptionHandler(ec.gob.simertpi.application.identity.InspectorNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> inspectorNotFound(
+            ec.gob.simertpi.application.identity.InspectorNotFoundException exception) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                "status", 404, "error", "Not Found", "message", exception.getMessage()));
+    }
+
+    @ExceptionHandler(ec.gob.simertpi.application.identity.InspectorActivationStateException.class)
+    public ResponseEntity<Map<String, Object>> inspectorActivationState(
+            ec.gob.simertpi.application.identity.InspectorActivationStateException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                "status", 409, "error", "Conflict", "message", exception.getMessage()));
+    }
+
+    @ExceptionHandler(ec.gob.simertpi.application.identity.InspectorActivationRejectedException.class)
+    public ResponseEntity<Map<String, Object>> inspectorActivationRejected(
+            ec.gob.simertpi.application.identity.InspectorActivationRejectedException exception) {
+        return ResponseEntity.badRequest().body(Map.of(
+                "status", 400, "error", "Activation Rejected", "message", exception.getMessage()));
+    }
+
     @ExceptionHandler(ec.gob.simertpi.domain.vehicles.VehicleAssociationConflictException.class)
     public ResponseEntity<Map<String, Object>> handleVehicleAssociationConflict(
             ec.gob.simertpi.domain.vehicles.VehicleAssociationConflictException exception) {

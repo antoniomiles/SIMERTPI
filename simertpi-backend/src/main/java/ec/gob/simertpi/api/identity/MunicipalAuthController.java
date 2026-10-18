@@ -1,6 +1,7 @@
 package ec.gob.simertpi.api.identity;
 
 import ec.gob.simertpi.application.identity.auth.MunicipalAuthService;
+import ec.gob.simertpi.application.identity.InspectorAccountService;
 import ec.gob.simertpi.application.identity.auth.MobileAuthService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -20,9 +21,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/municipal/auth")
 public class MunicipalAuthController {
     private final MunicipalAuthService service;
+    private final InspectorAccountService inspectors;
 
-    public MunicipalAuthController(MunicipalAuthService service) {
+    public MunicipalAuthController(MunicipalAuthService service, InspectorAccountService inspectors) {
         this.service = service;
+        this.inspectors = inspectors;
     }
 
     public record LoginRequest(@NotBlank @Size(max = 100) String username, @NotBlank String password) {
@@ -31,6 +34,18 @@ public class MunicipalAuthController {
 
     public record RefreshRequest(@NotBlank @Pattern(regexp = "[A-Za-z0-9_-]{43}") String refreshToken) {
         @Override public String toString() { return "MunicipalRefreshRequest[redacted]"; }
+    }
+
+    public record ActivateRequest(@NotBlank @Pattern(regexp = "[A-Za-z0-9_-]{43}") String activationToken,
+                                  @NotBlank @Size(min = 12, max = 72) String newPassword) {
+        @Override public String toString() { return "MunicipalActivateRequest[redacted]"; }
+    }
+
+    @PostMapping("/activate")
+    public ResponseEntity<Void> activate(@Valid @RequestBody ActivateRequest request) {
+        inspectors.activate(request.activationToken(), request.newPassword());
+        return ResponseEntity.noContent().header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .header(HttpHeaders.PRAGMA, "no-cache").build();
     }
 
     @PostMapping("/login")

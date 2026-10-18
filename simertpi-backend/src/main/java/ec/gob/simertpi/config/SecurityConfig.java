@@ -41,7 +41,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET,"/actuator/info", "/actuator/metrics", "/actuator/metrics/**", "/actuator/prometheus").hasAuthority("SIMERTPI_ADMIN")
                 .requestMatchers("/actuator/**").denyAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/users").permitAll()
-                .requestMatchers(HttpMethod.POST, "/api/v1/municipal/auth/login", "/api/v1/municipal/auth/refresh", "/api/v1/municipal/auth/logout").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/v1/municipal/auth/login", "/api/v1/municipal/auth/refresh", "/api/v1/municipal/auth/logout", "/api/v1/municipal/auth/activate").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/municipal/auth/me").hasAuthority("INSPECTOR")
                 .requestMatchers("/api/v1/municipal/auth/**").denyAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/logout").permitAll()

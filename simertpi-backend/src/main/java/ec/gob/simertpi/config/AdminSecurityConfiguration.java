@@ -33,6 +33,8 @@ public class AdminSecurityConfiguration {
     .requestMatchers(HttpMethod.GET,"/api/v1/admin/auth/csrf").permitAll()
     .requestMatchers(HttpMethod.POST,"/api/v1/admin/auth/login","/api/v1/admin/auth/logout").permitAll()
     .requestMatchers(HttpMethod.GET,"/api/v1/admin/auth/me","/api/v1/admin/parking/reentry-configuration").hasAuthority("SIMERTPI_ADMIN")
+    .requestMatchers(HttpMethod.GET,"/api/v1/admin/inspectors").hasAuthority("SIMERTPI_ADMIN")
+    .requestMatchers(HttpMethod.POST,"/api/v1/admin/inspectors","/api/v1/admin/inspectors/*/activation").hasAuthority("SIMERTPI_ADMIN")
     .requestMatchers(HttpMethod.PUT,"/api/v1/admin/parking/reentry-configuration").hasAuthority("SIMERTPI_ADMIN")
     .requestMatchers(HttpMethod.POST,"/api/v1/admin/reconciliation/payments","/api/v1/admin/reconciliation/evidence","/api/v1/admin/reconciliation/outbox").hasAuthority("SIMERTPI_ADMIN")
     .anyRequest().denyAll())
