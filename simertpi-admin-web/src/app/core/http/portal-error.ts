@@ -1,6 +1,6 @@
 import { HttpErrorResponse } from '@angular/common/http';
 export type PortalErrorKind =
-  'unavailable' | 'unauthorized' | 'forbidden' | 'validation' | 'network' | 'timeout' | 'server';
+  'unavailable' | 'unauthorized' | 'forbidden' | 'validation' | 'network' | 'timeout' | 'server' | 'conflict';
 export class PortalError extends Error {
   constructor(
     readonly kind: PortalErrorKind,
@@ -23,6 +23,8 @@ export function normalizeError(error: unknown): PortalError {
       return new PortalError('forbidden', 'No tiene permiso para esta operación.');
     if (error.status === 400 || error.status === 422)
       return new PortalError('validation', 'Revise los datos del formulario.');
+    if (error.status === 409)
+      return new PortalError('conflict', 'Ya existe un usuario con ese nombre o correo, o la cuenta cambió. Actualice el directorio.');
   }
   return new PortalError('server', 'No se pudo completar la solicitud. Inténtelo más tarde.');
 }

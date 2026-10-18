@@ -9,11 +9,12 @@ test('Poppins uses the same licensed local files as the citizen application', as
     'Poppins-Regular.ttf',
     'Poppins-Medium.ttf',
     'Poppins-SemiBold.ttf',
-    'OFL.txt',
   ]) {
     const hash = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
     expect(hash(`public/fonts/${file}`)).toBe(hash(`../simertpi-citizen-app/assets/fonts/${file}`));
   }
+  const license = (path: string) => readFileSync(path, 'utf8').replace(/\r\n?/g, '\n').trimEnd();
+  expect(license('public/fonts/OFL.txt')).toBe(license('../simertpi-citizen-app/assets/fonts/OFL.txt'));
   await page.goto('/preview/personal');
   await page.evaluate(async () => {
     await Promise.all(

@@ -977,6 +977,41 @@ a.nav-item:hover {
 .table-scroll {
   overflow-x: auto;
 }
+.personnel-list table {
+  min-width: 760px;
+}
+.personnel-list th,
+.personnel-list td {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.personnel-list td .button {
+  min-height: 38px;
+  padding: 8px 12px;
+}
+.table-secondary {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.tag.success {
+  color: #145b36;
+  background: #eef9f2;
+}
+.activation-code {
+  display: block;
+  margin: 12px 0;
+  padding: 12px;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: white;
+  color: var(--ink);
+  font-size: 14px;
+  user-select: all;
+}
 table {
   border-collapse: collapse;
   width: 100%;

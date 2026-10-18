@@ -44,7 +44,7 @@ test('production configuration denies preview even on loopback', async ({ page }
   await expect(page.getByRole('link', { name: 'Abrir previsualización local' })).toHaveCount(0);
 });
 
-test('personnel form validates presentation only and displays all review states', async ({
+test('personnel preview stays local and validates presentation without calling the API', async ({
   page,
 }) => {
   const requests: string[] = [];
@@ -52,12 +52,8 @@ test('personnel form validates presentation only and displays all review states'
     if (['fetch', 'xhr'].includes(request.resourceType())) requests.push(request.url());
   });
   await page.goto('/preview/personal');
-  await expect(page.getByText('No se consultaron cuentas.', { exact: false })).toBeVisible();
-  await page.getByRole('button', { name: 'Carga', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Estado visual de carga' })).toBeVisible();
-  await page.getByRole('button', { name: 'Error', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('No se realizó una solicitud');
-  await page.getByRole('button', { name: 'Vacío', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Vista de preparación' })).toBeVisible();
+  expect(requests).toEqual([]);
   await page.getByRole('button', { name: 'Revisar alta de inspector' }).click();
   await page.getByRole('button', { name: 'Validar formulario' }).click();
   await expect(page.locator('#inspector-user')).toHaveAttribute('aria-invalid', 'true');
@@ -67,7 +63,7 @@ test('personnel form validates presentation only and displays all review states'
   await page.locator('#email').fill('review@example.invalid');
   await page.getByRole('button', { name: 'Validar formulario' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Formato válido' })).toContainText(
-    'ni se creó una cuenta',
+    'No se creó una cuenta',
   );
   expect(requests).toEqual([]);
   await page.getByRole('button', { name: 'Cancelar', exact: true }).click();
