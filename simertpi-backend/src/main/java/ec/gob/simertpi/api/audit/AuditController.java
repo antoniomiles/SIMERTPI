@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/v1/audit")
+@RequestMapping("/api/v1")
 public class AuditController {
     private final AuditSearchRepository audit;
 
@@ -20,7 +20,7 @@ public class AuditController {
         this.audit = audit;
     }
 
-    @GetMapping
+    @GetMapping("/audit")
     public List<AuditSearchRepository.AuditRow> search(
             @RequestParam(required = false) UUID actorId,
             @RequestParam(required = false) String action,
@@ -32,11 +32,32 @@ public class AuditController {
             @RequestParam(required = false) String correlationId,
             @RequestParam(defaultValue = "50") int limit,
             @RequestParam(defaultValue = "0") int offset) {
+        validate(from, to, limit, offset);
+        return audit.search(actorId, bounded(action, 120), bounded(resourceType, 80), resourceId,
+                from, to, bounded(result, 20), bounded(correlationId, 128), limit, offset);
+    }
+
+    @GetMapping("/admin/audit")
+    public List<AuditSearchRepository.AdministrativeAuditRow> searchAdministrative(
+            @RequestParam(required = false) UUID actorId,
+            @RequestParam(required = false) String action,
+            @RequestParam(required = false) String resourceType,
+            @RequestParam(required = false) UUID resourceId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime to,
+            @RequestParam(required = false) String result,
+            @RequestParam(required = false) String correlationId,
+            @RequestParam(defaultValue = "50") int limit,
+            @RequestParam(defaultValue = "0") int offset) {
+        validate(from, to, limit, offset);
+        return audit.searchAdministrative(actorId, bounded(action, 120), bounded(resourceType, 80),
+                resourceId, from, to, bounded(result, 20), bounded(correlationId, 128), limit, offset);
+    }
+
+    private void validate(OffsetDateTime from, OffsetDateTime to, int limit, int offset) {
         if (limit < 1 || limit > 100 || offset < 0 || (from != null && to != null && from.isAfter(to))) {
             throw new IllegalArgumentException("Invalid audit search range");
         }
-        return audit.search(actorId, bounded(action, 120), bounded(resourceType, 80), resourceId,
-                from, to, bounded(result, 20), bounded(correlationId, 128), limit, offset);
     }
 
     private String bounded(String value, int maxLength) {

@@ -19,11 +19,40 @@ public class AuditSearchRepository {
     public List<AuditRow> search(UUID actorId, String action, String resourceType, UUID resourceId,
                                  OffsetDateTime from, OffsetDateTime to, String result,
                                  String correlationId, int limit, int offset) {
-        StringBuilder sql = new StringBuilder("""
+        SearchQuery query = buildQuery("""
                 SELECT id, occurred_at, actor_id, actor_name, actor_role, action, resource_type,
                        resource_id, result, correlation_id, source_ip, user_agent, metadata::text
                 FROM audit.functional_audit_log WHERE 1=1
-                """);
+                """, actorId, action, resourceType, resourceId, from, to, result, correlationId, limit, offset);
+        return jdbc.query(query.sql(), (rs, row) -> new AuditRow(rs.getObject("id", UUID.class),
+                rs.getObject("occurred_at", OffsetDateTime.class), rs.getObject("actor_id", UUID.class),
+                rs.getString("actor_name"), rs.getString("actor_role"), rs.getString("action"),
+                rs.getString("resource_type"), rs.getObject("resource_id", UUID.class),
+                rs.getString("result"), rs.getString("correlation_id"), rs.getString("source_ip"),
+                rs.getString("user_agent"), rs.getString("metadata")),
+                query.values().toArray());
+    }
+
+    public List<AdministrativeAuditRow> searchAdministrative(UUID actorId, String action, String resourceType,
+                                                               UUID resourceId, OffsetDateTime from,
+                                                               OffsetDateTime to, String result,
+                                                               String correlationId, int limit, int offset) {
+        SearchQuery query = buildQuery("""
+                SELECT id, occurred_at, actor_name, actor_role, action, resource_type,
+                       result, correlation_id
+                FROM audit.functional_audit_log WHERE 1=1
+                """, actorId, action, resourceType, resourceId, from, to, result, correlationId, limit, offset);
+        return jdbc.query(query.sql(), (rs, row) -> new AdministrativeAuditRow(
+                rs.getObject("id", UUID.class), rs.getObject("occurred_at", OffsetDateTime.class),
+                rs.getString("actor_name"), rs.getString("actor_role"), rs.getString("action"),
+                rs.getString("resource_type"), rs.getString("result"), rs.getString("correlation_id")),
+                query.values().toArray());
+    }
+
+    private SearchQuery buildQuery(String select, UUID actorId, String action, String resourceType,
+                                   UUID resourceId, OffsetDateTime from, OffsetDateTime to,
+                                   String result, String correlationId, int limit, int offset) {
+        StringBuilder sql = new StringBuilder(select);
         List<Object> values = new ArrayList<>();
         add(sql, values, "actor_id", actorId);
         add(sql, values, "action", action);
@@ -36,13 +65,7 @@ public class AuditSearchRepository {
         sql.append(" ORDER BY occurred_at DESC LIMIT ? OFFSET ?");
         values.add(limit);
         values.add(offset);
-        return jdbc.query(sql.toString(), (rs, row) -> new AuditRow(rs.getObject("id", UUID.class),
-                rs.getObject("occurred_at", OffsetDateTime.class), rs.getObject("actor_id", UUID.class),
-                rs.getString("actor_name"), rs.getString("actor_role"), rs.getString("action"),
-                rs.getString("resource_type"), rs.getObject("resource_id", UUID.class),
-                rs.getString("result"), rs.getString("correlation_id"), rs.getString("source_ip"),
-                rs.getString("user_agent"), rs.getString("metadata")),
-                values.toArray());
+        return new SearchQuery(sql.toString(), values);
     }
 
     private void add(StringBuilder sql, List<Object> values, String column, Object value) {
@@ -55,4 +78,10 @@ public class AuditSearchRepository {
                            String actorRole, String action, String resourceType, UUID resourceId,
                            String result, String correlationId, String sourceIp, String userAgent,
                            String metadata) { }
+
+    public record AdministrativeAuditRow(UUID id, OffsetDateTime occurredAt, String actorName,
+                                         String actorRole, String action, String resourceType,
+                                         String result, String correlationId) { }
+
+    private record SearchQuery(String sql, List<Object> values) { }
 }
