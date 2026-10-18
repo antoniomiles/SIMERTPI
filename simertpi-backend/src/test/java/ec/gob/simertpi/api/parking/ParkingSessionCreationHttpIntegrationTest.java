@@ -7,11 +7,13 @@ import ec.gob.simertpi.domain.parking.repository.ParkingSessionRepository;
 import ec.gob.simertpi.application.parking.ParkingSessionService;
 import ec.gob.simertpi.application.parking.control.ParkingControlEvaluationService;
 import ec.gob.simertpi.application.parking.control.ParkingControlScheduler;
+import ec.gob.simertpi.testsupport.AdminSessionTestSupport;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpEntity;
@@ -22,6 +24,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -38,6 +41,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {"simertpi.payments.provider=SANDBOX_STUB", "simertpi.payments.sandbox.enabled=true"})
+@AutoConfigureMockMvc
 class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupport.AbstractPostgresIntegrationTest {
     @Test void citizenCanAbandonCheckoutWithoutPaymentAndImmediatelyReuseVehicleAndSpace() throws Exception {
         String owner = "citizen-a-" + fixture.tag;
@@ -232,6 +236,7 @@ class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupp
     int port;
 
     @Autowired TestRestTemplate restTemplate;
+    @Autowired MockMvc mockMvc;
     @Autowired JdbcTemplate jdbc;
     @Autowired PasswordEncoder passwordEncoder;
     @Autowired ParkingSessionRepository sessionRepository;
@@ -471,27 +476,27 @@ class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupp
         UUID adminRole=jdbc.queryForObject("SELECT id FROM identity.roles WHERE code='SIMERTPI_ADMIN'",UUID.class);
         jdbc.update("INSERT INTO identity.user_roles(user_id,role_id) VALUES (?,?)",fixture.userA,adminRole);
         String configUrl="http://localhost:"+port+"/api/v1/admin/parking/reentry-configuration";
-        assertThat(restTemplate.withBasicAuth(owner,"integration-password").getForEntity(configUrl,String.class).getStatusCode()).isEqualTo(HttpStatus.OK);
-        var changed=restTemplate.withBasicAuth(owner,"integration-password").exchange(configUrl,HttpMethod.PUT,
-                new HttpEntity<>(Map.of("cooldownMinutes",30),jsonHeaders()),String.class);
-        assertThat(changed.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(objectMapper.readTree(changed.getBody()).get("cooldownMinutes").asInt()).isEqualTo(30);
+        var admin=AdminSessionTestSupport.login(mockMvc,owner,"integration-password");
+        var adminCookie=AdminSessionTestSupport.sessionCookie(admin);var csrfCookie=AdminSessionTestSupport.csrfCookie(admin);
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(configUrl.substring(configUrl.indexOf("/api/"))).secure(true).cookie(adminCookie)).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+        var changed=mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(configUrl.substring(configUrl.indexOf("/api/"))).secure(true).cookie(adminCookie,csrfCookie).header("X-XSRF-TOKEN",admin.csrfToken()).contentType(MediaType.APPLICATION_JSON).content("{\"cooldownMinutes\":30}"));
+        changed.andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+        assertThat(objectMapper.readTree(changed.andReturn().getResponse().getContentAsString()).get("cooldownMinutes").asInt()).isEqualTo(30);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM audit.functional_audit_log WHERE action='PARKING_REENTRY_COOLDOWN_CHANGED' AND actor_id=?",Integer.class,fixture.userA)).isEqualTo(1);
         assertThat(post(owner,"REENTRY-THIRTY-MINUTE-LIVE-POLICY",fixture.spaceA,fixture.vehicleA).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        changed=restTemplate.withBasicAuth(owner,"integration-password").exchange(configUrl,HttpMethod.PUT,
-                new HttpEntity<>(Map.of("cooldownMinutes",1),jsonHeaders()),String.class);
-        assertThat(changed.getStatusCode()).isEqualTo(HttpStatus.OK);
+        changed=mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(configUrl.substring(configUrl.indexOf("/api/"))).secure(true).cookie(adminCookie,csrfCookie).header("X-XSRF-TOKEN",admin.csrfToken()).contentType(MediaType.APPLICATION_JSON).content("{\"cooldownMinutes\":1}"));
+        changed.andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
         assertThat(post(owner,"REENTRY-ONE-MINUTE-ELAPSED",fixture.spaceA,fixture.vehicleA).getStatusCode()).isEqualTo(HttpStatus.CREATED);
     }
 
-    @Test void reentryConfigurationIsAdminOnlyAndRangeValidated() {
+    @Test void reentryConfigurationIsAdminOnlyAndRangeValidated() throws Exception {
         String configUrl="http://localhost:"+port+"/api/v1/admin/parking/reentry-configuration";
-        assertThat(restTemplate.withBasicAuth("citizen-a-"+fixture.tag,"integration-password").getForEntity(configUrl,String.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(restTemplate.withBasicAuth("citizen-a-"+fixture.tag,"integration-password").getForEntity(configUrl,String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         var adminRole=jdbc.queryForObject("SELECT id FROM identity.roles WHERE code='SIMERTPI_ADMIN'",UUID.class);
         jdbc.update("INSERT INTO identity.user_roles(user_id,role_id) VALUES (?,?)",fixture.userA,adminRole);
-        var admin=restTemplate.withBasicAuth("citizen-a-"+fixture.tag,"integration-password");
-        assertThat(admin.exchange(configUrl,HttpMethod.PUT,new HttpEntity<>(Map.of("cooldownMinutes",0),jsonHeaders()),String.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(admin.exchange(configUrl,HttpMethod.PUT,new HttpEntity<>(Map.of("cooldownMinutes",1441),jsonHeaders()),String.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        var admin=AdminSessionTestSupport.login(mockMvc,"citizen-a-"+fixture.tag,"integration-password");
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(configUrl.substring(configUrl.indexOf("/api/"))).secure(true).cookie(AdminSessionTestSupport.sessionCookie(admin),AdminSessionTestSupport.csrfCookie(admin)).header("X-XSRF-TOKEN",admin.csrfToken()).contentType(MediaType.APPLICATION_JSON).content("{\"cooldownMinutes\":0}")).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isBadRequest());
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(configUrl.substring(configUrl.indexOf("/api/"))).secure(true).cookie(AdminSessionTestSupport.sessionCookie(admin),AdminSessionTestSupport.csrfCookie(admin)).header("X-XSRF-TOKEN",admin.csrfToken()).contentType(MediaType.APPLICATION_JSON).content("{\"cooldownMinutes\":1441}")).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isBadRequest());
     }
 
     @Test void anonymousAndCitizenCannotModifyReentrySettings() {
@@ -500,7 +505,7 @@ class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupp
         assertThat(restTemplate.getForEntity(configUrl,String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(restTemplate.exchange(configUrl,HttpMethod.PUT,request,String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(restTemplate.withBasicAuth("citizen-a-"+fixture.tag,"integration-password")
-                .exchange(configUrl,HttpMethod.PUT,request,String.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+                .exchange(configUrl,HttpMethod.PUT,request,String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(jdbc.queryForObject("SELECT cooldown_minutes FROM configuration.parking_reentry_settings WHERE id=1",Integer.class)).isEqualTo(5);
     }
 
@@ -546,6 +551,7 @@ class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupp
     }
 
     private HttpHeaders jsonHeaders() { HttpHeaders headers=new HttpHeaders();headers.setContentType(MediaType.APPLICATION_JSON);return headers; }
+    private HttpHeaders withJson(HttpHeaders headers) { headers.setContentType(MediaType.APPLICATION_JSON);return headers; }
 
     @AfterEach
     void cleanUp() {
@@ -567,6 +573,7 @@ class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupp
         jdbc.update("DELETE FROM parking.tariffs WHERE id = ?", fixture.tariff);
         jdbc.update("DELETE FROM parking.zones WHERE id = ?", fixture.zone);
         jdbc.update("DELETE FROM identity.vehicles WHERE user_id IN (?, ?)", fixture.userA, fixture.userB);
+        jdbc.update("DELETE FROM identity.admin_web_sessions WHERE user_id IN (?, ?)", fixture.userA, fixture.userB);
         jdbc.update("DELETE FROM identity.user_roles WHERE user_id IN (?, ?)", fixture.userA, fixture.userB);
         jdbc.update("DELETE FROM identity.users WHERE id IN (?, ?)", fixture.userA, fixture.userB);
     }
