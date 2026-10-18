@@ -54,6 +54,10 @@ public abstract class AbstractPostgresIntegrationTest {
         registry.add("spring.datasource.url", Infrastructure.POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", Infrastructure.POSTGRES::getUsername);
         registry.add("spring.datasource.password", Infrastructure.POSTGRES::getPassword);
+        // Spring's context cache keeps several test ApplicationContexts alive; bound each pool
+        // so the shared PostgreSQL test container does not exhaust its connection limit.
+        registry.add("spring.datasource.hikari.maximum-pool-size", () -> "3");
+        registry.add("spring.datasource.hikari.minimum-idle", () -> "1");
         // A separate placeholder preserves class-specific storage overrides regardless of
         // Spring's order of inherited DynamicPropertySource methods.
         registry.add("simertpi.qa.storage-path", Infrastructure.STORAGE::toString);

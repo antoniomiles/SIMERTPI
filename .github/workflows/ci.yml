@@ -1,0 +1,78 @@
+name: SIMERTPI CI
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend / PostgreSQL integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: simertpi-backend/pom.xml
+      - name: Run backend tests against isolated PostgreSQL 16.15 containers
+        working-directory: simertpi-backend
+        run: mvn --batch-mode --no-transfer-progress -DfailIfNoTests=true test
+
+  admin-web:
+    name: Admin Web / Angular
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.3
+          cache: npm
+          cache-dependency-path: simertpi-admin-web/package-lock.json
+      - name: Install locked dependencies
+        working-directory: simertpi-admin-web
+        run: npm ci --no-audit --no-fund
+      - name: Check source security constraints
+        working-directory: simertpi-admin-web
+        run: npm run check:source
+      - name: Run unit tests
+        working-directory: simertpi-admin-web
+        run: npm test -- --isolate=false
+      - name: Install Chrome for browser tests
+        working-directory: simertpi-admin-web
+        run: npx playwright install --with-deps chrome
+      - name: Run browser security and responsive tests
+        working-directory: simertpi-admin-web
+        run: npm run test:e2e
+      - name: Build production bundle
+        working-directory: simertpi-admin-web
+        run: npm run build
+
+  municipal-app:
+    name: Municipal App / Flutter
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.6
+          cache: true
+      - name: Resolve locked packages
+        working-directory: simertpi-municipal-app
+        run: flutter pub get --enforce-lockfile
+      - name: Analyze Flutter sources
+        working-directory: simertpi-municipal-app
+        run: flutter analyze --fatal-infos
+      - name: Run Flutter tests
+        working-directory: simertpi-municipal-app
+        run: flutter test --no-pub

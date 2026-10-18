@@ -131,6 +131,8 @@ class NotificationProviderHttpIntegrationTest extends ec.gob.simertpi.testsuppor
   jdbc.update("INSERT INTO parking.streets(id,zone_id,code,name) VALUES(?,?,?,'Fixture')",street,zone,street.toString());
   jdbc.update("INSERT INTO parking.parking_spaces(id,street_id,code,qr_code,space_number) VALUES(?,?,?,?,'1')",space,street,space.toString(),space.toString());
   jdbc.update("INSERT INTO parking.parking_sessions(id,user_id,vehicle_id,parking_space_id,started_at,expected_end_at,status) VALUES(?,?,?,?,?,?,'ACTIVE')",session,owner,vehicle,space,now.minusMinutes(50),now.plusMinutes(10));
+  var existingPushRules=jdbc.query("SELECT id,enabled FROM configuration.notification_rules WHERE event_type='PARKING_ENDING_SOON' AND channel='PUSH'",(rs,n)->Map.entry(rs.getObject(1,UUID.class),rs.getBoolean(2)));
+  jdbc.update("UPDATE configuration.notification_rules SET enabled=false WHERE event_type='PARKING_ENDING_SOON' AND channel='PUSH'");
   try{
    device("ANDROID");UUID r=rule("PUSH",false);
    jdbc.update("UPDATE configuration.notification_rules SET event_type='PARKING_ENDING_SOON' WHERE id=?",r);
@@ -145,11 +147,12 @@ class NotificationProviderHttpIntegrationTest extends ec.gob.simertpi.testsuppor
    UUID current=jdbc.queryForObject("SELECT id FROM notification.notifications WHERE source_event_id=? AND channel='PUSH'",UUID.class,next);
    process();assertThat(status(current)).isEqualTo("DELIVERED");verify(provider,times(1)).send(any());
   }finally{
+   for(var existing:existingPushRules)jdbc.update("UPDATE configuration.notification_rules SET enabled=? WHERE id=?",existing.getValue(),existing.getKey());
    jdbc.update("DELETE FROM parking.parking_sessions WHERE id=?",session);
    jdbc.update("DELETE FROM parking.parking_spaces WHERE id=?",space);jdbc.update("DELETE FROM parking.streets WHERE id=?",street);jdbc.update("DELETE FROM parking.zones WHERE id=?",zone);jdbc.update("DELETE FROM identity.vehicles WHERE id=?",vehicle);
   }
  }
- @Test void flywayValidatesCurrentSchema(){flyway.validate();assertThat(flyway.info().current().getVersion().toString()).isEqualTo("37");}
+ @Test void flywayValidatesCurrentSchema(){flyway.validate();assertThat(flyway.info().current().getVersion().toString()).isEqualTo("42");}
 
  @Test void approvedExtensionCreatesOneLogicalInboxItemAndPerDevicePushes(){
   device("ANDROID");device("IOS");UUID source=UUID.randomUUID();OffsetDateTime now=OffsetDateTime.now(); UUID outbox=outbox("PARKING_EXTENSION_CONFIRMED",source);
