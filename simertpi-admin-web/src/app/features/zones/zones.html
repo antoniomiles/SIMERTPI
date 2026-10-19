@@ -1,0 +1,156 @@
+<app-page-heading
+  eyebrow="OPERACIÓN / CATÁLOGO DE ESTACIONAMIENTO"
+  title="Zonas, calles y espacios"
+  description="Consulta y registra la estructura tarifada. Los estados y códigos mostrados provienen del backend."
+>
+  <span class="tag">Gestión operativa</span>
+</app-page-heading>
+
+@if (preview) {
+  <section class="notice preview-note" role="status">
+    <strong>Previsualización local</strong>
+    <p>Esta vista no consulta ni modifica datos. Inicia sesión en el portal publicado para gestionar el catálogo.</p>
+  </section>
+} @else {
+  @if (mutationMessage()) {
+    <p class="operation-message success" role="status" aria-live="polite">{{ mutationMessage() }}</p>
+  }
+  @if (mutationError()) {
+    <p class="operation-message error" role="alert">{{ mutationError() }}</p>
+  }
+
+  <div class="catalog-grid">
+    <section class="catalog-column card" aria-labelledby="zones-heading">
+      <header class="column-heading">
+        <div><p class="eyebrow">NIVEL 1</p><h2 id="zones-heading">Zonas tarifadas</h2></div>
+        <button class="button secondary" type="button" (click)="showZoneForm.set(!showZoneForm())" aria-expanded="{{ showZoneForm() }}">
+          {{ showZoneForm() ? 'Cerrar' : 'Nueva zona' }}
+        </button>
+      </header>
+      <label class="field search-field" for="zone-search">
+        <span>Buscar por código o nombre</span>
+        <input id="zone-search" [value]="zoneQuery()" (input)="zoneQuery.set($any($event.target).value)" autocomplete="off" />
+      </label>
+
+      @if (zonesState() === 'loading') {
+        <app-data-state kind="loading" title="Cargando zonas" description="Consultando el catálogo municipal." />
+      } @else if (zonesState() === 'error') {
+        <app-data-state kind="error" title="No se pudieron cargar las zonas" description="Intenta consultar nuevamente.">
+          <button class="button secondary" type="button" (click)="loadZones()">Reintentar</button>
+        </app-data-state>
+      } @else if (zonesState() === 'empty') {
+        <app-data-state kind="empty" title="No hay zonas registradas" description="Registra una zona cuando tengas el código y nombre oficiales." />
+      } @else {
+        <ul class="record-list" aria-label="Zonas tarifadas">
+          @for (zone of visibleZones(); track zone.id) {
+            <li>
+              <button class="record" type="button" [class.selected]="selectedZone()?.id === zone.id" [attr.aria-pressed]="selectedZone()?.id === zone.id" (click)="selectZone(zone)">
+                <span class="record-main"><strong>{{ zone.code }} · {{ zone.name }}</strong><small>{{ zone.description || 'Sin descripción' }}</small></span>
+                <span class="tag" [class.inactive]="!zone.active">{{ zone.active ? 'Habilitada' : 'Deshabilitada' }}</span>
+              </button>
+            </li>
+          } @empty {
+            <li class="list-empty">No hay coincidencias con esa búsqueda.</li>
+          }
+        </ul>
+      }
+
+      @if (showZoneForm()) {
+        <form class="create-form" [formGroup]="zoneForm" (ngSubmit)="createZone()" aria-label="Registrar zona">
+          <h3>Nueva zona tarifada</h3>
+          <label class="field" for="zone-code"><span>Código</span><input id="zone-code" formControlName="code" maxlength="50" autocomplete="off" required /></label>
+          @if (zoneForm.controls.code.touched && zoneForm.controls.code.invalid) { <small class="field-error">Ingresa un código de hasta 50 caracteres.</small> }
+          <label class="field" for="zone-name"><span>Nombre oficial</span><input id="zone-name" formControlName="name" maxlength="100" autocomplete="off" required /></label>
+          @if (zoneForm.controls.name.touched && zoneForm.controls.name.invalid) { <small class="field-error">Ingresa un nombre de hasta 100 caracteres.</small> }
+          <label class="field" for="zone-description"><span>Descripción (opcional)</span><input id="zone-description" formControlName="description" maxlength="255" autocomplete="off" /></label>
+          <button class="button primary" type="submit" [disabled]="saving() !== null">{{ saving() === 'zone' ? 'Guardando…' : 'Registrar zona' }}</button>
+        </form>
+      }
+    </section>
+
+    <section class="catalog-column card" aria-labelledby="streets-heading">
+      <header class="column-heading">
+        <div><p class="eyebrow">NIVEL 2</p><h2 id="streets-heading">Calles</h2></div>
+        <button class="button secondary" type="button" (click)="showStreetForm.set(!showStreetForm())" [disabled]="!selectedZone()?.active" aria-expanded="{{ showStreetForm() }}">{{ showStreetForm() ? 'Cerrar' : 'Nueva calle' }}</button>
+      </header>
+      <p class="parent-context">{{ selectedZone() ? selectedZone()!.code + ' · ' + selectedZone()!.name : 'Selecciona una zona activa' }}</p>
+      <label class="field search-field" for="street-search"><span>Buscar por código o nombre</span><input id="street-search" [value]="streetQuery()" (input)="streetQuery.set($any($event.target).value)" autocomplete="off" [disabled]="!selectedZone()" /></label>
+
+      @if (!selectedZone()) {
+        <app-data-state kind="empty" title="Selecciona una zona" description="Las calles se consultan dentro de la zona elegida." />
+      } @else if (streetsState() === 'loading') {
+        <app-data-state kind="loading" title="Cargando calles" description="Consultando calles asociadas a la zona." />
+      } @else if (streetsState() === 'error') {
+        <app-data-state kind="error" title="No se pudieron cargar las calles" description="Intenta consultar nuevamente."><button class="button secondary" type="button" (click)="loadStreets(selectedZone()!.id)">Reintentar</button></app-data-state>
+      } @else if (streetsState() === 'empty') {
+        <app-data-state kind="empty" title="No hay calles registradas" description="Registra una calle con su código y nombre oficiales." />
+      } @else {
+        <ul class="record-list" aria-label="Calles de la zona seleccionada">
+          @for (street of visibleStreets(); track street.id) {
+            <li><button class="record" type="button" [class.selected]="selectedStreet()?.id === street.id" [attr.aria-pressed]="selectedStreet()?.id === street.id" (click)="selectStreet(street)"><span class="record-main"><strong>{{ street.code }} · {{ street.name }}</strong><small>{{ street.description || 'Sin descripción' }}</small></span><span class="tag" [class.inactive]="!street.active">{{ street.active ? 'Habilitada' : 'Deshabilitada' }}</span></button></li>
+          } @empty { <li class="list-empty">No hay coincidencias con esa búsqueda.</li> }
+        </ul>
+      }
+
+      @if (showStreetForm() && selectedZone()?.active) {
+        <form class="create-form" [formGroup]="streetForm" (ngSubmit)="createStreet()" aria-label="Registrar calle">
+          <h3>Nueva calle</h3>
+          <label class="field" for="street-code"><span>Código</span><input id="street-code" formControlName="code" maxlength="50" autocomplete="off" required /></label>
+          @if (streetForm.controls.code.touched && streetForm.controls.code.invalid) { <small class="field-error">Ingresa un código de hasta 50 caracteres.</small> }
+          <label class="field" for="street-name"><span>Nombre oficial</span><input id="street-name" formControlName="name" maxlength="150" autocomplete="off" required /></label>
+          @if (streetForm.controls.name.touched && streetForm.controls.name.invalid) { <small class="field-error">Ingresa un nombre de hasta 150 caracteres.</small> }
+          <label class="field" for="street-description"><span>Descripción (opcional)</span><input id="street-description" formControlName="description" maxlength="255" autocomplete="off" /></label>
+          <button class="button primary" type="submit" [disabled]="saving() !== null">{{ saving() === 'street' ? 'Guardando…' : 'Registrar calle' }}</button>
+        </form>
+      }
+    </section>
+
+    <section class="catalog-column card" aria-labelledby="spaces-heading">
+      <header class="column-heading">
+        <div><p class="eyebrow">NIVEL 3</p><h2 id="spaces-heading">Espacios</h2></div>
+        <button class="button secondary" type="button" (click)="showSpaceForm.set(!showSpaceForm())" [disabled]="!selectedStreet()?.active || !selectedZone()?.active" aria-expanded="{{ showSpaceForm() }}">{{ showSpaceForm() ? 'Cerrar' : 'Nuevo espacio' }}</button>
+      </header>
+      <p class="parent-context">{{ selectedStreet() ? selectedStreet()!.code + ' · ' + selectedStreet()!.name : 'Selecciona una calle activa' }}</p>
+      @if (selectedStreet() && spacesState() !== 'loading' && spacesState() !== 'error') {
+        <p class="space-summary">{{ spaces().length }} registrados · {{ enabledSpaces() }} habilitados</p>
+      }
+      <label class="field search-field" for="space-search"><span>Buscar por código o número</span><input id="space-search" [value]="spaceQuery()" (input)="spaceQuery.set($any($event.target).value)" autocomplete="off" [disabled]="!selectedStreet()" /></label>
+
+      @if (!selectedStreet()) {
+        <app-data-state kind="empty" title="Selecciona una calle" description="Los espacios se consultan dentro de la calle elegida." />
+      } @else if (spacesState() === 'loading') {
+        <app-data-state kind="loading" title="Cargando espacios" description="Consultando plazas registradas." />
+      } @else if (spacesState() === 'error') {
+        <app-data-state kind="error" title="No se pudieron cargar los espacios" description="Intenta consultar nuevamente."><button class="button secondary" type="button" (click)="loadSpaces(selectedStreet()!.id)">Reintentar</button></app-data-state>
+      } @else if (spacesState() === 'empty') {
+        <app-data-state kind="empty" title="No hay espacios registrados" description="Registra una plaza con su código y contenido QR oficial." />
+      } @else {
+        <ul class="record-list" aria-label="Espacios de la calle seleccionada">
+          @for (space of visibleSpaces(); track space.id) {
+            <li><article class="space-record"><div class="space-heading"><strong>{{ space.spaceNumber }} · {{ space.code }}</strong><span class="tag" [class.inactive]="!space.active">{{ space.active ? 'Habilitado' : 'Deshabilitado' }}</span></div><small>Tipo: {{ space.spaceType }} · QR: {{ space.qrCode }}</small>@if (space.latitude !== null && space.longitude !== null) { <small>Coordenadas registradas: {{ space.latitude }}, {{ space.longitude }}</small> }</article></li>
+          } @empty { <li class="list-empty">No hay coincidencias con esa búsqueda.</li> }
+        </ul>
+      }
+
+      @if (showSpaceForm() && selectedStreet()?.active && selectedZone()?.active) {
+        <form class="create-form" [formGroup]="spaceForm" (ngSubmit)="createSpace()" aria-label="Registrar espacio">
+          <h3>Nuevo espacio</h3>
+          <label class="field" for="space-code"><span>Código</span><input id="space-code" formControlName="code" maxlength="50" autocomplete="off" required /></label>
+          @if (spaceForm.controls.code.touched && spaceForm.controls.code.invalid) { <small class="field-error">Ingresa un código de hasta 50 caracteres.</small> }
+          <label class="field" for="space-number"><span>Número de plaza</span><input id="space-number" formControlName="spaceNumber" maxlength="20" autocomplete="off" required /></label>
+          @if (spaceForm.controls.spaceNumber.touched && spaceForm.controls.spaceNumber.invalid) { <small class="field-error">Ingresa un número de plaza.</small> }
+          <label class="field" for="space-qr"><span>Contenido QR</span><input id="space-qr" formControlName="qrCode" maxlength="255" autocomplete="off" required /></label>
+          @if (spaceForm.controls.qrCode.touched && spaceForm.controls.qrCode.invalid) { <small class="field-error">Ingresa el contenido QR oficial.</small> }
+          <label class="field" for="space-type"><span>Tipo (opcional)</span><input id="space-type" formControlName="spaceType" maxlength="30" autocomplete="off" /><small>Si se deja vacío, el backend asigna STANDARD.</small></label>
+          <div class="coordinate-grid">
+            <label class="field" for="space-latitude"><span>Latitud (opcional)</span><input id="space-latitude" type="number" step="0.0000001" min="-90" max="90" formControlName="latitude" /></label>
+            <label class="field" for="space-longitude"><span>Longitud (opcional)</span><input id="space-longitude" type="number" step="0.0000001" min="-180" max="180" formControlName="longitude" /></label>
+          </div>
+          @if (spaceForm.controls.latitude.touched && spaceForm.controls.latitude.invalid) { <small class="field-error">La latitud debe estar entre -90 y 90.</small> }
+          @if (spaceForm.controls.longitude.touched && spaceForm.controls.longitude.invalid) { <small class="field-error">La longitud debe estar entre -180 y 180.</small> }
+          <button class="button primary" type="submit" [disabled]="saving() !== null">{{ saving() === 'space' ? 'Guardando…' : 'Registrar espacio' }}</button>
+        </form>
+      }
+    </section>
+  </div>
+}

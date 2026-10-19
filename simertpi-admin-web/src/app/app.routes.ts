@@ -16,6 +16,11 @@ const pages: Routes = [
     title: 'Auditoría administrativa | SIMERTPI',
     loadComponent: () => import('./features/audit/audit').then((m) => m.Audit),
   },
+  {
+    path: 'zones',
+    title: 'Zonas, calles y espacios | SIMERTPI',
+    loadComponent: () => import('./features/zones/zones').then((m) => m.Zones),
+  },
   { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
 ];
 export const routes: Routes = [

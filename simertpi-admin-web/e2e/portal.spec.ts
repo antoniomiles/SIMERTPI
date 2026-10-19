@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
-const previews = ['/preview/dashboard', '/preview/personal', '/preview/audit'];
+const previews = ['/preview/dashboard', '/preview/personal', '/preview/audit', '/preview/zones'];
 test('login refuses access without transmitting credentials or creating session state', async ({
   page,
 }) => {
@@ -77,6 +77,17 @@ test('audit preview does not simulate events or call administrative APIs', async
   });
   await page.goto('/preview/audit');
   await expect(page.getByRole('heading', { name: 'No se pudo cargar la auditoría' })).toBeVisible();
+  expect(requests).toEqual([]);
+});
+
+test('zones preview stays local and never calls catalog APIs', async ({ page }) => {
+  const requests: string[] = [];
+  page.on('request', (request) => {
+    if (['fetch', 'xhr'].includes(request.resourceType())) requests.push(request.url());
+  });
+  await page.goto('/preview/zones');
+  await expect(page.getByRole('heading', { name: 'Zonas, calles y espacios' })).toBeVisible();
+  await expect(page.getByText('Esta vista no consulta ni modifica datos.')).toBeVisible();
   expect(requests).toEqual([]);
 });
 
