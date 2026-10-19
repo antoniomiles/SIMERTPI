@@ -7,6 +7,11 @@ const pages: Routes = [
     loadComponent: () => import('./features/dashboard/dashboard').then((m) => m.Dashboard),
   },
   {
+    path: 'map',
+    title: 'Mapa de estacionamientos | SIMERTPI',
+    loadComponent: () => import('./features/map/map-coverage').then((m) => m.MapCoverage),
+  },
+  {
     path: 'personal',
     title: 'Personal municipal | SIMERTPI',
     loadComponent: () => import('./features/municipal-users/personnel').then((m) => m.Personnel),

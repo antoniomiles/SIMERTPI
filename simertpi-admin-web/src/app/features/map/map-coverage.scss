@@ -1,0 +1,200 @@
+:host {
+  display: block;
+}
+.refresh-button,
+.secondary-button {
+  min-height: 2.65rem;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid #0b6b3a;
+  border-radius: 0.45rem;
+  background: #fff;
+  color: #07552d;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.refresh-button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.geography-note,
+.selection-panel,
+.records-panel {
+  padding: 1rem 1.15rem;
+  margin-block: 1rem;
+  border: 1px solid #dce6df;
+  border-radius: 0.7rem;
+  background: #fff;
+}
+.geography-note {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  gap: 0.8rem;
+  border-left: 4px solid #f2c230;
+  background: #fffdf4;
+}
+.geography-note app-icon {
+  width: 1.7rem;
+  height: 1.7rem;
+  color: #020562;
+}
+.geography-note h2,
+.section-heading h2 {
+  margin: 0.1rem 0 0.45rem;
+  font-size: 1.08rem;
+}
+.geography-note p,
+.section-heading p {
+  margin: 0.35rem 0;
+  color: #40574a;
+  line-height: 1.5;
+}
+.selection-panel {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+.selection-panel label,
+.filters label {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+  font-weight: 600;
+}
+.selection-panel select,
+.filters select,
+.filters input {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #aebbb3;
+  border-radius: 0.45rem;
+  background: #fff;
+  color: #17221b;
+  font: inherit;
+}
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin-block: 1rem;
+}
+.summary-grid article {
+  display: grid;
+  align-content: start;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid #dce6df;
+  border-radius: 0.65rem;
+  background: #fff;
+}
+.summary-grid span,
+.summary-grid small {
+  color: #40574a;
+  line-height: 1.4;
+}
+.summary-grid strong {
+  font-size: 1.65rem;
+  color: #020562;
+}
+.range-warning {
+  padding: 0.75rem 1rem;
+  border-left: 4px solid #f2c230;
+  background: #fff9df;
+  color: #473b0b;
+}
+.section-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.filters {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 1rem;
+  margin-block: 1rem;
+}
+.space-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.space-list article {
+  height: 100%;
+  padding: 0.9rem;
+  border: 1px solid #e0e7e2;
+  border-radius: 0.55rem;
+}
+.space-name {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 0.7rem;
+}
+.space-name strong {
+  overflow-wrap: anywhere;
+}
+.admin-state {
+  flex: none;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: #e9f5ed;
+  color: #14552f;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.admin-state.inactive {
+  background: #f1f2f1;
+  color: #445047;
+}
+.space-list dl {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0.8rem 0 0;
+}
+.space-list dl > div {
+  display: grid;
+  grid-template-columns: minmax(8rem, 1fr) 1fr;
+  gap: 0.5rem;
+}
+.space-list dt {
+  color: #40574a;
+  font-weight: 600;
+}
+.space-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 900px) {
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 600px) {
+  .selection-panel,
+  .filters,
+  .space-list {
+    grid-template-columns: 1fr;
+  }
+  .geography-note {
+    grid-template-columns: 1.5rem minmax(0, 1fr);
+    padding: 0.85rem;
+  }
+  .summary-grid {
+    gap: 0.55rem;
+  }
+  .summary-grid article {
+    padding: 0.75rem;
+  }
+  .space-list dl > div {
+    grid-template-columns: 1fr;
+    gap: 0.1rem;
+  }
+  .refresh-button {
+    width: 100%;
+  }
+}

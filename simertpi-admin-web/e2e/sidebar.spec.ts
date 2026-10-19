@@ -80,7 +80,7 @@ test('desktop toggles width, preserves accessible names and persists only a visu
   await page.screenshot({ path: 'artifacts/b1-sidebar-expanded.png', fullPage: true });
 });
 
-test('collapsed tooltips support hover, keyboard, pending items, Escape and accessibility', async ({
+test('collapsed tooltips support hover, keyboard, remaining pending items, Escape and accessibility', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 1100 });
@@ -96,12 +96,12 @@ test('collapsed tooltips support hover, keyboard, pending items, Escape and acce
   await page.keyboard.press('Escape');
   await expect(page.getByRole('tooltip')).toHaveCount(0);
   const pending = page.getByRole('link', {
-    name: 'Mapa de estacionamientos · Pendiente',
+    name: 'Inspectores · Pendiente',
     exact: true,
   });
   await pending.focus();
   await expect(pending).toHaveAttribute('aria-disabled', 'true');
-  await expect(page.getByRole('tooltip')).toHaveText('Mapa de estacionamientos · Pendiente');
+  await expect(page.getByRole('tooltip')).toHaveText('Inspectores · Pendiente');
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/dashboard$/);
   await page.keyboard.press('Escape');

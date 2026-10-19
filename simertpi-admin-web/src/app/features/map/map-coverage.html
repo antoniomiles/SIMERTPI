@@ -1,0 +1,206 @@
+<app-page-heading
+  eyebrow="OPERACIÓN MUNICIPAL"
+  title="Mapa de estacionamientos"
+  description="Cobertura de información geográfica registrada para zonas, calles y espacios."
+>
+  @if (!preview) {
+    <button
+      class="refresh-button"
+      type="button"
+      (click)="loadZones()"
+      [disabled]="zonesState() === 'loading'"
+    >
+      Actualizar datos
+    </button>
+  }
+</app-page-heading>
+
+<section class="geography-note" aria-labelledby="geography-note-title">
+  <app-icon name="map" />
+  <div>
+    <h2 id="geography-note-title">Vista geográfica pendiente de validación municipal</h2>
+    <p>
+      El sistema registra coordenadas opcionales en los espacios, pero no conserva su fuente, fecha
+      de levantamiento ni aprobación municipal. Por eso esta pantalla no dibuja puntos en un mapa ni
+      presenta ubicaciones como verificadas.
+    </p>
+    <p>
+      La ubicación es un dato de configuración del espacio; no representa disponibilidad física ni
+      ocupación en tiempo real.
+    </p>
+  </div>
+</section>
+
+@if (preview) {
+  <app-data-state
+    title="Previsualización sin datos"
+    description="La vista previa local no consulta el backend ni usa ubicaciones de ejemplo."
+  />
+} @else if (zonesState() === 'loading') {
+  <app-data-state
+    kind="loading"
+    title="Consultando zonas"
+    description="Se están cargando los datos administrativos."
+  />
+} @else if (zonesState() === 'error') {
+  <app-data-state
+    kind="error"
+    title="No se pudieron cargar las zonas"
+    [description]="errorMessage()"
+  >
+    <button type="button" class="secondary-button" (click)="loadZones()">Reintentar</button>
+  </app-data-state>
+} @else if (zonesState() === 'empty') {
+  <app-data-state
+    title="No hay zonas configuradas"
+    description="Cuando existan zonas registradas, aquí se podrá revisar su cobertura geográfica."
+  />
+} @else {
+  <section class="selection-panel" aria-label="Selección de zona y calle">
+    <label>
+      <span>Zona</span>
+      <select [value]="selectedZoneId()" (change)="selectZone($any($event.target).value)">
+        @for (zone of zones(); track zone.id) {
+          <option [value]="zone.id">
+            {{ zone.code }} · {{ zone.name }}{{ zone.active ? '' : ' · Deshabilitada' }}
+          </option>
+        }
+      </select>
+    </label>
+    @if (streetsState() === 'ready') {
+      <label>
+        <span>Calle</span>
+        <select [value]="selectedStreetId()" (change)="selectStreet($any($event.target).value)">
+          @for (street of streets(); track street.id) {
+            <option [value]="street.id">
+              {{ street.code }} · {{ street.name }}{{ street.active ? '' : ' · Deshabilitada' }}
+            </option>
+          }
+        </select>
+      </label>
+    }
+  </section>
+
+  @if (errorMessage() && streetsState() === 'error') {
+    <app-data-state
+      kind="error"
+      title="No se pudieron cargar las calles"
+      [description]="errorMessage()"
+    >
+      <button type="button" class="secondary-button" (click)="loadStreets(selectedZoneId())">
+        Reintentar
+      </button>
+    </app-data-state>
+  } @else if (streetsState() === 'loading') {
+    <app-data-state
+      kind="loading"
+      title="Consultando calles"
+      description="Se están cargando las calles de la zona seleccionada."
+    />
+  } @else if (streetsState() === 'empty') {
+    <app-data-state
+      title="La zona no tiene calles registradas"
+      description="No hay espacios que revisar para esta zona."
+    />
+  } @else if (spacesState() === 'loading') {
+    <app-data-state
+      kind="loading"
+      title="Consultando espacios"
+      description="Se está revisando la información geográfica del ámbito seleccionado."
+    />
+  } @else if (spacesState() === 'error') {
+    <app-data-state
+      kind="error"
+      title="No se pudieron cargar los espacios"
+      [description]="errorMessage()"
+    >
+      <button type="button" class="secondary-button" (click)="loadSpaces()">Reintentar</button>
+    </app-data-state>
+  } @else if (spacesState() === 'empty') {
+    <app-data-state
+      title="La calle no tiene espacios registrados"
+      description="No hay ubicaciones que revisar en esta calle."
+    />
+  } @else {
+    <section class="summary-grid" aria-label="Resumen de cobertura de la calle seleccionada">
+      <article>
+        <span>Espacios configurados</span><strong>{{ spaces().length }}</strong>
+      </article>
+      <article>
+        <span>Pares de coordenadas presentes</span><strong>{{ completePairs() }}</strong
+        ><small>Sin verificación de procedencia</small>
+      </article>
+      <article>
+        <span>Sin par completo</span><strong>{{ missingPairs() }}</strong
+        ><small>Requieren captura o revisión</small>
+      </article>
+      <article>
+        <span>Habilitados administrativamente</span><strong>{{ enabledSpaces() }}</strong
+        ><small>No equivale a disponibilidad física</small>
+      </article>
+    </section>
+    @if (outOfRangePairs() > 0) {
+      <p class="range-warning" role="status">
+        {{ outOfRangePairs() }} par(es) están fuera de los rangos geográficos esperados y requieren
+        revisión.
+      </p>
+    }
+
+    <section class="records-panel" aria-labelledby="records-title">
+      <div class="section-heading">
+        <div>
+          <h2 id="records-title">Espacios de la calle seleccionada</h2>
+          <p>{{ selectedZone()?.name }} · {{ selectedStreet()?.name }}</p>
+        </div>
+      </div>
+      <div class="filters">
+        <label>
+          <span>Buscar código o número</span>
+          <input type="search" maxlength="100" (input)="setQuery($any($event.target).value)" />
+        </label>
+        <label>
+          <span>Estado administrativo</span>
+          <select
+            [value]="administrativeFilter()"
+            (change)="setAdministrativeFilter($any($event.target).value)"
+          >
+            <option value="all">Todos</option>
+            <option value="active">Habilitados</option>
+            <option value="inactive">Deshabilitados</option>
+          </select>
+        </label>
+      </div>
+      @if (visibleSpaces().length) {
+        <ul class="space-list">
+          @for (space of visibleSpaces(); track space.id) {
+            <li>
+              <article>
+                <div class="space-name">
+                  <strong>{{ space.spaceNumber }} · {{ space.code }}</strong>
+                  <span class="admin-state" [class.inactive]="!space.active">{{
+                    space.active ? 'Habilitado' : 'Deshabilitado'
+                  }}</span>
+                </div>
+                <dl>
+                  <div>
+                    <dt>Información geográfica</dt>
+                    <dd>{{ spaceGeographyLabel(space) }}</dd>
+                  </div>
+                  <div>
+                    <dt>Tipo de espacio</dt>
+                    <dd>{{ space.spaceType }}</dd>
+                  </div>
+                </dl>
+              </article>
+            </li>
+          }
+        </ul>
+      } @else {
+        <app-data-state
+          title="Sin resultados"
+          description="Ningún espacio coincide con la búsqueda y el estado seleccionados."
+        />
+      }
+    </section>
+  }
+}

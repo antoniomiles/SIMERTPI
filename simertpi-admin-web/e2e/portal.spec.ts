@@ -3,6 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 
 const previews = [
   '/preview/dashboard',
+  '/preview/map',
   '/preview/personal',
   '/preview/audit',
   '/preview/zones',
@@ -47,7 +48,7 @@ test('dashboard preview stays data-free and protected routes redirect to login',
   await expect(page.locator('.preview-note').getByText('Previsualización local')).toBeVisible();
   await expect(page.locator('.metric-grid')).toHaveCount(0);
   expect(requests).toEqual([]);
-  for (const path of ['/admin/dashboard', '/admin/personal', '/admin/violations']) {
+  for (const path of ['/admin/dashboard', '/admin/personal', '/admin/map', '/admin/violations']) {
     await page.goto(path);
     await expect(page).toHaveURL(/\/login\?returnUrl=/);
     expect(new URL(page.url()).searchParams.get('returnUrl')).toBe(path);
@@ -63,6 +64,36 @@ test('dashboard preview stays data-free and protected routes redirect to login',
     .analyze();
   expect(results.violations.map((item) => item.id)).toEqual([]);
   expect(requests).toEqual([]);
+});
+
+test('map coverage preview does not query the backend or draw sample locations', async ({
+  page,
+}) => {
+  const requests: string[] = [];
+  page.on('request', (request) => {
+    if (['fetch', 'xhr'].includes(request.resourceType())) requests.push(request.url());
+  });
+  await page.goto('/preview/map');
+  await expect(page.getByRole('heading', { name: 'Mapa de estacionamientos' })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Vista geográfica pendiente de validación municipal' }),
+  ).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Previsualización sin datos' })).toBeVisible();
+  await expect(page.locator('[data-map-marker]')).toHaveCount(0);
+  expect(requests).toEqual([]);
+});
+
+test('map coverage remains accessible and fits a mobile viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/preview/map');
+  await expect(page.getByRole('heading', { name: 'Mapa de estacionamientos' })).toBeVisible();
+  const results = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
+    .analyze();
+  expect(results.violations.map((item) => item.id)).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
 });
 
 test('violations preview stays local and does not fabricate enforcement records', async ({ page }) => {
