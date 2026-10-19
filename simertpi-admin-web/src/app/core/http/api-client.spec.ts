@@ -1,8 +1,8 @@
 import { TestBed } from '@angular/core/testing';
-import { provideHttpClient, withInterceptors, HttpErrorResponse } from '@angular/common/http';
+import { provideHttpClient, withInterceptors, HttpErrorResponse, HttpHeaders } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ApiClient } from './api-client';
-import { apiInterceptor } from './api.interceptor';
+import { apiInterceptor, requestTimeoutMs, ADMIN_AUTH_TIMEOUT_MS, ADMIN_API_TIMEOUT_MS } from './api.interceptor';
 import { normalizeError, PortalError } from './portal-error';
 import { PORTAL_CONFIG } from '../config/portal-config';
 import { environment } from '../../../environments/environment';
@@ -44,5 +44,24 @@ describe('Fail-closed administrative transport', () => {
     expect(normalizeError(Object.assign(new Error(), { name: 'TimeoutError' })).kind).toBe(
       'timeout',
     );
+  });
+  it('allows cold-start time for auth routes and distinguishes gateway failures', () => {
+    for (const path of ['/api/v1/admin/auth/csrf', '/api/v1/admin/auth/login', '/api/v1/admin/auth/me'])
+      expect(requestTimeoutMs(path)).toBe(ADMIN_AUTH_TIMEOUT_MS);
+    expect(ADMIN_AUTH_TIMEOUT_MS).toBeGreaterThan(120000);
+    expect(requestTimeoutMs('/api/v1/admin/audit')).toBe(ADMIN_API_TIMEOUT_MS);
+    expect(normalizeError(new HttpErrorResponse({ status: 502 })).kind).toBe('unavailable');
+    expect(
+      normalizeError(
+        new HttpErrorResponse({
+          status: 502,
+          headers: new HttpHeaders({ 'X-Admin-Proxy-Error': 'UPSTREAM_UNAVAILABLE' }),
+        }),
+      ).kind,
+    ).toBe('network');
+    expect(normalizeError(new HttpErrorResponse({ status: 503 })).kind).toBe('unavailable');
+    const timeoutError = normalizeError(new HttpErrorResponse({ status: 504 }));
+    expect(timeoutError.kind).toBe('timeout');
+    expect(timeoutError.message).toContain('No se repitió');
   });
 });

@@ -4,7 +4,7 @@ import https from 'node:https';
 import { readFileSync, statSync, createReadStream } from 'node:fs';
 import { resolve, extname, sep } from 'node:path';
 import { pipeline } from 'node:stream';
-export function createPortalServer({root, upstream, allowLoopback = false}) {
+export function createPortalServer({root, upstream, allowLoopback = false, authTimeoutMs = 120000, upstreamTimeoutMs = 15000}) {
  const target = new URL(upstream);
  if (target.username || target.password || target.pathname !== '/' || target.search || target.hash ||
      (target.protocol !== 'https:' && !(allowLoopback && target.protocol === 'http:' && ['127.0.0.1','localhost'].includes(target.hostname)))) throw Error('Invalid upstream');
@@ -26,15 +26,27 @@ export function createPortalServer({root, upstream, allowLoopback = false}) {
    // Do not silently turn a forbidden Basic/Bearer request into cookie authentication.
    if(req.headers.authorization){res.writeHead(401);res.end();return;}
    const transport=target.protocol==='https:'?https:http;
+   const isAuthRequest=['/api/v1/admin/auth/csrf','/api/v1/admin/auth/login','/api/v1/admin/auth/me','/api/v1/admin/auth/logout'].includes(pathname);
+   let timedOut=false;
+   let responseTimer;
    const request=transport.request(new URL(req.url,target),{method:req.method,headers,rejectUnauthorized:true},response=>{
+    clearTimeout(responseTimer);
     const outgoing={...response.headers,'cache-control':'no-store','pragma':'no-cache'};
     for(const name of ['connection','keep-alive','transfer-encoding','upgrade'])delete outgoing[name];
     // Never cache API results, including failures. Set-Cookie is forwarded as separate headers.
     res.writeHead(response.statusCode??502,outgoing);
     pipeline(response,res,()=>{});
    });
-   request.setTimeout(15000,()=>request.destroy());
-   request.on('error',()=>{if(!res.headersSent){res.writeHead(502,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end('{"message":"Servicio administrativo no disponible"}');}else res.destroy();});
+   // Render Free may need about a minute to wake. Bound the wait for upstream
+   // response headers without retrying any request (especially login POST).
+   responseTimer=setTimeout(()=>{timedOut=true;request.destroy();},isAuthRequest?authTimeoutMs:upstreamTimeoutMs);
+   request.on('error',()=>{clearTimeout(responseTimer);if(!res.headersSent){
+    const status=timedOut?504:502;
+    const body=timedOut?'Servicio administrativo excedio el tiempo de espera':'Servicio administrativo no disponible';
+    res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store','Pragma':'no-cache','X-Admin-Proxy-Error':timedOut?'UPSTREAM_TIMEOUT':'UPSTREAM_UNAVAILABLE',...(timedOut?{'Retry-After':'5'}:{})});
+    res.end(JSON.stringify({code:timedOut?'UPSTREAM_TIMEOUT':'UPSTREAM_UNAVAILABLE',message:body}));
+   }else res.destroy();});
+   res.on('close',()=>clearTimeout(responseTimer));
    req.on('aborted',()=>request.destroy());
    req.pipe(request);return;
   }

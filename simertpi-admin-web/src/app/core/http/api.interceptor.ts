@@ -5,6 +5,18 @@ import { catchError, throwError, timeout } from 'rxjs';
 import { PORTAL_CONFIG } from '../config/portal-config';
 import { AdminSessionState } from '../auth/admin-session-state';
 import { normalizeError, PortalError } from './portal-error';
+export const ADMIN_AUTH_TIMEOUT_MS = 130000;
+export const ADMIN_API_TIMEOUT_MS = 15000;
+const ADMIN_AUTH_PATHS = new Set([
+  '/api/v1/admin/auth/csrf',
+  '/api/v1/admin/auth/login',
+  '/api/v1/admin/auth/me',
+  '/api/v1/admin/auth/logout',
+]);
+export function requestTimeoutMs(pathname: string): number {
+  return ADMIN_AUTH_PATHS.has(pathname) ? ADMIN_AUTH_TIMEOUT_MS : ADMIN_API_TIMEOUT_MS;
+}
+
 export const apiInterceptor: HttpInterceptorFn = (request, next) => {
   const config = inject(PORTAL_CONFIG),
     document = inject(DOCUMENT),
@@ -18,7 +30,7 @@ export const apiInterceptor: HttpInterceptorFn = (request, next) => {
   if (target.origin !== document.location.origin || !target.pathname.startsWith('/api/v1/admin/'))
     return throwError(() => new PortalError('forbidden', 'Destino administrativo no autorizado.'));
   return next(request.clone({ withCredentials: true })).pipe(
-    timeout(15000),
+    timeout(requestTimeoutMs(target.pathname)),
     catchError((error: unknown) => {
       if (error instanceof HttpErrorResponse && error.status === 401) {
         state.clear();
