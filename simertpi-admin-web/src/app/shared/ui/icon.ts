@@ -2,6 +2,7 @@ import { Component, input } from '@angular/core';
 const PATHS = {
   dashboard: 'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',
   map: 'm9 18-6 3V6l6-3 6 3 6-3v15l-6 3-6-3z M9 3v15 M15 6v15',
+  sessions: 'M4 5h16v15H4z M8 2v6 M16 2v6 M4 10h16 M8 14h3 M8 17h6',
   spaces: 'M3 3h18v18H3z M3 9h18 M3 15h18 M9 3v18 M15 3v18',
   violation: 'm12 3 10 18H2L12 3z M12 9v5 M12 17h.01',
   inspectors:

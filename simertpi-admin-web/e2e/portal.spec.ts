@@ -1,7 +1,14 @@
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
-const previews = ['/preview/dashboard', '/preview/personal', '/preview/audit', '/preview/zones', '/preview/tariffs'];
+const previews = [
+  '/preview/dashboard',
+  '/preview/personal',
+  '/preview/audit',
+  '/preview/zones',
+  '/preview/tariffs',
+  '/preview/parking-sessions',
+];
 test('login refuses access without transmitting credentials or creating session state', async ({
   page,
 }) => {
@@ -98,6 +105,17 @@ test('tariffs preview stays local and never calls configuration APIs', async ({ 
   });
   await page.goto('/preview/tariffs');
   await expect(page.getByRole('heading', { name: 'Tarifas y horarios' })).toBeVisible();
+  await expect(page.getByText('Esta vista no consulta ni modifica datos.')).toBeVisible();
+  expect(requests).toEqual([]);
+});
+
+test('parking sessions preview stays local and never calls operational APIs', async ({ page }) => {
+  const requests: string[] = [];
+  page.on('request', (request) => {
+    if (['fetch', 'xhr'].includes(request.resourceType())) requests.push(request.url());
+  });
+  await page.goto('/preview/parking-sessions');
+  await expect(page.getByRole('heading', { name: 'Estacionamientos y sesiones' })).toBeVisible();
   await expect(page.getByText('Esta vista no consulta ni modifica datos.')).toBeVisible();
   expect(requests).toEqual([]);
 });

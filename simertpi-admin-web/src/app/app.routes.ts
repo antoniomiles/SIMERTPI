@@ -26,6 +26,12 @@ const pages: Routes = [
     title: 'Tarifas y horarios | SIMERTPI',
     loadComponent: () => import('./features/tariffs/tariffs').then((m) => m.Tariffs),
   },
+  {
+    path: 'parking-sessions',
+    title: 'Estacionamientos y sesiones | SIMERTPI',
+    loadComponent: () =>
+      import('./features/parking-sessions/parking-sessions').then((m) => m.ParkingSessions),
+  },
   { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
 ];
 export const routes: Routes = [

@@ -14,6 +14,7 @@ export const NAVIGATION: readonly NavigationGroup[] = [
     label: 'Operación',
     items: [
       { label: 'Mapa de estacionamientos', icon: 'map' },
+      { label: 'Estacionamientos y sesiones', icon: 'sessions', path: 'parking-sessions' },
       { label: 'Zonas y espacios', icon: 'spaces', path: 'zones' },
       { label: 'Infracciones', icon: 'violation' },
       { label: 'Inspectores', icon: 'inspectors' },

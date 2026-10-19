@@ -1,0 +1,163 @@
+<app-page-heading
+  eyebrow="OPERACIÓN / ESTACIONAMIENTOS"
+  title="Estacionamientos y sesiones"
+  description="Supervisión de sesiones registradas. El estado de la sesión se muestra por separado del estado de habilitación del espacio."
+>
+  <span class="tag">Solo lectura</span>
+</app-page-heading>
+
+@if (preview) {
+  <section class="preview-note card" role="note">
+    <strong>Vista de preparación</strong>
+    <p>
+      Esta vista no consulta ni modifica datos. Para revisar información se requiere una sesión
+      administrativa autorizada.
+    </p>
+  </section>
+} @else {
+  <section class="filters card" aria-labelledby="session-filters-title">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">CONSULTA</p>
+        <h2 id="session-filters-title">Buscar sesiones</h2>
+      </div>
+    </div>
+    <form [formGroup]="filters" (ngSubmit)="applyFilters()">
+      <div class="filter-grid">
+        <div class="field">
+          <label for="session-query">Placa, zona, calle, espacio o identificador</label
+          ><input id="session-query" formControlName="q" maxlength="100" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label for="session-status">Estado de sesión</label
+          ><select id="session-status" formControlName="status">
+            <option value="">Todos los estados</option>
+            <option value="PENDING_PAYMENT">Pendiente de pago</option>
+            <option value="ACTIVE">Activa</option>
+            <option value="EXTENDED">Extendida</option>
+            <option value="EXPIRED">Vencida</option>
+            <option value="MAX_TIME_REACHED">Tiempo máximo alcanzado</option>
+            <option value="COMPLETED">Finalizada</option>
+            <option value="CANCELLED">Anulada</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="session-from">Inicio desde</label
+          ><input id="session-from" type="date" formControlName="from" />
+        </div>
+        <div class="field">
+          <label for="session-to">Inicio hasta</label
+          ><input id="session-to" type="date" formControlName="to" />
+        </div>
+      </div>
+      <div class="filter-actions">
+        <button class="button primary" type="submit">Buscar</button
+        ><button class="button secondary" type="button" (click)="clearFilters()">Limpiar</button>
+      </div>
+    </form>
+  </section>
+
+  @if (state() === 'loading') {
+    <app-data-state
+      kind="loading"
+      title="Cargando sesiones"
+      description="Consultando los registros del backend."
+    />
+  } @else if (state() === 'error') {
+    <app-data-state
+      kind="error"
+      title="No se pudieron cargar las sesiones"
+      [description]="errorMessage()"
+      ><button class="button secondary" type="button" (click)="load()">
+        Reintentar
+      </button></app-data-state
+    >
+  } @else if (state() === 'empty') {
+    <app-data-state
+      kind="empty"
+      title="No hay sesiones para mostrar"
+      description="No se encontraron registros con los filtros seleccionados."
+    />
+  } @else if (result(); as data) {
+    <section class="results card" aria-label="Sesiones de estacionamiento" aria-live="polite">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">REGISTROS REALES</p>
+          <h2>Sesiones</h2>
+        </div>
+        <span class="tag">{{ data.totalElements }} resultados</span>
+      </div>
+      <p class="data-note">
+        La sesión representa el registro operativo. La habilitación del espacio no es una medición
+        física de ocupación.
+      </p>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Sesión / placa</th>
+              <th scope="col">Zona / calle</th>
+              <th scope="col">Espacio</th>
+              <th scope="col">Estado de sesión</th>
+              <th scope="col">Inicio / término</th>
+              <th scope="col">Duración</th>
+              <th scope="col">Pago</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of data.items; track row.id) {
+              <tr>
+                <td>
+                  <strong>{{ row.plate }}</strong
+                  ><small class="identifier">{{ row.id }}</small>
+                </td>
+                <td>{{ location(row) }}</td>
+                <td>
+                  <strong>{{ row.spaceCode }} · {{ row.spaceNumber }}</strong
+                  ><small>{{
+                    row.spaceEnabled ? 'Espacio habilitado' : 'Espacio deshabilitado'
+                  }}</small>
+                </td>
+                <td>
+                  <span class="status-tag">{{ statusLabel(row.sessionStatus) }}</span>
+                </td>
+                <td>
+                  {{ row.startedAt | date: 'medium'
+                  }}<small
+                    >Fin previsto:
+                    {{
+                      row.expectedEndAt ? (row.expectedEndAt | date: 'medium') : 'No registrado'
+                    }}</small
+                  ><small
+                    >Fin real:
+                    {{ row.endedAt ? (row.endedAt | date: 'medium') : 'No registrado' }}</small
+                  >
+                </td>
+                <td>{{ row.durationMinutes }} min</td>
+                <td>{{ row.paymentStatus ?? 'Sin pago registrado' }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      <nav class="pagination" aria-label="Paginación de sesiones">
+        <span
+          >Página {{ data.totalPages ? data.page + 1 : 0 }} de {{ data.totalPages }} ·
+          {{ data.totalElements }} registros</span
+        >
+        <div>
+          <button
+            class="button secondary"
+            type="button"
+            (click)="previous()"
+            [disabled]="data.first"
+          >
+            Anterior</button
+          ><button class="button secondary" type="button" (click)="next()" [disabled]="data.last">
+            Siguiente
+          </button>
+        </div>
+      </nav>
+    </section>
+  }
+}
