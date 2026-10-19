@@ -37,6 +37,11 @@ const pages: Routes = [
     title: 'Pagos y recaudación | SIMERTPI',
     loadComponent: () => import('./features/payments/payments').then((m) => m.Payments),
   },
+  {
+    path: 'reports',
+    title: 'Reportes administrativos y financieros | SIMERTPI',
+    loadComponent: () => import('./features/reports/reports').then((m) => m.Reports),
+  },
   { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
 ];
 export const routes: Routes = [

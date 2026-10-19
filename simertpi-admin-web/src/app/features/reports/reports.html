@@ -1,0 +1,131 @@
+<app-page-heading
+  eyebrow="CONTROL / ANÁLISIS"
+  title="Reportes administrativos y financieros"
+  description="Indicadores agregados calculados desde los registros de SIMERTPI."
+>
+  <span class="tag">Solo lectura</span>
+</app-page-heading>
+
+@if (preview) {
+  <section class="notice preview-note" role="status">
+    <strong>Previsualización local</strong>
+    <p>Esta vista no consulta datos ni muestra indicadores de ejemplo. Inicia sesión para consultar reportes reales.</p>
+  </section>
+} @else {
+  <section class="filters card" aria-labelledby="report-filters-title">
+    <div class="section-heading"><div><p class="eyebrow">PERÍODO</p><h2 id="report-filters-title">Selecciona fechas</h2></div></div>
+    <form [formGroup]="filters" (ngSubmit)="load()">
+      <div class="filter-grid">
+        <div class="field"><label for="report-from">Desde</label><input id="report-from" type="date" formControlName="from" required /></div>
+        <div class="field"><label for="report-to">Hasta</label><input id="report-to" type="date" formControlName="to" required /></div>
+      </div>
+      @if (filters.touched && filters.invalid) { <p class="field-error" role="alert">Selecciona las dos fechas.</p> }
+      <div class="filter-actions"><button class="button primary" type="submit">Generar reporte</button><button class="button secondary" type="button" (click)="exportCsv()" [disabled]="!result()">Exportar CSV agregado</button></div>
+      <p class="helper">Máximo 366 días. Las fechas se interpretan con la zona horaria municipal de {{ result()?.timeZone ?? 'America/Guayaquil' }}.</p>
+    </form>
+  </section>
+
+  @if (state() === 'loading') {
+    <app-data-state kind="loading" title="Generando reportes" description="Consultando agregados registrados en el backend." />
+  } @else if (state() === 'error') {
+    <app-data-state kind="error" title="No se pudieron generar los reportes" [description]="errorMessage()">
+      <button class="button secondary" type="button" (click)="load()">Reintentar</button>
+    </app-data-state>
+  } @else if (result(); as data) {
+    <section class="notice methodology" role="note">
+      <strong>Definición del período</strong>
+      <p>Sesiones: fecha de inicio local. Estados de pago: estado actual de pagos creados en el período. Importes aprobados: fecha de pago registrada. Cada pago se cuenta desde su registro; los intentos no se suman.</p>
+    </section>
+
+    <div class="section-heading"><div><p class="eyebrow">OPERACIÓN</p><h2>Actividad de estacionamiento</h2></div></div>
+    <section class="metric-grid" aria-label="Resumen operativo">
+      <article class="metric-card card"><span>Sesiones iniciadas</span><strong>{{ data.operational.sessionsStarted }}</strong><small>Registros con inicio dentro del período</small></article>
+      <article class="metric-card card"><span>Sesiones con fin registrado</span><strong>{{ data.operational.recordedDuration.endedSessionCount }}</strong><small>Base del cálculo de duración</small></article>
+      <article class="metric-card card"><span>Duración promedio registrada</span><strong>{{ formatDuration(data.operational.recordedDuration.averageSeconds) }}</strong><small>Solo sesiones con ended_at registrado</small></article>
+    </section>
+
+    <section class="report-grid">
+      <article class="report-card card">
+        <h3>Sesiones iniciadas por día</h3>
+        @if (data.operational.sessionsStarted === 0) { <p class="empty-note">No hay sesiones iniciadas en el período.</p> } @else {
+          <div class="bar-chart" role="group" aria-label="Sesiones iniciadas por día">
+            @for (day of data.operational.dailySessions; track day.date) {
+              <div class="bar-column" role="group" [attr.aria-label]="day.date + ': ' + day.count + ' sesiones'"><span>{{ day.count }}</span><div class="bar-track"><i class="session-bar" [style.height.%]="sessionBarHeight(day.count)"></i></div><small>{{ day.date.slice(5) }}</small></div>
+            }
+          </div>
+        }
+      </article>
+      <article class="report-card card">
+        <h3>Sesiones por estado actual</h3>
+        @if (!data.operational.sessionsByStatus.length) { <p class="empty-note">Sin sesiones para clasificar.</p> } @else {
+          <table><thead><tr><th scope="col">Estado</th><th scope="col">Sesiones</th></tr></thead><tbody>
+            @for (item of data.operational.sessionsByStatus; track item.code) { <tr><td>{{ item.code }}</td><td>{{ item.count }}</td></tr> }
+          </tbody></table>
+        }
+      </article>
+    </section>
+
+    <section class="report-grid">
+      <article class="report-card card">
+        <h3>Sesiones iniciadas por zona</h3>
+        @if (!data.operational.sessionsByZone.length) { <p class="empty-note">No hay actividad por zona en el período.</p> } @else {
+          <table><thead><tr><th scope="col">Zona</th><th scope="col">Sesiones</th></tr></thead><tbody>
+            @for (item of data.operational.sessionsByZone; track item.zoneCode) { <tr><td>{{ item.zoneCode }} · {{ item.zoneName }}</td><td>{{ item.count }}</td></tr> }
+          </tbody></table>
+        }
+      </article>
+      <article class="report-card card">
+        <h3>Espacios configurados por zona</h3>
+        <p class="helper">Estos conteos describen configuración; no son detección de vehículos ni ocupación física.</p>
+        @if (!data.operational.spacesByZone.length) { <p class="empty-note">No hay zonas configuradas.</p> } @else {
+          <table><thead><tr><th scope="col">Zona</th><th scope="col">Configurados</th><th scope="col">Habilitados</th></tr></thead><tbody>
+            @for (item of data.operational.spacesByZone; track item.zoneCode) { <tr><td>{{ item.zoneCode }} · {{ item.zoneName }}</td><td>{{ item.configuredSpaces }}</td><td>{{ item.activeSpaces }}</td></tr> }
+          </tbody></table>
+        }
+      </article>
+    </section>
+
+    <div class="section-heading"><div><p class="eyebrow">FINANZAS</p><h2>Pagos registrados</h2></div></div>
+    <section class="notice financial-note" role="note"><strong>Importes aprobados por proveedor</strong><p>No representan liquidaciones ni depósitos bancarios. El sistema no registra comisiones, depósitos ni conciliaciones bancarias.</p></section>
+    <section class="report-grid">
+      <article class="report-card card">
+        <h3>Pagos por estado actual y moneda</h3>
+        <p class="helper">Conteo de filas de pagos creadas dentro del período; no se agregan filas de intentos.</p>
+        @if (!data.financial.paymentsByCurrentStatus.length) { <p class="empty-note">No hay pagos creados en el período.</p> } @else {
+          <div class="table-scroll"><table><thead><tr><th scope="col">Estado</th><th scope="col">Moneda</th><th scope="col">Pagos</th><th scope="col">Importe registrado</th></tr></thead><tbody>
+            @for (item of data.financial.paymentsByCurrentStatus; track item.status + item.currency) { <tr><td>{{ item.status }}</td><td>{{ item.currency }}</td><td>{{ item.count }}</td><td>{{ formatAmount(item.amount, item.currency) }}</td></tr> }
+          </tbody></table></div>
+        }
+      </article>
+      <article class="report-card card">
+        <h3>Aprobaciones por fecha de pago</h3>
+        @if (!data.financial.approvedPaymentsByPaidAt.length) { <p class="empty-note">No hay pagos con estado APPROVED y fecha de pago registrada en el período.</p> } @else {
+          <table><thead><tr><th scope="col">Moneda</th><th scope="col">Pagos</th><th scope="col">Importe aprobado</th></tr></thead><tbody>
+            @for (item of data.financial.approvedPaymentsByPaidAt; track item.currency) { <tr><td>{{ item.currency }}</td><td>{{ item.count }}</td><td>{{ formatAmount(item.amount, item.currency) }}</td></tr> }
+          </tbody></table>
+        }
+      </article>
+    </section>
+
+    <section class="report-grid">
+      <article class="report-card card">
+        <div class="section-heading"><h3>Aprobaciones por día</h3>
+          @if (data.financial.approvedPaymentsByPaidAt.length) { <label class="currency-select">Moneda<select aria-label="Moneda del gráfico de pagos" [value]="selectedCurrency()" (change)="selectedCurrency.set($any($event.target).value)">@for (item of data.financial.approvedPaymentsByPaidAt; track item.currency) { <option [value]="item.currency">{{ item.currency }}</option> }</select></label> }
+        </div>
+        @if (!selectedDailyApprovals().length) { <p class="empty-note">Sin pagos aprobados para graficar.</p> } @else {
+          <div class="bar-chart" role="group" [attr.aria-label]="'Importes aprobados por día en ' + selectedCurrency()">
+            @for (day of selectedDailyApprovals(); track day.date) { <div class="bar-column" role="group" [attr.aria-label]="day.date + ': ' + day.count + ' pagos, ' + formatAmount(day.amount, day.currency)"><span>{{ day.count }}</span><div class="bar-track"><i class="payment-bar" [style.height.%]="paymentBarHeight(day.amount)"></i></div><small>{{ day.date.slice(5) }}</small></div> }
+          </div>
+        }
+      </article>
+      <article class="report-card card">
+        <h3>Aprobaciones por zona y moneda</h3>
+        @if (!data.financial.approvedPaymentsByZone.length) { <p class="empty-note">No hay pagos aprobados relacionados con una zona en el período.</p> } @else {
+          <div class="table-scroll"><table><thead><tr><th scope="col">Zona</th><th scope="col">Moneda</th><th scope="col">Pagos</th><th scope="col">Importe aprobado</th></tr></thead><tbody>
+            @for (item of data.financial.approvedPaymentsByZone; track item.zoneCode + item.currency) { <tr><td>{{ item.zoneCode }} · {{ item.zoneName }}</td><td>{{ item.currency }}</td><td>{{ item.count }}</td><td>{{ formatAmount(item.amount, item.currency) }}</td></tr> }
+          </tbody></table></div>
+        }
+      </article>
+    </section>
+  }
+}

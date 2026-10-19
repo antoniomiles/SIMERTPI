@@ -9,6 +9,7 @@ const previews = [
   '/preview/tariffs',
   '/preview/parking-sessions',
   '/preview/payments',
+  '/preview/reports',
 ];
 test('login refuses access without transmitting credentials or creating session state', async ({
   page,
@@ -50,6 +51,13 @@ test('payments administrative route requires a real admin session', async ({ pag
   await page.goto('/admin/payments');
   await expect(page).toHaveURL(/\/login\?returnUrl=/);
   expect(new URL(page.url()).searchParams.get('returnUrl')).toBe('/admin/payments');
+  await expect(page.getByRole('heading', { name: 'Bienvenido a SIMERTPI' })).toBeVisible();
+});
+
+test('reports administrative route requires a real admin session', async ({ page }) => {
+  await page.goto('/admin/reports');
+  await expect(page).toHaveURL(/\/login\?returnUrl=/);
+  expect(new URL(page.url()).searchParams.get('returnUrl')).toBe('/admin/reports');
   await expect(page.getByRole('heading', { name: 'Bienvenido a SIMERTPI' })).toBeVisible();
 });
 

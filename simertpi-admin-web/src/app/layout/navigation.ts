@@ -25,7 +25,7 @@ export const NAVIGATION: readonly NavigationGroup[] = [
     items: [
       { label: 'Pagos y recaudación', icon: 'collection', path: 'payments' },
       { label: 'Conciliación', icon: 'reconciliation' },
-      { label: 'Reportes', icon: 'report' },
+      { label: 'Reportes', icon: 'report', path: 'reports' },
     ],
   },
   {

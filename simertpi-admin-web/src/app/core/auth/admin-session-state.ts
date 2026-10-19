@@ -22,7 +22,7 @@ export class AdminSessionState {
   }
 }
 export function safeReturnUrl(value: string | null): string {
-  return value === '/admin/personal' || value === '/admin/dashboard' || value === '/admin/payments'
+  return value === '/admin/personal' || value === '/admin/dashboard' || value === '/admin/payments' || value === '/admin/reports'
     ? value
     : '/admin/dashboard';
 }
