@@ -35,6 +35,14 @@ public class AdminSecurityConfiguration {
     .requestMatchers(HttpMethod.GET,"/api/v1/admin/auth/me","/api/v1/admin/parking/reentry-configuration").hasAuthority("SIMERTPI_ADMIN")
     .requestMatchers(HttpMethod.GET,"/api/v1/admin/inspectors").hasAuthority("SIMERTPI_ADMIN")
     .requestMatchers(HttpMethod.GET,"/api/v1/admin/audit").hasAuthority("SIMERTPI_ADMIN")
+    .requestMatchers(HttpMethod.GET,
+     "/api/v1/admin/parking/zones",
+     "/api/v1/admin/parking/zones/*/streets",
+     "/api/v1/admin/parking/streets/*/spaces").hasAuthority("SIMERTPI_ADMIN")
+    .requestMatchers(HttpMethod.POST,
+     "/api/v1/admin/parking/zones",
+     "/api/v1/admin/parking/zones/*/streets",
+     "/api/v1/admin/parking/streets/*/spaces").hasAuthority("SIMERTPI_ADMIN")
     .requestMatchers(HttpMethod.POST,"/api/v1/admin/inspectors","/api/v1/admin/inspectors/*/activation").hasAuthority("SIMERTPI_ADMIN")
     .requestMatchers(HttpMethod.PUT,"/api/v1/admin/parking/reentry-configuration").hasAuthority("SIMERTPI_ADMIN")
     .requestMatchers(HttpMethod.POST,"/api/v1/admin/reconciliation/payments","/api/v1/admin/reconciliation/evidence","/api/v1/admin/reconciliation/outbox").hasAuthority("SIMERTPI_ADMIN")

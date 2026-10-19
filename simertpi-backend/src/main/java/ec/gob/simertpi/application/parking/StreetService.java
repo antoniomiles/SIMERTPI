@@ -37,6 +37,11 @@ public class StreetService {
     }
 
     @Transactional(readOnly = true)
+    public Optional<Street> findById(UUID id) {
+        return streetRepository.findById(id);
+    }
+
+    @Transactional(readOnly = true)
     public List<Street> findByZoneId(UUID zoneId) {
         return streetRepository.findByZoneId(zoneId);
     }

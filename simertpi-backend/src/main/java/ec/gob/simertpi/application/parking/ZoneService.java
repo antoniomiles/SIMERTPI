@@ -31,6 +31,11 @@ public class ZoneService {
         return zoneRepository.findByCode(code);
     }
 
+    @Transactional(readOnly = true)
+    public Optional<Zone> findById(UUID id) {
+        return zoneRepository.findById(id);
+    }
+
     @Transactional
     @Audited(action = "CONFIGURATION_ZONE_CREATED", resourceType = "CONFIGURATION")
     public Zone create(String code, String name, String description) {
