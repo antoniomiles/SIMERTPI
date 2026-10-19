@@ -34,17 +34,34 @@ test('login refuses access without transmitting credentials or creating session 
   expect(await page.context().cookies()).toEqual([]);
 });
 
-test('protected routes never become accessible through preview', async ({ page }) => {
+test('dashboard preview stays data-free and protected routes redirect to login', async ({
+  page,
+}) => {
+  const requests: string[] = [];
+  page.on('request', (request) => {
+    if (['fetch', 'xhr'].includes(request.resourceType())) requests.push(request.url());
+  });
   await page.goto('/preview/dashboard');
-  await expect(
-    page.getByRole('heading', { name: 'Administración municipal', exact: true }),
-  ).toBeVisible();
+  await expect(page.getByRole('heading', { name: /SIMERTPI/ })).toBeVisible();
+  await expect(page.locator('.preview-note').getByText('Previsualización local')).toBeVisible();
+  await expect(page.locator('.metric-grid')).toHaveCount(0);
+  expect(requests).toEqual([]);
   for (const path of ['/admin/dashboard', '/admin/personal']) {
     await page.goto(path);
     await expect(page).toHaveURL(/\/login\?returnUrl=/);
     expect(new URL(page.url()).searchParams.get('returnUrl')).toBe(path);
     await expect(page.getByRole('heading', { name: 'Bienvenido a SIMERTPI' })).toBeVisible();
   }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/preview/dashboard');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  const results = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
+    .analyze();
+  expect(results.violations.map((item) => item.id)).toEqual([]);
+  expect(requests).toEqual([]);
 });
 
 test('payments administrative route requires a real admin session', async ({ page }) => {

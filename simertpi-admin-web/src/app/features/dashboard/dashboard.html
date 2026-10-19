@@ -1,0 +1,150 @@
+<app-page-heading
+  eyebrow="INICIO / VISTA GENERAL"
+  title="SIMERTPI — GAD Municipal de Piñas"
+  description="Supervisión operativa y financiera basada en registros reales del sistema."
+>
+  <span class="tag">Datos administrativos</span>
+</app-page-heading>
+
+@if (preview) {
+  <section class="notice preview-note" role="status">
+    <strong>Previsualización local</strong>
+    <p>
+      Esta vista no consulta datos ni presenta indicadores de ejemplo. Inicia sesión para ver cifras
+      reales.
+    </p>
+  </section>
+} @else {
+  <section class="dashboard-controls card" aria-labelledby="dashboard-period-title">
+    <div class="control-heading">
+      <div>
+        <p class="eyebrow">CONSULTA ADMINISTRATIVA</p>
+        <h2 id="dashboard-period-title">Período de actividad</h2>
+      </div>
+      <p class="last-success" aria-live="polite">
+        <span>Última consulta exitosa</span>
+        <strong>{{ formatLastSuccessful(lastSuccessfulAt()) }}</strong>
+        @if (lastSuccessfulRange(); as range) {
+          <small>{{ range.from }} — {{ range.to }}</small>
+        }
+      </p>
+    </div>
+    <form [formGroup]="filters" (ngSubmit)="load()">
+      <div class="period-fields">
+        <div class="field">
+          <label for="dashboard-from">Desde</label>
+          <input id="dashboard-from" type="date" formControlName="from" required />
+        </div>
+        <div class="field">
+          <label for="dashboard-to">Hasta</label>
+          <input id="dashboard-to" type="date" formControlName="to" required />
+        </div>
+        <button class="button primary" type="submit" [disabled]="state() === 'loading'">
+          {{ state() === 'loading' ? 'Actualizando…' : 'Actualizar indicadores' }}
+        </button>
+      </div>
+      @if (filters.touched && filters.invalid) {
+        <p class="field-error" role="alert">Selecciona las dos fechas.</p>
+      }
+      <p class="helper">
+        Máximo 366 días. Fechas municipales: {{ result()?.timeZone ?? 'America/Guayaquil' }}.
+      </p>
+    </form>
+  </section>
+
+  @if (state() === 'loading') {
+    <app-data-state
+      kind="loading"
+      title="Actualizando el dashboard"
+      description="Consultando indicadores agregados del backend."
+    />
+  } @else if (state() === 'error') {
+    <app-data-state
+      kind="error"
+      title="No se pudieron cargar los indicadores"
+      [description]="errorMessage()"
+    >
+      <button class="button secondary" type="button" (click)="load()">Reintentar</button>
+    </app-data-state>
+  } @else if (result(); as data) {
+    <section class="metric-grid" aria-label="Indicadores del período">
+      <article class="metric-card card">
+        <span>Sesiones iniciadas</span>
+        <strong>{{ data.operational.sessionsStarted }}</strong>
+        <small>Inicios registrados durante el período</small>
+      </article>
+      <article class="metric-card card approved-card">
+        <span>Pagos aprobados por proveedor</span>
+        @if (data.financial.approvedPaymentsByPaidAt.length) {
+          <div class="amount-list">
+            @for (item of data.financial.approvedPaymentsByPaidAt; track item.currency) {
+              <strong>{{ formatAmount(item.amount, item.currency) }}</strong>
+            }
+          </div>
+          <small>Según paid_at; separado por moneda</small>
+        } @else {
+          <strong>Sin pagos aprobados</strong>
+          <small>No hay aprobaciones registradas en el período</small>
+        }
+      </article>
+      <article class="metric-card card spaces-card">
+        <span>Espacios configurados actualmente</span>
+        <strong>{{ currentSpaces().configured }}</strong>
+        <small>{{ currentSpaces().active }} habilitados · no indica disponibilidad física</small>
+      </article>
+      <article class="metric-card card pending-card">
+        <span>Pagos pendientes o en proceso</span>
+        <strong>{{ pendingPayments() }}</strong>
+        <small>Pagos creados en el período que conservan PENDING o PROCESSING</small>
+      </article>
+    </section>
+
+    <section class="notice definitions" role="note">
+      <strong>Cómo leer estos indicadores</strong>
+      <p class="helper">
+        Las sesiones se agrupan por fecha de inicio y su estado actual. Los pagos pendientes
+        reflejan su estado actual. Una aprobación de proveedor no confirma liquidación ni depósito
+        bancario; el portal no dispone de datos de conciliación ni de ocupación física.
+      </p>
+    </section>
+
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">OPERACIÓN</p>
+        <h2>Actividad registrada</h2>
+      </div>
+      <a class="text-link" routerLink="../parking-sessions">Ver sesiones</a>
+    </div>
+    <app-dashboard-visualizations [data]="data" />
+
+    <section class="current-spaces card" aria-label="Configuración actual de espacios">
+      <div>
+        <p class="eyebrow">INFRAESTRUCTURA</p>
+        <h3>Espacios por zona</h3>
+        <p class="helper">
+          Conteo de configuración actual; no equivale a espacios libres ni ocupación en tiempo real.
+        </p>
+      </div>
+      <a class="text-link" routerLink="../reports">Abrir reportes</a>
+      @if (data.operational.spacesByZone.length) {
+        <div class="space-list">
+          <span class="space-header">Zona</span><span class="space-header">Configurados</span
+          ><span class="space-header">Habilitados</span>
+          @for (zone of data.operational.spacesByZone; track zone.zoneCode) {
+            <strong>{{ zone.zoneCode }} · {{ zone.zoneName }}</strong
+            ><span>{{ zone.configuredSpaces }}</span
+            ><span>{{ zone.activeSpaces }}</span>
+          }
+        </div>
+      } @else {
+        <p class="empty-note">No hay zonas configuradas para contar espacios.</p>
+      }
+    </section>
+
+    <nav class="module-links" aria-label="Módulos relacionados">
+      <a class="button secondary" routerLink="../parking-sessions">Estacionamientos y sesiones</a>
+      <a class="button secondary" routerLink="../payments">Pagos y recaudación</a>
+      <a class="button secondary" routerLink="../reports">Reportes administrativos</a>
+    </nav>
+  }
+}

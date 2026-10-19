@@ -1,0 +1,121 @@
+<section class="chart-grid">
+  <article class="chart-card card">
+    <h3>Evolución diaria de sesiones iniciadas</h3>
+    @if (!data().operational.dailySessions.length || data().operational.sessionsStarted === 0) {
+      <p class="empty-note">No hay sesiones iniciadas para graficar en este período.</p>
+    } @else {
+      <div class="daily-bars" role="group" aria-label="Sesiones iniciadas por día">
+        @for (day of data().operational.dailySessions; track day.date) {
+          <div
+            class="daily-bar"
+            role="group"
+            [attr.aria-label]="day.date + ': ' + day.count + ' sesiones iniciadas'"
+          >
+            <span class="bar-value">{{ day.count }}</span>
+            <div class="vertical-track">
+              <i class="session-bar" [style.height.%]="sessionBarWidth(day.count)"></i>
+            </div>
+            <small>{{ formatDate(day.date) }}</small>
+          </div>
+        }
+      </div>
+    }
+  </article>
+  <article class="chart-card card">
+    <h3>Sesiones por estado actual</h3>
+    @if (!data().operational.sessionsByStatus.length) {
+      <p class="empty-note">No hay estados de sesión para mostrar.</p>
+    } @else {
+      <div class="horizontal-bars" role="group" aria-label="Sesiones por estado actual">
+        @for (item of data().operational.sessionsByStatus; track item.code) {
+          <div
+            class="horizontal-row"
+            role="group"
+            [attr.aria-label]="item.code + ': ' + item.count + ' sesiones'"
+          >
+            <span>{{ item.code }}</span>
+            <div class="horizontal-track">
+              <i class="status-bar" [style.width.%]="statusBarWidth(item.count)"></i>
+            </div>
+            <strong>{{ item.count }}</strong>
+          </div>
+        }
+      </div>
+    }
+  </article>
+  <article class="chart-card card">
+    <h3>Actividad por zona</h3>
+    @if (!data().operational.sessionsByZone.length) {
+      <p class="empty-note">No hay actividad vinculada a zonas en el período.</p>
+    } @else {
+      <div class="horizontal-bars" role="group" aria-label="Sesiones iniciadas por zona">
+        @for (item of data().operational.sessionsByZone; track item.zoneCode) {
+          <div
+            class="horizontal-row zone-row"
+            role="group"
+            [attr.aria-label]="
+              item.zoneCode + ' ' + item.zoneName + ': ' + item.count + ' sesiones'
+            "
+          >
+            <span>{{ item.zoneCode }} · {{ item.zoneName }}</span>
+            <div class="horizontal-track">
+              <i class="zone-bar" [style.width.%]="zoneBarWidth(item.count)"></i>
+            </div>
+            <strong>{{ item.count }}</strong>
+          </div>
+        }
+      </div>
+    }
+  </article>
+  <article class="chart-card card payment-charts">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">FINANZAS</p>
+        <h3>Pagos aprobados por día y moneda</h3>
+      </div>
+      <a class="text-link" routerLink="../payments">Ver pagos</a>
+    </div>
+    @if (!currencies().length) {
+      <p class="empty-note">No hay pagos aprobados por proveedor en el período.</p>
+    } @else {
+      @for (currency of currencies(); track currency) {
+        <div class="currency-chart">
+          <h4>{{ currency }}</h4>
+          @if (!dailyPayments(currency).length) {
+            <p class="empty-note">Sin importes diarios registrados en esta moneda.</p>
+          } @else {
+            <div
+              class="daily-bars"
+              role="group"
+              [attr.aria-label]="'Importes aprobados por día en ' + currency"
+            >
+              @for (day of dailyPayments(currency); track day.date) {
+                <div
+                  class="daily-bar"
+                  role="group"
+                  [attr.aria-label]="
+                    day.date +
+                    ': ' +
+                    formatAmount(day.amount, currency) +
+                    ', ' +
+                    day.count +
+                    ' pagos'
+                  "
+                >
+                  <span class="bar-value">{{ formatAmount(day.amount, currency) }}</span>
+                  <div class="vertical-track">
+                    <i
+                      class="payment-bar"
+                      [style.height.%]="paymentBarWidth(day.amount, currency)"
+                    ></i>
+                  </div>
+                  <small>{{ formatDate(day.date) }}</small>
+                </div>
+              }
+            </div>
+          }
+        </div>
+      }
+    }
+  </article>
+</section>
