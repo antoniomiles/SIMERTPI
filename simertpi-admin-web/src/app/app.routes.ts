@@ -32,6 +32,11 @@ const pages: Routes = [
     loadComponent: () =>
       import('./features/parking-sessions/parking-sessions').then((m) => m.ParkingSessions),
   },
+  {
+    path: 'payments',
+    title: 'Pagos y recaudación | SIMERTPI',
+    loadComponent: () => import('./features/payments/payments').then((m) => m.Payments),
+  },
   { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
 ];
 export const routes: Routes = [

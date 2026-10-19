@@ -23,7 +23,7 @@ export const NAVIGATION: readonly NavigationGroup[] = [
   {
     label: 'Finanzas',
     items: [
-      { label: 'Recaudación', icon: 'collection' },
+      { label: 'Pagos y recaudación', icon: 'collection', path: 'payments' },
       { label: 'Conciliación', icon: 'reconciliation' },
       { label: 'Reportes', icon: 'report' },
     ],

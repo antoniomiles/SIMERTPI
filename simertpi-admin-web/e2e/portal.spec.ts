@@ -8,6 +8,7 @@ const previews = [
   '/preview/zones',
   '/preview/tariffs',
   '/preview/parking-sessions',
+  '/preview/payments',
 ];
 test('login refuses access without transmitting credentials or creating session state', async ({
   page,
@@ -43,6 +44,13 @@ test('protected routes never become accessible through preview', async ({ page }
     expect(new URL(page.url()).searchParams.get('returnUrl')).toBe(path);
     await expect(page.getByRole('heading', { name: 'Bienvenido a SIMERTPI' })).toBeVisible();
   }
+});
+
+test('payments administrative route requires a real admin session', async ({ page }) => {
+  await page.goto('/admin/payments');
+  await expect(page).toHaveURL(/\/login\?returnUrl=/);
+  expect(new URL(page.url()).searchParams.get('returnUrl')).toBe('/admin/payments');
+  await expect(page.getByRole('heading', { name: 'Bienvenido a SIMERTPI' })).toBeVisible();
 });
 
 test('production configuration denies preview even on loopback', async ({ page }) => {

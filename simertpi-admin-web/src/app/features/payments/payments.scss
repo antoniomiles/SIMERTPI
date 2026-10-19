@@ -1,0 +1,50 @@
+.filters,
+.results,
+.preview-note,
+.summary-card {
+  padding: 22px;
+  margin-bottom: 20px;
+}
+
+.section-heading,
+.filter-actions,
+.pagination,
+.pagination > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.section-heading { margin-bottom: 16px; }
+.section-heading h2,
+.summary-card h2 { margin: 0; font-size: 19px; }
+.section-heading .eyebrow { margin-bottom: 5px; }
+.filter-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.filter-actions { justify-content: flex-start; margin-top: 18px; }
+.field-error { color: #9c2020; }
+.summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr)); gap: 16px; }
+.summary-card dl { margin: 14px 0 0; }
+.summary-card dl > div { display: flex; justify-content: space-between; gap: 16px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.summary-card dt { color: var(--muted); }
+.summary-card dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.financial-note { margin: 0 0 20px; color: var(--muted); font-size: 14px; line-height: 1.55; }
+.table-scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; text-align: left; }
+th, td { padding: 12px 10px; border-bottom: 1px solid var(--border); vertical-align: top; min-width: 120px; }
+th { color: var(--muted); font-size: 12px; font-weight: 650; }
+td { font-size: 13px; line-height: 1.5; }
+td small { display: block; margin-top: 3px; color: var(--muted); }
+.identifier { max-width: 220px; overflow-wrap: anywhere; font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
+.status-tag { display: inline-flex; border-radius: 999px; padding: 4px 9px; background: #e9f5ee; color: #07532d; font-size: 12px; font-weight: 700; }
+.pagination { padding-top: 16px; color: var(--muted); font-size: 13px; }
+.preview-note p { color: var(--muted); margin-bottom: 0; }
+
+@media (max-width: 700px) {
+  .filters, .results, .preview-note, .summary-card { padding: 16px; }
+  .filter-grid { grid-template-columns: 1fr; }
+  .summary-card dl > div { align-items: flex-start; flex-direction: column; gap: 2px; }
+  .summary-card dd { text-align: left; }
+  .pagination { align-items: flex-start; flex-direction: column; }
+  .pagination > div { width: 100%; }
+}
