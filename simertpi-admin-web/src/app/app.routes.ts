@@ -33,6 +33,11 @@ const pages: Routes = [
       import('./features/parking-sessions/parking-sessions').then((m) => m.ParkingSessions),
   },
   {
+    path: 'violations',
+    title: 'Infracciones | SIMERTPI',
+    loadComponent: () => import('./features/violations/violations').then((m) => m.Violations),
+  },
+  {
     path: 'payments',
     title: 'Pagos y recaudación | SIMERTPI',
     loadComponent: () => import('./features/payments/payments').then((m) => m.Payments),

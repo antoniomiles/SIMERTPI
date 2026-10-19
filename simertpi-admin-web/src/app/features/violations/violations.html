@@ -1,0 +1,169 @@
+<app-page-heading
+  eyebrow="OPERACIÓN / CONTROL MUNICIPAL"
+  title="Infracciones"
+  description="Consulta administrativa de infracciones registradas durante inspecciones municipales."
+>
+  <span class="tag">Solo lectura</span>
+</app-page-heading>
+
+@if (preview) {
+  <section class="preview-note card" role="note">
+    <strong>Previsualización local</strong>
+    <p>Esta vista no consulta registros ni muestra datos de ejemplo. El detalle solo está disponible con una sesión administrativa autorizada.</p>
+  </section>
+} @else {
+  <section class="filters card" aria-labelledby="violation-filters-title">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">CONSULTA ADMINISTRATIVA</p>
+        <h2 id="violation-filters-title">Buscar infracciones</h2>
+      </div>
+    </div>
+    <form [formGroup]="filters" (ngSubmit)="applyFilters()">
+      <div class="filter-grid">
+        <div class="field">
+          <label for="violation-query">Identificador, tipo, placa o ubicación</label>
+          <input id="violation-query" formControlName="q" maxlength="100" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label for="violation-plate">Placa</label>
+          <input id="violation-plate" formControlName="plate" maxlength="10" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label for="violation-zone">Zona</label>
+          <input id="violation-zone" formControlName="zone" maxlength="100" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label for="violation-status">Estado registrado</label>
+          <select id="violation-status" formControlName="status">
+            <option value="">Todos los estados</option>
+            <option value="OPEN">Abierta</option>
+            <option value="NOTIFIED">Notificada</option>
+            <option value="PAID">Pagada</option>
+            <option value="DISPUTED">En disputa</option>
+            <option value="CANCELLED">Cancelada</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="violation-from">Ocurrida desde</label>
+          <input id="violation-from" type="date" formControlName="from" />
+        </div>
+        <div class="field">
+          <label for="violation-to">Ocurrida hasta</label>
+          <input id="violation-to" type="date" formControlName="to" />
+        </div>
+      </div>
+      @if (filters.invalid) {
+        <p class="field-error" role="alert">Revisa la longitud de los filtros.</p>
+      }
+      <p class="helper">Las fechas se interpretan en America/Guayaquil. Rango máximo: 366 días.</p>
+      <div class="filter-actions">
+        <button class="button primary" type="submit" [disabled]="state() === 'loading'">Buscar</button>
+        <button class="button secondary" type="button" (click)="clearFilters()" [disabled]="state() === 'loading'">Limpiar</button>
+      </div>
+    </form>
+  </section>
+
+  <p class="data-note" role="note">
+    Se muestran estados y tipos tal como están registrados. El visor no determina sanciones, no presenta valores de multa y no permite modificar infracciones.
+  </p>
+
+  @if (state() === 'loading') {
+    <app-data-state kind="loading" title="Cargando infracciones" description="Consultando registros paginados del backend." />
+  } @else if (state() === 'error') {
+    <app-data-state kind="error" title="No se pudieron cargar las infracciones" [description]="errorMessage()">
+      <button class="button secondary" type="button" (click)="load()">Reintentar</button>
+    </app-data-state>
+  } @else if (state() === 'empty') {
+    <app-data-state kind="empty" title="No hay infracciones para mostrar" description="No se encontraron registros con los filtros seleccionados." />
+  } @else if (result(); as data) {
+    <section class="results card" aria-label="Infracciones registradas" aria-live="polite">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">REGISTROS DEL SISTEMA</p>
+          <h2>Infracciones</h2>
+        </div>
+        <span class="tag">{{ data.totalElements }} resultados</span>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Fecha / placa</th>
+              <th scope="col">Tipo registrado</th>
+              <th scope="col">Zona / espacio</th>
+              <th scope="col">Inspector</th>
+              <th scope="col">Estado</th>
+              <th scope="col">Evidencias</th>
+              <th scope="col"><span class="visually-hidden">Detalle</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of data.items; track row.id) {
+              <tr>
+                <td>
+                  {{ row.occurredAt | date: 'medium': '-0500' }} <small>hora Ecuador</small>
+                  <strong>{{ row.plate || 'Placa no registrada' }}</strong>
+                  <small class="identifier">{{ row.id }}</small>
+                </td>
+                <td>{{ row.violationType }}</td>
+                <td>
+                  <strong>{{ location(row) }}</strong>
+                  <small>{{ row.spaceCode }} · {{ row.spaceNumber }}</small>
+                </td>
+                <td>{{ row.inspectorUsername }}</td>
+                <td><span class="status-tag">{{ statusLabel(row.status) }}</span></td>
+                <td>{{ row.evidenceCount }}</td>
+                <td>
+                  <button class="button secondary detail-button" type="button" (click)="openDetail(row)" [attr.aria-label]="'Ver detalle de infracción ' + row.id">
+                    Ver detalle
+                  </button>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      <nav class="pagination" aria-label="Paginación de infracciones">
+        <span>Página {{ data.totalPages ? data.page + 1 : 0 }} de {{ data.totalPages }} · {{ data.totalElements }} registros</span>
+        <div>
+          <button class="button secondary" type="button" (click)="previous()" [disabled]="data.first">Anterior</button>
+          <button class="button secondary" type="button" (click)="next()" [disabled]="data.last">Siguiente</button>
+        </div>
+      </nav>
+    </section>
+
+    @if (selected(); as detail) {
+      <section class="detail-panel card" aria-labelledby="violation-detail-title" aria-live="polite">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">DETALLE MINIMIZADO</p>
+            <h2 id="violation-detail-title">Infracción {{ detail.id }}</h2>
+          </div>
+          <button class="button secondary" type="button" (click)="closeDetail()">Cerrar detalle</button>
+        </div>
+        @if (detailState() === 'loading') {
+          <app-data-state kind="loading" title="Cargando detalle" description="Consultando el registro administrativo." />
+        } @else if (detailState() === 'error') {
+          <app-data-state kind="error" title="No se pudo cargar el detalle" [description]="detailError()" />
+        } @else {
+          <dl class="detail-grid">
+            <div><dt>Tipo registrado</dt><dd>{{ detail.violationType }}</dd></div>
+            <div><dt>Estado registrado</dt><dd>{{ statusLabel(detail.status) }}</dd></div>
+            <div><dt>Ocurrida</dt><dd>{{ detail.occurredAt | date: 'medium': '-0500' }} hora Ecuador</dd></div>
+            <div><dt>Registrada</dt><dd>{{ detail.createdAt | date: 'medium': '-0500' }} hora Ecuador</dd></div>
+            <div><dt>Zona / calle</dt><dd>{{ location(detail) }}</dd></div>
+            <div><dt>Espacio</dt><dd>{{ detail.spaceCode }} · {{ detail.spaceNumber }}</dd></div>
+            <div><dt>Inspector registrado</dt><dd>{{ detail.inspectorUsername }}</dd></div>
+            <div><dt>Evidencias registradas</dt><dd>{{ detail.evidenceCount }}</dd></div>
+            <div><dt>Inspección</dt><dd>{{ detail.inspectionId }}</dd></div>
+            <div><dt>Sesión relacionada</dt><dd>{{ detail.parkingSessionId || 'Sin sesión asociada' }}</dd></div>
+            @if (detail.notifiedAt) { <div><dt>Notificada</dt><dd>{{ detail.notifiedAt | date: 'medium': '-0500' }} hora Ecuador</dd></div> }
+            @if (detail.paidAt) { <div><dt>Estado pagado registrado</dt><dd>{{ detail.paidAt | date: 'medium': '-0500' }} hora Ecuador</dd></div> }
+          </dl>
+          <p class="helper">El detalle no expone narrativas personales, coordenadas, datos del propietario, ni metadatos internos de archivos.</p>
+        }
+      </section>
+    }
+  }
+}

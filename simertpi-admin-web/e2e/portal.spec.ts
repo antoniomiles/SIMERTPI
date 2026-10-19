@@ -8,6 +8,7 @@ const previews = [
   '/preview/zones',
   '/preview/tariffs',
   '/preview/parking-sessions',
+  '/preview/violations',
   '/preview/payments',
   '/preview/reports',
 ];
@@ -46,7 +47,7 @@ test('dashboard preview stays data-free and protected routes redirect to login',
   await expect(page.locator('.preview-note').getByText('Previsualización local')).toBeVisible();
   await expect(page.locator('.metric-grid')).toHaveCount(0);
   expect(requests).toEqual([]);
-  for (const path of ['/admin/dashboard', '/admin/personal']) {
+  for (const path of ['/admin/dashboard', '/admin/personal', '/admin/violations']) {
     await page.goto(path);
     await expect(page).toHaveURL(/\/login\?returnUrl=/);
     expect(new URL(page.url()).searchParams.get('returnUrl')).toBe(path);
@@ -61,6 +62,19 @@ test('dashboard preview stays data-free and protected routes redirect to login',
     .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
     .analyze();
   expect(results.violations.map((item) => item.id)).toEqual([]);
+  expect(requests).toEqual([]);
+});
+
+test('violations preview stays local and does not fabricate enforcement records', async ({ page }) => {
+  const requests: string[] = [];
+  page.on('request', (request) => {
+    if (['fetch', 'xhr'].includes(request.resourceType())) requests.push(request.url());
+  });
+  await page.goto('/preview/violations');
+  await expect(page.getByRole('heading', { name: 'Infracciones' })).toBeVisible();
+  await expect(page.locator('#main-content .preview-note').getByText('Previsualización local')).toBeVisible();
+  await expect(page.locator('#main-content .preview-note').getByText(/no consulta registros ni muestra datos de ejemplo/i)).toBeVisible();
+  await expect(page.getByRole('table')).toHaveCount(0);
   expect(requests).toEqual([]);
 });
 
