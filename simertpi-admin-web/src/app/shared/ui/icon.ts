@@ -14,6 +14,7 @@ const PATHS = {
   roles: 'm12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3z m-4 9 3 3 5-6',
   settings:
     'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z M12 2v3 M12 19v3 M2 12h3 M19 12h3 M5 5l2 2 M17 17l2 2 M5 19l2-2 M17 7l2-2',
+  tariffs: 'M4 5h16 M4 12h16 M4 19h16 M8 3v4 M16 10v4 M10 17v4',
   audit: 'M8 3h8 M9 3v3H5v15h14V6h-4V3 M8 11h8 M8 15h5',
   notifications: 'M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9 M10 21h4',
   monitor: 'M2 12h5l3-8 4 16 3-8h5',

@@ -32,6 +32,7 @@ export const NAVIGATION: readonly NavigationGroup[] = [
     items: [
       { label: 'Personal municipal', icon: 'personnel', path: 'personal' },
       { label: 'Usuarios, roles y permisos', icon: 'roles' },
+      { label: 'Tarifas y horarios', icon: 'tariffs', path: 'tariffs' },
       { label: 'Configuración municipal', icon: 'settings' },
     ],
   },

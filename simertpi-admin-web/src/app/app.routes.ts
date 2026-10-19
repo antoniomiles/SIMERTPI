@@ -21,6 +21,11 @@ const pages: Routes = [
     title: 'Zonas, calles y espacios | SIMERTPI',
     loadComponent: () => import('./features/zones/zones').then((m) => m.Zones),
   },
+  {
+    path: 'tariffs',
+    title: 'Tarifas y horarios | SIMERTPI',
+    loadComponent: () => import('./features/tariffs/tariffs').then((m) => m.Tariffs),
+  },
   { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
 ];
 export const routes: Routes = [

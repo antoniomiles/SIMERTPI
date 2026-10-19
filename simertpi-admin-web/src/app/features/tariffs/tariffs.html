@@ -1,0 +1,88 @@
+<app-page-heading
+  eyebrow="ADMINISTRACIÓN / CONFIGURACIÓN OPERATIVA"
+  title="Tarifas y horarios"
+  description="Consulta las tarifas, horarios y excepciones que el backend tiene configurados. Esta pantalla no cambia reglas de cobro."
+>
+  <span class="tag">Solo lectura</span>
+</app-page-heading>
+
+@if (preview) {
+  <section class="notice preview-note" role="status">
+    <strong>Previsualización local</strong>
+    <p>Esta vista no consulta ni modifica datos. Inicia sesión para consultar la configuración real.</p>
+  </section>
+} @else if (state() === 'loading') {
+  <app-data-state kind="loading" title="Consultando configuración" description="Cargando tarifas, horarios y excepciones del backend." />
+} @else if (state() === 'error') {
+  <app-data-state kind="error" title="No se pudo cargar la configuración" [description]="errorMessage()">
+    <button class="button secondary" type="button" (click)="load()">Reintentar</button>
+  </app-data-state>
+} @else if (state() === 'empty') {
+  <app-data-state kind="empty" title="No hay configuraciones registradas" description="El backend no devolvió tarifas, horarios ni excepciones configuradas. No se presentan valores de ejemplo." />
+} @else {
+  <section class="filters card" aria-label="Filtros de configuración">
+    <label class="field" for="configuration-search">
+      <span>Buscar por código, nombre, zona o día</span>
+      <input id="configuration-search" type="search" [value]="query()" (input)="query.set($any($event.target).value)" autocomplete="off" />
+    </label>
+    <label class="field" for="configuration-status">
+      <span>Estado de habilitación</span>
+      <select id="configuration-status" [value]="statusFilter()" (change)="statusFilter.set($any($event.target).value)">
+        <option value="all">Todos</option>
+        <option value="enabled">Habilitados</option>
+        <option value="disabled">Deshabilitados</option>
+      </select>
+    </label>
+    <p class="filter-note">“Habilitado” refleja el estado guardado. La vigencia por fechas se muestra por separado y no sustituye las reglas que aplica el backend.</p>
+  </section>
+
+  <section class="config-section card" aria-labelledby="tariffs-title">
+    <header class="section-heading"><div><p class="eyebrow">COBRO CONFIGURADO</p><h2 id="tariffs-title">Tarifas</h2></div><span class="tag">{{ filteredTariffs().length }} visibles</span></header>
+    @if (!filteredTariffs().length) {
+      <p class="list-empty">No hay tarifas que coincidan con los filtros.</p>
+    } @else {
+      <div class="table-scroll"><table><thead><tr><th scope="col">Tarifa</th><th scope="col">Zona</th><th scope="col">Importe configurado</th><th scope="col">Fracciones y límites</th><th scope="col">Vigencia</th><th scope="col">Estado</th></tr></thead><tbody>
+        @for (row of filteredTariffs(); track row.id) {
+          <tr><td><strong>{{ row.code }} · {{ row.name }}</strong><small>{{ row.roundingMode ? 'Redondeo ' + row.roundingMode : 'Redondeo no configurado' }}</small></td>
+            <td>{{ displayZone(row.zoneCode, row.zoneName) }}</td>
+            <td>{{ row.amount | number:'1.2-2' }} {{ row.currency ?? 'Moneda no configurada' }}<small>Por {{ row.durationMinutes }} min</small></td>
+            <td><small>Mínimo facturable: {{ row.minMinutes }} min</small><small>Máximo continuo: {{ row.maxContinuousMinutes === null ? 'No configurado' : row.maxContinuousMinutes + ' min' }}</small><small>Tolerancia: {{ row.gracePeriodMinutes === null ? 'No configurada' : row.gracePeriodMinutes + ' min' }}</small></td>
+            <td>{{ row.validFrom | date:'medium' }}<small>Hasta: {{ row.validTo ? (row.validTo | date:'medium') : 'Sin fecha final' }}</small></td>
+            <td><span class="tag" [class.inactive]="!row.active">{{ row.active ? 'Habilitada' : 'Deshabilitada' }}</span></td></tr>
+        }
+      </tbody></table></div>
+    }
+  </section>
+
+  <section class="config-section card" aria-labelledby="schedules-title">
+    <header class="section-heading"><div><p class="eyebrow">CALENDARIO OPERATIVO</p><h2 id="schedules-title">Horarios</h2></div><span class="tag">{{ filteredSchedules().length }} visibles</span></header>
+    <p class="section-note">Una configuración general se aplica como alternativa cuando no existe un horario específico vigente para la zona, según las reglas del backend.</p>
+    @if (!filteredSchedules().length) {
+      <p class="list-empty">No hay horarios que coincidan con los filtros.</p>
+    } @else {
+      <div class="table-scroll"><table><thead><tr><th scope="col">Zona</th><th scope="col">Día</th><th scope="col">Horario local configurado</th><th scope="col">Vigencia</th><th scope="col">Estado</th></tr></thead><tbody>
+        @for (row of filteredSchedules(); track row.id) {
+          <tr><td>{{ displayZone(row.zoneCode, row.zoneName) }}</td><td>{{ dayName(row.dayOfWeek) }}</td><td><strong>{{ row.startTime.slice(0, 5) }} – {{ row.endTime.slice(0, 5) }}</strong></td>
+            <td>{{ row.validFrom ? (row.validFrom | date:'mediumDate') : 'Sin inicio definido' }}<small>Hasta: {{ row.validTo ? (row.validTo | date:'mediumDate') : 'Sin fecha final' }}</small></td>
+            <td><span class="tag" [class.inactive]="!row.active">{{ row.active ? 'Habilitado' : 'Deshabilitado' }}</span></td></tr>
+        }
+      </tbody></table></div>
+    }
+  </section>
+
+  <section class="config-section card" aria-labelledby="exceptions-title">
+    <header class="section-heading"><div><p class="eyebrow">CALENDARIO Y EXCEPCIONES</p><h2 id="exceptions-title">Excepciones configuradas</h2></div><span class="tag">{{ filteredExceptions().length }} visibles</span></header>
+    <p class="section-note">Las excepciones pueden declarar días no tarifados o ventanas especiales. La referencia normativa se presenta tal como está guardada.</p>
+    @if (!filteredExceptions().length) {
+      <p class="list-empty">No hay excepciones que coincidan con los filtros.</p>
+    } @else {
+      <div class="table-scroll"><table><thead><tr><th scope="col">Fecha y nombre</th><th scope="col">Zona</th><th scope="col">Regla configurada</th><th scope="col">Horario especial</th><th scope="col">Referencia normativa</th><th scope="col">Estado</th></tr></thead><tbody>
+        @for (row of filteredExceptions(); track row.id) {
+          <tr><td><strong>{{ row.holidayDate | date:'mediumDate' }}</strong><small>{{ row.name }}</small></td><td>{{ displayZone(row.zoneCode, row.zoneName) }}</td><td>{{ row.holidayType }}<small>{{ row.tariffed ? 'Tarifado' : 'No tarifado' }}</small></td>
+            <td>{{ row.startTime && row.endTime ? row.startTime.slice(0, 5) + ' – ' + row.endTime.slice(0, 5) : 'Sin ventana especial' }}</td><td>{{ row.normativeReference || 'Sin referencia registrada' }}</td>
+            <td><span class="tag" [class.inactive]="!row.active">{{ row.active ? 'Habilitada' : 'Deshabilitada' }}</span><small>Válida desde {{ row.validFrom | date:'mediumDate' }}{{ row.validTo ? ' hasta ' + (row.validTo | date:'mediumDate') : '' }}</small></td></tr>
+        }
+      </tbody></table></div>
+    }
+  </section>
+}
