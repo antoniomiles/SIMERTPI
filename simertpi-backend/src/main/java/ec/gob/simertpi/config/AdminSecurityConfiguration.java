@@ -35,6 +35,7 @@ public class AdminSecurityConfiguration {
     .requestMatchers(HttpMethod.GET,"/api/v1/admin/auth/me","/api/v1/admin/parking/reentry-configuration").hasAuthority("SIMERTPI_ADMIN")
     .requestMatchers(HttpMethod.GET,"/api/v1/admin/inspectors").hasAuthority("SIMERTPI_ADMIN")
     .requestMatchers(HttpMethod.GET,"/api/v1/admin/audit").hasAuthority("SIMERTPI_ADMIN")
+    .requestMatchers(HttpMethod.GET,"/api/v1/admin/access/users","/api/v1/admin/access/roles").hasAuthority("SIMERTPI_ADMIN")
     .requestMatchers(HttpMethod.GET,"/api/v1/admin/payments").hasAuthority("SIMERTPI_ADMIN")
     .requestMatchers(HttpMethod.GET,"/api/v1/admin/reports").hasAuthority("SIMERTPI_ADMIN")
     .requestMatchers(HttpMethod.GET,"/api/v1/admin/violations","/api/v1/admin/violations/*").hasAuthority("SIMERTPI_ADMIN")
