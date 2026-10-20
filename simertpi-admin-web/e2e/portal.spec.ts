@@ -205,7 +205,7 @@ test('tariffs preview stays local and never calls configuration APIs', async ({ 
     if (['fetch', 'xhr'].includes(request.resourceType())) requests.push(request.url());
   });
   await page.goto('/preview/tariffs');
-  await expect(page.getByRole('heading', { name: 'Tarifas y horarios' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Tarifas y días de cobro' })).toBeVisible();
   await expect(page.getByText('Esta vista no consulta ni modifica datos.')).toBeVisible();
   expect(requests).toEqual([]);
 });

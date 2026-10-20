@@ -3,13 +3,25 @@ import { ActivatedRoute } from '@angular/router';
 import { of, throwError } from 'rxjs';
 import { PortalError } from '../../core/http/portal-error';
 import { Tariffs } from './tariffs';
-import { CalendarException, ConfiguredSchedule, ConfiguredTariff, TariffsApi } from './tariffs-api';
+import { BillingCalendar, CalendarException, ConfiguredSchedule, ConfiguredTariff, EffectiveConfiguration, TariffsApi } from './tariffs-api';
+import { ZonesApi } from '../zones/zones-api';
 
 const tariff: ConfiguredTariff = {
   id: 'tariff-1', code: 'T-01', name: 'Tarifa configurada', zoneId: 'zone-1', zoneCode: 'Z-01', zoneName: 'Centro',
   currency: 'USD', amount: 0.5, durationMinutes: 30, minMinutes: 15, maxContinuousMinutes: 240,
   gracePeriodMinutes: 0, roundingMode: 'HALF_UP', active: true,
+  normativeReference: 'Ordenanza de prueba',
   validFrom: '2026-10-18T00:00:00Z', validTo: null, createdAt: '2026-10-18T00:00:00Z', updatedAt: '2026-10-18T00:00:00Z',
+};
+const billingCalendar: BillingCalendar = {
+  id: 'calendar-1', zoneId: null, zoneCode: null, zoneName: null, validFrom: '2026-10-19', validTo: null,
+  normativeReference: 'Referencia semanal', active: true, createdAt: '2026-10-19T00:00:00Z',
+  updatedAt: '2026-10-19T00:00:00Z', days: { '1': true, '2': true, '3': true, '4': true, '5': true, '6': false, '7': false },
+};
+const effective: EffectiveConfiguration = {
+  at: '2026-10-19T15:00:00Z', generalTariff: null, generalBillingCalendarId: 'calendar-1',
+  generalChargeable: true, generalBillingDaysConfigured: true, generalBillingNormativeReference: 'Referencia semanal',
+  zones: [],
 };
 const schedule: ConfiguredSchedule = {
   id: 'schedule-1', zoneId: 'zone-1', zoneCode: 'Z-01', zoneName: 'Centro', dayOfWeek: 1,
@@ -24,18 +36,23 @@ const exception: CalendarException = {
 };
 
 describe('Administrative tariff and schedule view', () => {
-  let api: { listTariffs: ReturnType<typeof vi.fn>; listSchedules: ReturnType<typeof vi.fn>; listCalendarExceptions: ReturnType<typeof vi.fn> };
+  let api: { listTariffs: ReturnType<typeof vi.fn>; listSchedules: ReturnType<typeof vi.fn>; listCalendarExceptions: ReturnType<typeof vi.fn>; listBillingCalendars: ReturnType<typeof vi.fn>; effective: ReturnType<typeof vi.fn> };
+  let zonesApi: { listZones: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
     api = {
       listTariffs: vi.fn().mockReturnValue(of([tariff])),
       listSchedules: vi.fn().mockReturnValue(of([schedule])),
       listCalendarExceptions: vi.fn().mockReturnValue(of([exception])),
+      listBillingCalendars: vi.fn().mockReturnValue(of([billingCalendar])),
+      effective: vi.fn().mockReturnValue(of(effective)),
     };
+    zonesApi = { listZones: vi.fn().mockReturnValue(of([])) };
     await TestBed.configureTestingModule({
       imports: [Tariffs],
       providers: [
         { provide: TariffsApi, useValue: api },
+        { provide: ZonesApi, useValue: zonesApi },
         { provide: ActivatedRoute, useValue: { snapshot: { pathFromRoot: [{ data: {} }] } } },
       ],
     }).compileComponents();
@@ -47,12 +64,16 @@ describe('Administrative tariff and schedule view', () => {
     expect(api.listTariffs).toHaveBeenCalledOnce();
     expect(api.listSchedules).toHaveBeenCalledOnce();
     expect(api.listCalendarExceptions).toHaveBeenCalledOnce();
+    expect(api.listBillingCalendars).toHaveBeenCalledOnce();
+    expect(api.effective).toHaveBeenCalledOnce();
     expect(fixture.nativeElement.textContent).toContain('T-01 · Tarifa configurada');
     expect(fixture.nativeElement.textContent).toContain('USD');
     expect(fixture.nativeElement.textContent).toContain('Máximo continuo: 240 min');
     expect(fixture.nativeElement.textContent).toContain('Z-01 · Centro');
     expect(fixture.nativeElement.textContent).toContain('08:00 – 17:00');
     expect(fixture.nativeElement.textContent).toContain('Ordenanza registrada');
+    expect(fixture.nativeElement.textContent).toContain('Configuración efectiva por zona');
+    expect(fixture.nativeElement.textContent).toContain('Calendario semanal de cobro');
   });
 
   it('filters all real catalogs by text and enabled state without changing records', () => {
@@ -77,6 +98,8 @@ describe('Administrative tariff and schedule view', () => {
     expect(api.listTariffs).not.toHaveBeenCalled();
     expect(api.listSchedules).not.toHaveBeenCalled();
     expect(api.listCalendarExceptions).not.toHaveBeenCalled();
+    expect(api.listBillingCalendars).not.toHaveBeenCalled();
+    expect(api.effective).not.toHaveBeenCalled();
     expect(fixture.nativeElement.textContent).toContain('Esta vista no consulta ni modifica datos');
   });
 

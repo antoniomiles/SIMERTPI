@@ -23,11 +23,31 @@ describe('Administrative tariffs and schedules API', () => {
     api.listTariffs().subscribe();
     api.listSchedules().subscribe();
     api.listCalendarExceptions().subscribe();
-    for (const path of ['tariffs', 'schedules', 'calendar-exceptions']) {
+    api.listBillingCalendars().subscribe();
+    api.effective('2026-10-19T00:00:00Z').subscribe();
+    for (const path of ['tariffs', 'schedules', 'calendar-exceptions', 'billing-day-calendars']) {
       const request = http.expectOne(`/api/v1/admin/parking/${path}`);
       expect(request.request.method).toBe('GET');
       expect(request.request.withCredentials).toBe(true);
       request.flush([]);
     }
+    const effective = http.expectOne((request) => request.url === '/api/v1/admin/parking/configuration/effective');
+    expect(effective.request.method).toBe('GET');
+    expect(effective.request.params.get('at')).toBe('2026-10-19T00:00:00Z');
+    expect(effective.request.withCredentials).toBe(true);
+    effective.flush({ at: '', generalTariff: null, generalBillingCalendarId: null, generalChargeable: true,
+      generalBillingDaysConfigured: false, generalBillingNormativeReference: null, zones: [] });
+  });
+
+  it('posts only administrative versioned configuration through the existing CSRF interceptor', () => {
+    const api = TestBed.inject(TariffsApi);
+    const http = TestBed.inject(HttpTestingController);
+    api.createBillingCalendar({ zoneId: null, validFrom: '2026-10-20', validTo: null,
+      chargeableDays: [1, 2, 3, 4, 5], normativeReference: 'Ordenanza aprobada' }).subscribe();
+    const request = http.expectOne('/api/v1/admin/parking/billing-day-calendars');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.withCredentials).toBe(true);
+    expect(request.request.body.chargeableDays).toEqual([1, 2, 3, 4, 5]);
+    request.flush('calendar-id');
   });
 });
