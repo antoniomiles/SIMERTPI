@@ -157,6 +157,44 @@ class AdminGeneralParkingConfigurationPostgresIntegrationTest extends AbstractPo
         assertThat(jdbc.queryForObject("SELECT count(*) FROM audit.functional_audit_log WHERE actor_id=? AND action IN ('CONFIGURATION_TARIFF_CREATED','CONFIGURATION_TARIFF_ENDED') AND result='SUCCESS'", Integer.class, adminId)).isEqualTo(3);
     }
 
+    @Test
+    void effectiveConfigurationResolvesLegacyOverlappingTariffsWhenNoBillingCalendarExists() throws Exception {
+        UUID zoneId = UUID.randomUUID();
+        testZoneId = zoneId;
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        jdbc.update("INSERT INTO parking.zones(id,code,name,active) VALUES (?,?,?,TRUE)", zoneId, "QA-EF-" + suffix, "Effective config QA");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.billing_day_calendars", Integer.class)).isZero();
+
+        OffsetDateTime earlier = OffsetDateTime.parse("2026-01-01T00:00:00Z");
+        OffsetDateTime later = OffsetDateTime.parse("2026-01-02T00:00:00Z");
+        insertLegacyActiveTariff(zoneId, "QA-OLD-" + suffix, new java.math.BigDecimal("0.80"), earlier);
+        insertLegacyActiveTariff(zoneId, "QA-NEW-" + suffix, new java.math.BigDecimal("0.25"), later);
+
+        MvcResult result = mvc.perform(get("/api/v1/admin/parking/configuration/effective")
+                        .param("at", "2026-10-20T16:56:05.999Z").secure(true).cookie(session))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")))
+                .andReturn();
+        var snapshot = objectMapper.readTree(result.getResponse().getContentAsString());
+        var row = java.util.stream.StreamSupport.stream(snapshot.path("zones").spliterator(), false)
+                .filter(item -> zoneId.toString().equals(item.path("zoneId").asText())).findFirst().orElseThrow();
+        assertThat(row.path("tariff").path("code").asText()).isEqualTo("QA-NEW-" + suffix);
+        assertThat(row.path("tariff").path("amount").decimalValue()).isEqualByComparingTo("0.25");
+        assertThat(row.path("billingDaysConfigured").asBoolean()).isFalse();
+        assertThat(row.path("chargeable").asBoolean()).isTrue();
+        assertThat(row.path("billingDaysSource").asText()).isEqualTo("LEGACY_UNCONFIGURED");
+    }
+
+    private void insertLegacyActiveTariff(UUID zoneId, String code, java.math.BigDecimal amount, OffsetDateTime validFrom) {
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        jdbc.update("""
+                INSERT INTO parking.tariffs(id,code,name,zone_id,currency,rounding_mode,grace_period_minutes,
+                    amount,duration_minutes,min_minutes,max_continuous_minutes,active,valid_from,valid_to,created_at,updated_at,normative_reference)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,TRUE,?,NULL,?,?,?)
+                """, UUID.randomUUID(), code, code, zoneId, "USD", "HALF_UP", 5, amount, 60, 15, 180,
+                validFrom, now, now, reference);
+    }
+
     private org.springframework.test.web.servlet.ResultActions postCalendar(UUID zoneId, LocalDate from, LocalDate to, String days) throws Exception {
         String zone = zoneId == null ? "null" : "\"" + zoneId + "\"";
         String validTo = to == null ? "null" : "\"" + to + "\"";

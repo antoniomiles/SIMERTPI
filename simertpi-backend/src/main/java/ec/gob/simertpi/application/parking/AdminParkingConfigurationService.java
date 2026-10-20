@@ -54,7 +54,9 @@ public class AdminParkingConfigurationService {
                 .filter(t -> t.isActive() && t.getValidFrom() != null && !instant.isBefore(t.getValidFrom().toInstant())
                         && (t.getValidTo() == null || !instant.isAfter(t.getValidTo().toInstant())))
                 .sorted(Comparator.comparing(Tariff::getValidFrom).reversed()).toList();
-        if (scoped.size() > 1) throw new IllegalStateException("TARIFF_VALIDITY_CONFIGURATION_INVALID");
+        if (scoped.size() > 1 && scoped.get(0).getValidFrom().toInstant()
+                .equals(scoped.get(1).getValidFrom().toInstant()))
+            throw new IllegalStateException("TARIFF_VALIDITY_CONFIGURATION_INVALID");
         return scoped.stream().findFirst()
                 .map(t -> new EffectiveTariff(t.getId(), t.getCode(), t.getName(), t.getCurrency(), t.getAmount(),
                         t.getDurationMinutes(), t.getMinMinutes(), t.getMaxContinuousMinutes(), t.getGracePeriodMinutes(),
