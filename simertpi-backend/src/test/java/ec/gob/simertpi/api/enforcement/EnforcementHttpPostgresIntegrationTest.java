@@ -323,6 +323,35 @@ class EnforcementHttpPostgresIntegrationTest extends ec.gob.simertpi.testsupport
     }
 
     @Test
+    void documentsCrossInspectorSessionAndInspectionLookupAccess() throws Exception {
+        UUID violationId = createViolation();
+        UUID inspectionId = violations.findById(violationId).orElseThrow().getInspectionId();
+
+        assertThat(restTemplate.getForEntity(url("/api/v1/inspections/" + inspectionId), String.class)
+                .getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(exchange("/api/v1/inspections/" + inspectionId, HttpMethod.GET,
+                fixture.otherInspectorName, null, String.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(exchange("/api/v1/inspections/space/" + fixture.spaceId, HttpMethod.GET,
+                fixture.otherInspectorName, null, String.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(exchange("/api/v1/inspections/session/" + fixture.sessionId, HttpMethod.GET,
+                fixture.otherInspectorName, null, String.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(exchange("/api/v1/inspections/space/" + fixture.spaceId, HttpMethod.GET,
+                fixture.supervisorName, null, String.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
+        assertThat(exchange("/api/v1/violations/" + violationId, HttpMethod.GET,
+                fixture.otherInspectorName, null, String.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(exchange("/api/v1/violations/plate/" + fixture.plate, HttpMethod.GET,
+                fixture.otherInspectorName, null, String.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(exchange("/api/v1/violations/session/" + fixture.sessionId, HttpMethod.GET,
+                fixture.otherInspectorName, null, String.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(exchange("/api/v1/violations/plate/" + fixture.plate, HttpMethod.GET,
+                fixture.supervisorName, null, String.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(exchange("/api/v1/violations/" + violationId + "/status", HttpMethod.PATCH,
+                fixture.otherInspectorName, Map.of("status", "NOTIFIED"), String.class)
+                .getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
     void evidenceAuditCorrelationDeduplicationAndAccess() throws Exception {
         UUID violationId = createViolation();
         byte[] bytes = {(byte)255, (byte)216, (byte)255, 1};

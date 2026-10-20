@@ -117,6 +117,7 @@ public class SecurityConfig {
                         "/api/v1/parking-spaces", "/api/v1/tariffs")
                     .hasAuthority("SIMERTPI_ADMIN")
                 .requestMatchers(HttpMethod.POST, "/api/v1/parking-sessions/*/extensions/mobile").hasAuthority("CITIZEN")
+                .requestMatchers(HttpMethod.POST, "/api/v1/parking-sessions/*/extensions").hasAuthority("CITIZEN")
                 .requestMatchers(HttpMethod.GET, "/api/v1/parking-sessions/*/extensions/quote", "/api/v1/parking-sessions/*/extensions/options").hasAuthority("CITIZEN")
                 .requestMatchers(HttpMethod.POST, "/api/v1/parking-sessions/*/verbal-warnings").hasAuthority("INSPECTOR")
                 .requestMatchers("/api/v1/parking-sessions/**").authenticated()

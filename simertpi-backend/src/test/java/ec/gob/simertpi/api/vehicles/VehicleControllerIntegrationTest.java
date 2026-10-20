@@ -165,6 +165,34 @@ class VehicleControllerIntegrationTest extends ec.gob.simertpi.testsupport.Abstr
                 .getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+            "CITIZEN,403", "INSPECTOR,200", "SUPERVISOR,200", "SIMERTPI_ADMIN,200",
+            "COLLECTIONS,403", "FINANCE,403", "IT_ADMIN,200", "AUDITOR,200"
+    })
+    void documentsEffectiveRoleMatrixForCrossUserAndPlateVehicleReads(String role, int expectedStatus) {
+        String plate = uniquePlate();
+        assertThat(request(username, HttpMethod.POST, "/api/v1/vehicles",
+                Map.of("userId", userId, "plate", plate)).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        if ("CITIZEN".equals(role)) {
+            assertThat(request(username, HttpMethod.GET, "/api/v1/vehicles/user/" + userId, null)
+                    .getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(request(username, HttpMethod.GET, "/api/v1/vehicles/plate/" + plate, null)
+                    .getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+            assertThat(request(username, HttpMethod.GET, "/api/v1/vehicles/user/" + otherUserId, null)
+                    .getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+            return;
+        }
+        UUID actorId = jdbc.queryForObject("SELECT id FROM identity.users WHERE username=?", UUID.class, inspectorUsername);
+        jdbc.update("DELETE FROM identity.user_roles WHERE user_id=?", actorId);
+        jdbc.update("INSERT INTO identity.user_roles(user_id, role_id) SELECT ?, id FROM identity.roles WHERE code=?", actorId, role);
+        HttpStatus expected = HttpStatus.valueOf(expectedStatus);
+        assertThat(request(inspectorUsername, HttpMethod.GET, "/api/v1/vehicles/user/" + userId, null)
+                .getStatusCode()).isEqualTo(expected);
+        assertThat(request(inspectorUsername, HttpMethod.GET, "/api/v1/vehicles/plate/" + plate, null)
+                .getStatusCode()).isEqualTo(expected);
+    }
+
     @Test
     void shouldReturnNotFoundWhenPlateDoesNotExist() {
         assertThat(request(inspectorUsername, HttpMethod.GET, "/api/v1/vehicles/plate/DOESNOT", null)

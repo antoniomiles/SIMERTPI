@@ -160,6 +160,141 @@ class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupp
         assertThat(own.getForEntity(base+"/extensions/quote?additionalMinutes=30",String.class).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+            "CITIZEN,1", "INSPECTOR,2", "SUPERVISOR,2", "SIMERTPI_ADMIN,2",
+            "COLLECTIONS,1", "FINANCE,1", "IT_ADMIN,2", "AUDITOR,2"
+    })
+    void documentsEffectiveSessionReadScopeByRole(String role, int expectedVisibleSessions) throws Exception {
+        String owner = "citizen-a-" + fixture.tag;
+        String other = "citizen-b-" + fixture.tag;
+        UUID ownedSession = UUID.fromString(objectMapper.readTree(
+                post(owner, "ROLE-SCOPE-OWN", fixture.spaceA, fixture.vehicleA).getBody()).get("id").asText());
+        UUID otherSession = UUID.fromString(objectMapper.readTree(
+                post(other, "ROLE-SCOPE-OTHER", fixture.spaceB, fixture.vehicleB).getBody()).get("id").asText());
+        if (!"CITIZEN".equals(role)) assignOnlyRole(fixture.userA, role);
+
+        assertThat(restTemplate.getForEntity(url("/api/v1/parking-sessions"), String.class)
+                .getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        var response = restTemplate.withBasicAuth(owner, "integration-password")
+                .getForEntity(url("/api/v1/parking-sessions"), String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(objectMapper.readTree(response.getBody()).size()).isEqualTo(expectedVisibleSessions);
+
+        var thirdPartyDetail = restTemplate.withBasicAuth(owner, "integration-password")
+                .getForEntity(url("/api/v1/parking-sessions/" + otherSession), String.class);
+        assertThat(thirdPartyDetail.getStatusCode()).isEqualTo(
+                java.util.Set.of("INSPECTOR", "SUPERVISOR", "SIMERTPI_ADMIN", "IT_ADMIN", "AUDITOR").contains(role)
+                        ? HttpStatus.OK : HttpStatus.FORBIDDEN);
+        var byOtherUser = restTemplate.withBasicAuth(owner, "integration-password")
+                .getForEntity(url("/api/v1/parking-sessions/user/" + fixture.userB), String.class);
+        assertThat(byOtherUser.getStatusCode()).isEqualTo(
+                java.util.Set.of("INSPECTOR", "SUPERVISOR", "SIMERTPI_ADMIN", "IT_ADMIN", "AUDITOR").contains(role)
+                        ? HttpStatus.OK : HttpStatus.FORBIDDEN);
+        assertThat(sessionRepository.findById(ownedSession)).isPresent();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"CITIZEN", "INSPECTOR", "SUPERVISOR", "SIMERTPI_ADMIN"})
+    void legacyExtensionPostRequiresCitizenAuthority(String role) throws Exception {
+        String owner = "citizen-a-" + fixture.tag;
+        UUID sessionId = UUID.fromString(objectMapper.readTree(
+                post(owner, "LEGACY-EXTENSION-" + role, fixture.spaceA, fixture.vehicleA).getBody()).get("id").asText());
+        jdbc.update("UPDATE parking.parking_sessions SET status='ACTIVE', expected_end_at=CURRENT_TIMESTAMP + INTERVAL '60 minutes' WHERE id=?", sessionId);
+        if (!"CITIZEN".equals(role)) assignOnlyRole(fixture.userA, role);
+
+        var request = Map.of("additionalMinutes", 30, "provider", "SANDBOX_STUB", "paymentMethod", "TEST",
+                "idempotencyKey", "LEGACY-ROLE-" + role + "-" + fixture.tag);
+        int paymentsBefore = jdbc.queryForObject("SELECT count(*) FROM payments.payments WHERE parking_session_id=?", Integer.class, sessionId);
+        var response = restTemplate.withBasicAuth(owner, "integration-password").postForEntity(
+                url("/api/v1/parking-sessions/" + sessionId + "/extensions"), request, String.class);
+
+        HttpStatus expected = "CITIZEN".equals(role) ? HttpStatus.CREATED : HttpStatus.FORBIDDEN;
+        assertThat(response.getStatusCode()).isEqualTo(expected);
+        int expectedRows = "CITIZEN".equals(role) ? 1 : 0;
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.session_extensions WHERE parking_session_id=?", Integer.class, sessionId)).isEqualTo(expectedRows);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.session_extensions e JOIN payments.payments p ON p.id=e.payment_id WHERE e.parking_session_id=?", Integer.class, sessionId)).isEqualTo(expectedRows);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM payments.payments WHERE parking_session_id=?", Integer.class, sessionId)).isEqualTo(paymentsBefore + expectedRows);
+    }
+
+    @Test
+    void legacyExtensionRequiresAuthenticationAndEnforcesOwner() throws Exception {
+        String owner = "citizen-a-" + fixture.tag;
+        UUID sessionId = UUID.fromString(objectMapper.readTree(
+                post(owner, "LEGACY-EXTENSION-OWNER", fixture.spaceA, fixture.vehicleA).getBody()).get("id").asText());
+        jdbc.update("UPDATE parking.parking_sessions SET status='ACTIVE', expected_end_at=CURRENT_TIMESTAMP + INTERVAL '60 minutes' WHERE id=?", sessionId);
+        var request = Map.of("additionalMinutes", 30, "provider", "SANDBOX_STUB", "paymentMethod", "TEST",
+                "idempotencyKey", "LEGACY-OWNER-" + fixture.tag);
+        String path = "/api/v1/parking-sessions/" + sessionId + "/extensions";
+        int paymentsBefore = jdbc.queryForObject("SELECT count(*) FROM payments.payments WHERE parking_session_id=?", Integer.class, sessionId);
+        assertThat(restTemplate.postForEntity(url(path), request, String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(restTemplate.withBasicAuth("citizen-b-" + fixture.tag, "integration-password")
+                .postForEntity(url(path), request, String.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.session_extensions WHERE parking_session_id=?", Integer.class, sessionId)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.session_extensions e JOIN payments.payments p ON p.id=e.payment_id WHERE e.parking_session_id=?", Integer.class, sessionId)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM payments.payments WHERE parking_session_id=?", Integer.class, sessionId)).isEqualTo(paymentsBefore);
+    }
+
+    @Test
+    void mobileExtensionSeparatesCitizenAndMunicipalTokenAudiences() throws Exception {
+        String owner = "citizen-a-" + fixture.tag;
+        String municipal = "citizen-b-" + fixture.tag;
+        UUID sessionId = UUID.fromString(objectMapper.readTree(
+                post(owner, "TOKEN-EXTENSION", fixture.spaceA, fixture.vehicleA).getBody()).get("id").asText());
+        jdbc.update("UPDATE parking.parking_sessions SET status='ACTIVE', expected_end_at=CURRENT_TIMESTAMP + INTERVAL '60 minutes' WHERE id=?", sessionId);
+        jdbc.update("INSERT INTO identity.user_roles(user_id, role_id) SELECT ?, id FROM identity.roles WHERE code='INSPECTOR'", fixture.userB);
+
+        var citizenLogin = restTemplate.postForEntity(url("/api/v1/auth/login"),
+                Map.of("username", owner, "password", "integration-password"), String.class);
+        var municipalLogin = restTemplate.postForEntity(url("/api/v1/municipal/auth/login"),
+                Map.of("username", municipal, "password", "integration-password"), String.class);
+        assertThat(citizenLogin.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(municipalLogin.getStatusCode()).isEqualTo(HttpStatus.OK);
+        String citizenToken = objectMapper.readTree(citizenLogin.getBody()).get("accessToken").asText();
+        String municipalToken = objectMapper.readTree(municipalLogin.getBody()).get("accessToken").asText();
+        String base = "/api/v1/parking-sessions/" + sessionId + "/extensions";
+
+        HttpHeaders citizenHeaders = new HttpHeaders();
+        citizenHeaders.setBearerAuth(citizenToken);
+        var quote = restTemplate.exchange(url(base + "/quote?additionalMinutes=30"), HttpMethod.GET,
+                new HttpEntity<>(citizenHeaders), String.class);
+        assertThat(quote.getStatusCode()).isEqualTo(HttpStatus.OK);
+        var quoteJson = objectMapper.readTree(quote.getBody());
+        var mobileRequest = Map.of("additionalMinutes", 30, "paymentMethod", "TEST",
+                "idempotencyKey", "TOKEN-MOBILE-" + fixture.tag,
+                "expectedAmount", quoteJson.get("calculatedAmount").decimalValue(),
+                "expectedEndAt", quoteJson.get("expiresAt").asText());
+        int paymentsBeforeExtension = jdbc.queryForObject("SELECT count(*) FROM payments.payments WHERE parking_session_id=?", Integer.class, sessionId);
+        var mobileSuccess = restTemplate.exchange(url(base + "/mobile"), HttpMethod.POST,
+                new HttpEntity<>(mobileRequest, citizenHeaders), String.class);
+        assertThat(mobileSuccess.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+
+        HttpHeaders municipalHeaders = new HttpHeaders();
+        municipalHeaders.setBearerAuth(municipalToken);
+        assertThat(restTemplate.exchange(url(base + "/quote?additionalMinutes=30"), HttpMethod.GET,
+                new HttpEntity<>(municipalHeaders), String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(restTemplate.exchange(url(base + "/mobile"), HttpMethod.POST,
+                new HttpEntity<>(mobileRequest, municipalHeaders), String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        var legacyRequest = Map.of("additionalMinutes", 30, "provider", "SANDBOX_STUB",
+                "paymentMethod", "TEST", "idempotencyKey", "TOKEN-LEGACY-" + fixture.tag);
+        assertThat(restTemplate.exchange(url(base), HttpMethod.POST,
+                new HttpEntity<>(legacyRequest, municipalHeaders), String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(restTemplate.exchange(url("/api/v1/municipal/auth/me"), HttpMethod.GET,
+                new HttpEntity<>(citizenHeaders), String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(restTemplate.exchange(url("/api/v1/municipal/auth/me"), HttpMethod.GET,
+                new HttpEntity<>(municipalHeaders), String.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.session_extensions WHERE parking_session_id=?", Integer.class, sessionId)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.session_extensions e JOIN payments.payments p ON p.id=e.payment_id WHERE e.parking_session_id=?", Integer.class, sessionId)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM payments.payments WHERE parking_session_id=?", Integer.class, sessionId)).isEqualTo(paymentsBeforeExtension + 1);
+    }
+
+    private void assignOnlyRole(UUID userId, String role) {
+        jdbc.update("DELETE FROM identity.user_roles WHERE user_id=?", userId);
+        jdbc.update("INSERT INTO identity.user_roles(user_id, role_id) SELECT ?, id FROM identity.roles WHERE code=?", userId, role);
+    }
+
+    private String url(String path) { return "http://localhost:" + port + path; }
+
     @Test void expiredAndMaximumCannotBeClosedOrExtendedByCitizen() throws Exception {
         String owner="citizen-a-"+fixture.tag;
         var created=post(owner,"CP23-CLOSE",fixture.spaceA,fixture.vehicleA);
@@ -573,6 +708,8 @@ class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupp
         jdbc.update("DELETE FROM parking.tariffs WHERE id = ?", fixture.tariff);
         jdbc.update("DELETE FROM parking.zones WHERE id = ?", fixture.zone);
         jdbc.update("DELETE FROM identity.vehicles WHERE user_id IN (?, ?)", fixture.userA, fixture.userB);
+        jdbc.update("DELETE FROM identity.mobile_refresh_tokens WHERE session_id IN (SELECT id FROM identity.mobile_sessions WHERE user_id IN (?, ?))", fixture.userA, fixture.userB);
+        jdbc.update("DELETE FROM identity.mobile_sessions WHERE user_id IN (?, ?)", fixture.userA, fixture.userB);
         jdbc.update("DELETE FROM identity.admin_web_sessions WHERE user_id IN (?, ?)", fixture.userA, fixture.userB);
         jdbc.update("DELETE FROM identity.user_roles WHERE user_id IN (?, ?)", fixture.userA, fixture.userB);
         jdbc.update("DELETE FROM identity.users WHERE id IN (?, ?)", fixture.userA, fixture.userB);
