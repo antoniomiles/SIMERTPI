@@ -22,13 +22,9 @@ export class AdminSessionState {
   }
 }
 export function safeReturnUrl(value: string | null): string {
-  return value === '/admin/personal' ||
-    value === '/admin/access' ||
-    value === '/admin/dashboard' ||
-    value === '/admin/map' ||
-    value === '/admin/payments' ||
-    value === '/admin/reports' ||
-    value === '/admin/violations'
+  if (value === null || value.includes('\\') || value.includes('%') || value.includes('?') || value.includes('#'))
+    return '/admin/dashboard';
+  return /^\/admin\/(?:dashboard|map|personal|access|audit|zones|parking-sessions|violations|payments|reports|tariffs(?:\/(?:billing-days|holidays|hours|history))?)$/.test(value)
     ? value
     : '/admin/dashboard';
 }

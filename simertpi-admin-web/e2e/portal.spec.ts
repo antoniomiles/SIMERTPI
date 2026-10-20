@@ -8,6 +8,10 @@ const previews = [
   '/preview/audit',
   '/preview/zones',
   '/preview/tariffs',
+  '/preview/tariffs/billing-days',
+  '/preview/tariffs/holidays',
+  '/preview/tariffs/hours',
+  '/preview/tariffs/history',
   '/preview/parking-sessions',
   '/preview/violations',
   '/preview/payments',
@@ -49,7 +53,7 @@ test('dashboard preview stays data-free and protected routes redirect to login',
   await expect(page.locator('.preview-note').getByText('Previsualización local')).toBeVisible();
   await expect(page.locator('.metric-grid')).toHaveCount(0);
   expect(requests).toEqual([]);
-  for (const path of ['/admin/dashboard', '/admin/personal', '/admin/map', '/admin/violations', '/admin/access']) {
+  for (const path of ['/admin/dashboard', '/admin/personal', '/admin/map', '/admin/violations', '/admin/access', '/admin/tariffs', '/admin/tariffs/billing-days']) {
     await page.goto(path);
     await expect(page).toHaveURL(/\/login\?returnUrl=/);
     expect(new URL(page.url()).searchParams.get('returnUrl')).toBe(path);
@@ -205,9 +209,95 @@ test('tariffs preview stays local and never calls configuration APIs', async ({ 
     if (['fetch', 'xhr'].includes(request.resourceType())) requests.push(request.url());
   });
   await page.goto('/preview/tariffs');
-  await expect(page.getByRole('heading', { name: 'Tarifas y días de cobro' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Configuración de tarifas' })).toBeVisible();
   await expect(page.getByText('Esta vista no consulta ni modifica datos.')).toBeVisible();
   expect(requests).toEqual([]);
+});
+
+test('tariffs navigation has the five exact Spanish options, descriptions, active state and pending views', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto('/preview/tariffs');
+  const menu = page.getByRole('button', { name: 'Tarifas y horarios' });
+  await expect(menu).toHaveAttribute('aria-expanded', 'true');
+  const labels = [
+    'Configuración de tarifas', 'Días de cobro', 'Días especiales y feriados', 'Horarios de cobro', 'Historial de cambios',
+  ];
+  await expect(page.locator('.nav-subitem')).toHaveCount(5);
+  for (const label of labels) await expect(page.getByRole('link', { name: new RegExp(label) })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Configuración de tarifas', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('.nav-subitem small')).toHaveText([
+    'Tarifa general y excepciones por zona.', 'Calendario semanal general y por zona.', 'Fechas especiales y excepciones.',
+    'Horarios generales y excepciones.', 'Versiones, vigencias y responsables.',
+  ]);
+  await page.getByRole('button', { name: 'Contraer menú lateral' }).click();
+  await expect(page.locator('.nav-subitem')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Tarifas y horarios' }).click();
+  await expect(page.locator('.nav-subitem')).toHaveCount(5);
+  await expect(page.getByRole('link', { name: /Días especiales y feriados/ })).toHaveAttribute('href', '/preview/tariffs/holidays');
+  await page.getByRole('link', { name: /Días especiales y feriados/ }).click();
+  await expect(page).toHaveURL(/\/preview\/tariffs\/holidays$/);
+  await expect(page.getByRole('heading', { name: 'Días especiales y feriados' })).toBeVisible();
+  await expect(page.locator('.card > .tag')).toHaveText('Pendiente');
+  await expect(page.getByRole('heading', { name: 'Funcionalidad pendiente' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Tarifas y horarios' })).toHaveAttribute('aria-expanded', 'true');
+});
+
+test('billing calendar preview states that unselected days are free and does not call the API', async ({ page }) => {
+  const requests: string[] = [];
+  page.on('request', (request) => { if (['fetch', 'xhr'].includes(request.resourceType())) requests.push(request.url()); });
+  await page.goto('/preview/tariffs/billing-days');
+  await expect(page.getByRole('heading', { name: 'Días de cobro' })).toBeVisible();
+  await expect(page.locator('#main-content')).toContainText('no consulta ni modifica datos');
+  expect(requests).toEqual([]);
+});
+
+test('tariff editor is opened on demand and sends the exact API decimal using admin CSRF', async ({ page }) => {
+  const createBodies: unknown[] = [];
+  const identity = {
+    userId: 'local-test-admin', username: 'admin.fixture', roles: ['SIMERTPI_ADMIN'], enabled: true,
+    sessionExpiresAt: new Date(Date.now() + 600000).toISOString(), absoluteExpiresAt: new Date(Date.now() + 3600000).toISOString(),
+  };
+  const tariff = {
+    id: 'local-tariff', code: 'GEN-2027', name: 'Tarifa general', zoneId: null, zoneCode: null, zoneName: null,
+    currency: 'USD', amount: 0.25, durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240,
+    gracePeriodMinutes: 0, roundingMode: 'HALF_UP', normativeReference: 'Ordenanza de prueba', active: true,
+    validFrom: '2027-01-01T05:00:00Z', validTo: null, createdAt: '2026-10-20T00:00:00Z', updatedAt: '2026-10-20T00:00:00Z',
+  };
+  const effective = {
+    at: new Date().toISOString(), generalTariff: null, generalBillingCalendarId: null, generalChargeable: true,
+    generalBillingDaysConfigured: false, generalBillingNormativeReference: null, zones: [],
+  };
+  await page.route('**/api/v1/admin/auth/me', (route) => route.fulfill({ json: identity }));
+  await page.route('**/api/v1/admin/auth/csrf', (route) => route.fulfill({ status: 204 }));
+  await page.route('**/api/v1/admin/parking/tariffs', (route) => {
+    if (route.request().method() === 'POST') {
+      createBodies.push(route.request().postDataJSON());
+      return route.fulfill({ status: 201, json: tariff });
+    }
+    return route.fulfill({ json: [] });
+  });
+  await page.route('**/api/v1/admin/parking/zones', (route) => route.fulfill({ json: [] }));
+  await page.route('**/api/v1/admin/parking/configuration/effective*', (route) => route.fulfill({ json: effective }));
+  await page.goto('http://127.0.0.1:4301/admin/tariffs');
+  await expect(page.getByRole('heading', { name: 'Configuración de tarifas' })).toBeVisible();
+  await expect(page.locator('form')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Crear tarifa' }).click();
+  await expect(page.getByPlaceholder('Ej.: Tarifa general de estacionamiento')).toBeVisible();
+  await expect(page.getByPlaceholder('Ej.: 0,25')).toBeVisible();
+  await page.locator('[formControlName="code"]').fill('GEN-2027');
+  await page.locator('[formControlName="name"]').fill('Tarifa general');
+  await page.locator('[formControlName="currency"]').fill('USD');
+  await page.locator('[formControlName="amount"]').fill('0,25');
+  await page.locator('[formControlName="durationMinutes"]').fill('60');
+  await page.locator('[formControlName="minMinutes"]').fill('15');
+  await page.locator('[formControlName="maxContinuousMinutes"]').fill('240');
+  await page.locator('[formControlName="gracePeriodMinutes"]').fill('0');
+  await page.locator('[formControlName="validFrom"]').fill('2027-01-01T00:00');
+  await page.locator('[formControlName="normativeReference"]').fill('Ordenanza de prueba');
+  await page.getByRole('button', { name: 'Registrar tarifa' }).click();
+  await expect.poll(() => createBodies.length).toBe(1);
+  expect(createBodies[0]).toMatchObject({ amount: '0.25', currency: 'USD', zoneId: null, code: 'GEN-2027' });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
 test('parking sessions preview stays local and never calls operational APIs', async ({ page }) => {

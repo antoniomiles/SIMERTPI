@@ -107,6 +107,11 @@ describe('Real administrative session client', () => {
     expect(safeReturnUrl('/admin/map')).toBe('/admin/map');
     expect(safeReturnUrl('/admin/payments')).toBe('/admin/payments');
     expect(safeReturnUrl('/admin/reports')).toBe('/admin/reports');
+    expect(safeReturnUrl('/admin/tariffs')).toBe('/admin/tariffs');
+    expect(safeReturnUrl('/admin/tariffs/billing-days')).toBe('/admin/tariffs/billing-days');
+    expect(safeReturnUrl('/admin/tariffs/holidays')).toBe('/admin/tariffs/holidays');
+    expect(safeReturnUrl('/admin/tariffs/hours')).toBe('/admin/tariffs/hours');
+    expect(safeReturnUrl('/admin/tariffs/history')).toBe('/admin/tariffs/history');
     for (const url of [
       null,
       'https://untrusted.invalid',
@@ -114,6 +119,10 @@ describe('Real administrative session client', () => {
       '/admin/personal?returnUrl=//untrusted.invalid',
       '%2F%2Funtrusted.invalid',
       '/admin/../login',
+      '/admin/tariffs/unknown',
+      '/admin/tariffs//history',
+      '/admin/tariffs\\history',
+      '/admin/tariffs/history#outside',
     ])
       expect(safeReturnUrl(url)).toBe('/admin/dashboard');
   });

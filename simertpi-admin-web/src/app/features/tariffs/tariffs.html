@@ -1,142 +1,130 @@
-<app-page-heading
-  eyebrow="ADMINISTRACIÓN / CONFIGURACIÓN OPERATIVA"
-  title="Tarifas y d&iacute;as de cobro"
-  description="Administra versiones generales y excepciones por zona. Los horarios operativos se muestran aparte y no determinan la gratuidad."
->
-  <span class="tag">SIMERTPI_ADMIN</span>
-</app-page-heading>
-
-@if (preview) {
-  <section class="notice preview-note" role="status">
-    <strong>Previsualización local</strong>
-    <p>Esta vista no consulta ni modifica datos. Inicia sesión para consultar la configuración real.</p>
-  </section>
-} @else if (state() === 'loading') {
-  <app-data-state kind="loading" title="Consultando configuración" description="Cargando tarifas, horarios y excepciones del backend." />
-} @else if (state() === 'error') {
-  <app-data-state kind="error" title="No se pudo cargar la configuración" [description]="errorMessage()">
-    <button class="button secondary" type="button" (click)="load()">Reintentar</button>
-  </app-data-state>
-} @else if (state() === 'empty') {
-  <app-data-state kind="empty" title="No hay configuraciones registradas" description="El backend no devolvió tarifas, horarios ni excepciones configuradas. No se presentan valores de ejemplo." />
-} @else {
-  <section class="filters card" aria-label="Filtros de configuración">
-    <label class="field" for="configuration-search">
-      <span>Buscar por código, nombre, zona o día</span>
-      <input id="configuration-search" type="search" [value]="query()" (input)="query.set($any($event.target).value)" autocomplete="off" />
-    </label>
-    <label class="field" for="configuration-status">
-      <span>Estado de habilitación</span>
-      <select id="configuration-status" [value]="statusFilter()" (change)="statusFilter.set($any($event.target).value)">
-        <option value="all">Todos</option>
-        <option value="enabled">Habilitados</option>
-        <option value="disabled">Deshabilitados</option>
-      </select>
-    </label>
-    <p class="filter-note">“Habilitado” refleja el estado guardado. La vigencia por fechas se muestra por separado y no sustituye las reglas que aplica el backend.</p>
-  </section>
-
-  @if (actionMessage()) { <p class="notice success-note" role="status">{{ actionMessage() }}</p> }
-  @if (actionError()) { <p class="notice error-note" role="alert">{{ actionError() }}</p> }
-
-  <section class="config-section card" aria-labelledby="effective-title">
-    <header class="section-heading"><div><p class="eyebrow">HERENCIA VIGENTE</p><h2 id="effective-title">Configuraci&oacute;n efectiva por zona</h2></div><span class="tag">{{ effective()?.at | date:'medium' }}</span></header>
-    <p class="section-note">Las excepciones reemplazan solo su concepto. Un d&iacute;a gratuito permite estacionar durante el horario operativo; no significa que el espacio est&eacute; disponible. La inhabilitaci&oacute;n del espacio se administra por separado.</p>
-    <p class="inheritance-line"><strong>Tarifa general:</strong> @if (effective()?.generalTariff; as tariff) { {{ tariff.code }} &middot; {{ tariff.name }} &mdash; {{ tariff.amount }} {{ tariff.currency }}. Ref.: {{ tariff.normativeReference || 'sin referencia' }} } @else { No hay tarifa general vigente configurada. }</p>
-    <p class="inheritance-line"><strong>Calendario general:</strong> @if (effective()?.generalBillingDaysConfigured) { {{ effective()?.generalChargeable ? 'El d&iacute;a consultado es cobrable' : 'El d&iacute;a consultado es gratuito' }}. Ref.: {{ effective()?.generalBillingNormativeReference || 'sin referencia' }} } @else { Sin calendario semanal; se conserva el comportamiento previo. }</p>
-    <div class="table-scroll"><table><thead><tr><th>Zona</th><th>Tarifa efectiva</th><th>D&iacute;as de cobro efectivos</th></tr></thead><tbody>
-      @for (zone of effective()?.zones ?? []; track zone.zoneId) { <tr><td>{{ zone.zoneCode }} &middot; {{ zone.zoneName }}</td><td>{{ zone.tariff ? zone.tariff.code + ' · ' + zone.tariff.amount + ' ' + zone.tariff.currency : 'Sin tarifa vigente' }}<small>Origen: {{ zone.tariffSource === 'ZONE' ? 'Excepci&oacute;n de zona' : zone.tariffSource === 'GENERAL' ? 'Regla general heredada' : 'No configurada' }}</small></td><td>{{ zone.billingDaysConfigured ? (zone.chargeable ? 'Cobrable' : 'Gratuito') : 'Sin calendario semanal' }}<small>Origen: {{ zone.billingDaysSource === 'ZONE' ? 'Excepci&oacute;n semanal' : zone.billingDaysSource === 'GENERAL' ? 'Calendario general heredado' : 'Compatibilidad previa' }}</small></td></tr> }
-      @empty { <tr><td colspan="3">No hay zonas registradas.</td></tr> }
-    </tbody></table></div>
-  </section>
-
-  <section class="config-section card" aria-labelledby="general-config-title">
-    <header class="section-heading"><div><p class="eyebrow">REGLAS POR DEFECTO</p><h2 id="general-config-title">Configuraci&oacute;n general y excepciones</h2></div><span class="tag">Las zonas heredan por concepto</span></header>
-    <p class="section-note">Cada registro crea una versi&oacute;n con vigencia y respaldo normativo. Los importes se env&iacute;an como decimal textual; no se generan tarifas de USD 0,00. Las sesiones conservan la tarifa referenciada al iniciarse.</p>
-    <form class="admin-form" (submit)="saveTariff($event)">
-      <label class="field"><span>C&oacute;digo</span><input name="tariff-code" [(ngModel)]="tariffForm.code" required maxlength="50" /></label>
-      <label class="field"><span>Nombre</span><input name="tariff-name" [(ngModel)]="tariffForm.name" required maxlength="150" /></label>
-      <label class="field"><span>Aplicaci&oacute;n</span><select name="tariff-scope" [(ngModel)]="tariffForm.scope"><option value="GENERAL">General</option><option value="ZONE">Excepci&oacute;n por zona</option></select></label>
-      @if (tariffForm.scope === 'ZONE') { <label class="field"><span>Zona</span><select name="tariff-zone" [(ngModel)]="tariffForm.zoneId" required><option value="">Seleccione zona</option>@for (zone of zones(); track zone.id) { <option [value]="zone.id">{{ zone.code }} &middot; {{ zone.name }}</option> }</select></label> }
-      <label class="field"><span>Importe decimal</span><input name="tariff-amount" inputmode="decimal" pattern="[0-9]{1,10}(\.[0-9]{1,2})?" [(ngModel)]="tariffForm.amount" required /></label>
-      <label class="field"><span>Moneda</span><input name="tariff-currency" [(ngModel)]="tariffForm.currency" pattern="[A-Z]{3}" maxlength="3" required /></label>
-      <label class="field"><span>Minutos por importe</span><input name="tariff-duration" type="number" min="1" [(ngModel)]="tariffForm.durationMinutes" required /></label>
-      <label class="field"><span>M&iacute;nimo facturable (min)</span><input name="tariff-min" type="number" min="1" [(ngModel)]="tariffForm.minMinutes" required /></label>
-      <label class="field"><span>M&aacute;ximo continuo (min)</span><input name="tariff-max" type="number" min="1" [(ngModel)]="tariffForm.maxContinuousMinutes" required /></label>
-      <label class="field"><span>Tolerancia (min)</span><input name="tariff-grace" type="number" min="0" [(ngModel)]="tariffForm.gracePeriodMinutes" required /></label>
-      <label class="field"><span>Redondeo</span><select name="tariff-rounding" [(ngModel)]="tariffForm.roundingMode"><option>HALF_UP</option><option>HALF_EVEN</option><option>DOWN</option><option>UP</option><option>CEILING</option><option>FLOOR</option><option>HALF_DOWN</option></select></label>
-      <label class="field"><span>Vigente desde</span><input name="tariff-from" type="datetime-local" [(ngModel)]="tariffForm.validFrom" required /></label>
-      <label class="field"><span>Vigente hasta (opcional)</span><input name="tariff-to" type="datetime-local" [(ngModel)]="tariffForm.validTo" /></label>
-      <label class="field wide"><span>Referencia normativa</span><input name="tariff-reference" [(ngModel)]="tariffForm.normativeReference" required maxlength="255" /></label>
-      <button class="button primary" type="submit" [disabled]="saving()">Registrar versi&oacute;n tarifaria</button>
-    </form>
-
-    <h3>Calendario semanal de cobro</h3>
-    <p class="section-note">Independiente de los horarios operativos de <code>parking.schedules</code>. Los d&iacute;as no seleccionados son gratuitos, no prohibidos. Una excepci&oacute;n de zona reemplaza la semana general completa.</p>
-    <form class="admin-form" (submit)="saveBillingDays($event)">
-      <label class="field"><span>Aplicaci&oacute;n</span><select name="billing-scope" [(ngModel)]="billingForm.scope"><option value="GENERAL">General</option><option value="ZONE">Excepci&oacute;n por zona</option></select></label>
-      @if (billingForm.scope === 'ZONE') { <label class="field"><span>Zona</span><select name="billing-zone" [(ngModel)]="billingForm.zoneId" required><option value="">Seleccione zona</option>@for (zone of zones(); track zone.id) { <option [value]="zone.id">{{ zone.code }} &middot; {{ zone.name }}</option> }</select></label> }
-      <label class="field"><span>Vigente desde</span><input name="billing-from" type="date" [(ngModel)]="billingForm.validFrom" required /></label>
-      <label class="field"><span>Vigente hasta (opcional)</span><input name="billing-to" type="date" [(ngModel)]="billingForm.validTo" /></label>
-      <fieldset class="weekday-field"><legend>D&iacute;as cobrables</legend>@for (day of weekDays; track day.value) { <label><input type="checkbox" [checked]="billingForm.chargeableDays.includes(day.value)" (change)="toggleChargeableDay(day.value, $any($event.target).checked)" />{{ day.label }}</label> }</fieldset>
-      <label class="field wide"><span>Referencia normativa</span><input name="billing-reference" [(ngModel)]="billingForm.normativeReference" required maxlength="255" /></label>
-      <button class="button primary" type="submit" [disabled]="saving()">Registrar calendario semanal</button>
-    </form>
-  </section>
-
-  <section class="config-section card" aria-labelledby="zone-exceptions-title">
-    <header class="section-heading"><div><p class="eyebrow">HISTORIAL Y EXCEPCIONES</p><h2 id="zone-exceptions-title">Versiones de calendario por zona</h2></div></header>
-    @if (!billingCalendars().length) { <p class="list-empty">No hay calendarios semanales registrados.</p> } @else { <div class="table-scroll"><table><thead><tr><th>Aplicaci&oacute;n</th><th>D&iacute;as cobrables</th><th>Vigencia</th><th>Referencia</th><th>Acci&oacute;n</th></tr></thead><tbody>@for (row of billingCalendars(); track row.id) { <tr><td>{{ displayZone(row.zoneCode,row.zoneName) }}</td><td>{{ chargeableDayLabel(row.days) }}</td><td>{{ row.validFrom | date:'mediumDate' }} &ndash; {{ row.validTo ? (row.validTo | date:'mediumDate') : 'Sin final' }}</td><td>{{ row.normativeReference }}</td><td>@if (row.active && !row.validTo) { <button class="button secondary" type="button" [disabled]="saving()" (click)="endBillingCalendar(row)">Finalizar excepci&oacute;n</button> }</td></tr> }</tbody></table></div> }
-  </section>
-
-  <section class="config-section card" aria-labelledby="tariffs-title">
-    <header class="section-heading"><div><p class="eyebrow">COBRO CONFIGURADO</p><h2 id="tariffs-title">Tarifas</h2></div><span class="tag">{{ filteredTariffs().length }} visibles</span></header>
-    @if (!filteredTariffs().length) {
-      <p class="list-empty">No hay tarifas que coincidan con los filtros.</p>
-    } @else {
-      <div class="table-scroll"><table><thead><tr><th scope="col">Tarifa</th><th scope="col">Zona</th><th scope="col">Importe configurado</th><th scope="col">Fracciones y límites</th><th scope="col">Vigencia</th><th scope="col">Referencia</th><th scope="col">Acción</th></tr></thead><tbody>
-        @for (row of filteredTariffs(); track row.id) {
-          <tr><td><strong>{{ row.code }} · {{ row.name }}</strong><small>{{ row.roundingMode ? 'Redondeo ' + row.roundingMode : 'Redondeo no configurado' }}</small></td>
-            <td>{{ displayZone(row.zoneCode, row.zoneName) }}</td>
-            <td>{{ row.amount | number:'1.2-2' }} {{ row.currency ?? 'Moneda no configurada' }}<small>Por {{ row.durationMinutes }} min</small></td>
-            <td><small>Mínimo facturable: {{ row.minMinutes }} min</small><small>Máximo continuo: {{ row.maxContinuousMinutes === null ? 'No configurado' : row.maxContinuousMinutes + ' min' }}</small><small>Tolerancia: {{ row.gracePeriodMinutes === null ? 'No configurada' : row.gracePeriodMinutes + ' min' }}</small></td>
-            <td>{{ row.validFrom | date:'medium' }}<small>Hasta: {{ row.validTo ? (row.validTo | date:'medium') : 'Sin fecha final' }}</small></td>
-            <td>{{ row.normativeReference || 'No registrada' }}</td>
-            <td>@if (row.active && !row.validTo) { <button class="button secondary" type="button" [disabled]="saving()" (click)="endTariff(row)">Finalizar versión</button> } @else { <span class="tag" [class.inactive]="!row.active">{{ row.active ? 'Vigencia finalizada' : 'Deshabilitada' }}</span> }</td></tr>
-        }
-      </tbody></table></div>
+<section lang="es-EC">
+  <app-page-heading
+    eyebrow="ADMINISTRACIÓN / CONFIGURACIÓN MUNICIPAL"
+    title="Configuración de tarifas"
+    description="Administre la tarifa general y las excepciones vigentes o programadas por zona. Las zonas sin excepción heredan la tarifa general."
+  >
+    @if (!preview) {
+      <button class="button primary" type="button" (click)="openCreate()">Crear tarifa</button>
     }
-  </section>
+  </app-page-heading>
 
-  <section class="config-section card" aria-labelledby="schedules-title">
-    <header class="section-heading"><div><p class="eyebrow">CALENDARIO OPERATIVO</p><h2 id="schedules-title">Horarios</h2></div><span class="tag">{{ filteredSchedules().length }} visibles</span></header>
-    <p class="section-note">Una configuración general se aplica como alternativa cuando no existe un horario específico vigente para la zona, según las reglas del backend.</p>
-    @if (!filteredSchedules().length) {
-      <p class="list-empty">No hay horarios que coincidan con los filtros.</p>
-    } @else {
-      <div class="table-scroll"><table><thead><tr><th scope="col">Zona</th><th scope="col">Día</th><th scope="col">Horario local configurado</th><th scope="col">Vigencia</th><th scope="col">Estado</th></tr></thead><tbody>
-        @for (row of filteredSchedules(); track row.id) {
-          <tr><td>{{ displayZone(row.zoneCode, row.zoneName) }}</td><td>{{ dayName(row.dayOfWeek) }}</td><td><strong>{{ row.startTime.slice(0, 5) }} – {{ row.endTime.slice(0, 5) }}</strong></td>
-            <td>{{ row.validFrom ? (row.validFrom | date:'mediumDate') : 'Sin inicio definido' }}<small>Hasta: {{ row.validTo ? (row.validTo | date:'mediumDate') : 'Sin fecha final' }}</small></td>
-            <td><span class="tag" [class.inactive]="!row.active">{{ row.active ? 'Habilitado' : 'Deshabilitado' }}</span></td></tr>
-        }
-      </tbody></table></div>
-    }
-  </section>
+  @if (preview) {
+    <section class="notice preview-note" role="status">
+      <strong>Previsualización local</strong>
+      <p>Esta vista no consulta ni modifica datos. No se muestran tarifas de ejemplo.</p>
+    </section>
+  } @else if (state() === 'loading') {
+    <app-data-state kind="loading" title="Consultando tarifas" description="Cargando la tarifa efectiva y las versiones registradas." />
+  } @else if (state() === 'error') {
+    <app-data-state kind="error" title="No se pudo cargar la configuración de tarifas" [description]="errorMessage()">
+      <button class="button secondary" type="button" (click)="load()">Reintentar</button>
+    </app-data-state>
+  } @else {
+    @if (actionMessage()) { <p class="notice success-note" role="status">{{ actionMessage() }}</p> }
+    @if (actionError()) { <p class="notice error-note" role="alert">{{ actionError() }}</p> }
 
-  <section class="config-section card" aria-labelledby="exceptions-title">
-    <header class="section-heading"><div><p class="eyebrow">CALENDARIO Y EXCEPCIONES</p><h2 id="exceptions-title">Excepciones configuradas</h2></div><span class="tag">{{ filteredExceptions().length }} visibles</span></header>
-    <p class="section-note">Las excepciones pueden declarar días no tarifados o ventanas especiales. La referencia normativa se presenta tal como está guardada.</p>
-    @if (!filteredExceptions().length) {
-      <p class="list-empty">No hay excepciones que coincidan con los filtros.</p>
-    } @else {
-      <div class="table-scroll"><table><thead><tr><th scope="col">Fecha y nombre</th><th scope="col">Zona</th><th scope="col">Regla configurada</th><th scope="col">Horario especial</th><th scope="col">Referencia normativa</th><th scope="col">Estado</th></tr></thead><tbody>
-        @for (row of filteredExceptions(); track row.id) {
-          <tr><td><strong>{{ row.holidayDate | date:'mediumDate' }}</strong><small>{{ row.name }}</small></td><td>{{ displayZone(row.zoneCode, row.zoneName) }}</td><td>{{ row.holidayType }}<small>{{ row.tariffed ? 'Tarifado' : 'No tarifado' }}</small></td>
-            <td>{{ row.startTime && row.endTime ? row.startTime.slice(0, 5) + ' – ' + row.endTime.slice(0, 5) : 'Sin ventana especial' }}</td><td>{{ row.normativeReference || 'Sin referencia registrada' }}</td>
-            <td><span class="tag" [class.inactive]="!row.active">{{ row.active ? 'Habilitada' : 'Deshabilitada' }}</span><small>Válida desde {{ row.validFrom | date:'mediumDate' }}{{ row.validTo ? ' hasta ' + (row.validTo | date:'mediumDate') : '' }}</small></td></tr>
+    <div class="summary-grid" aria-label="Resumen de tarifas">
+      <article class="summary-card card">
+        <span class="eyebrow">TARIFA GENERAL VIGENTE</span>
+        @if (currentGeneral(); as tariff) {
+          <strong>{{ tariff.code }} · {{ tariff.name }}</strong>
+          <span>{{ formatAmount(tariff.amount, tariff.currency) }} por {{ tariff.durationMinutes }} min</span>
+          <small>Vigente desde {{ formatDateTime(tariff.validFrom) }}</small>
+        } @else {
+          <strong>Sin configuración general</strong>
+          <span>Las zonas sin excepción no tienen tarifa efectiva configurada.</span>
         }
-      </tbody></table></div>
+      </article>
+      <article class="summary-card card">
+        <span class="eyebrow">EXCEPCIONES VIGENTES</span>
+        <strong>{{ currentExceptions().length }}</strong>
+        <span>{{ currentExceptions().length === 1 ? 'zona con tarifa especial' : 'zonas con tarifa especial' }}</span>
+      </article>
+      <article class="summary-card card">
+        <span class="eyebrow">CAMBIOS PROGRAMADOS</span>
+        <strong>{{ scheduledTariffs().length }}</strong>
+        <span>Versiones con vigencia futura</span>
+      </article>
+    </div>
+
+    @if (showForm()) {
+      <section class="config-section card" aria-labelledby="tariff-form-title">
+        <header class="section-heading">
+          <div>
+            <p class="eyebrow">{{ revisionOf() ? 'NUEVA VERSIÓN' : 'NUEVA CONFIGURACIÓN' }}</p>
+            <h2 id="tariff-form-title">{{ revisionOf() ? 'Modificar mediante una nueva versión' : 'Crear configuración de tarifa' }}</h2>
+          </div>
+          <button class="button secondary" type="button" (click)="cancelForms()">Cancelar</button>
+        </header>
+        @if (revisionOf()) {
+          <p class="notice" role="note">No se sobrescribe el historial. Al guardar, la versión seleccionada finalizará cuando inicie la nueva; el cambio se registra con una nueva referencia normativa y código único.</p>
+        } @else {
+          <p class="section-note">La tarifa debe tener respaldo normativo y fecha futura. No se generan valores automáticamente.</p>
+        }
+        <form class="admin-form" [formGroup]="form" (ngSubmit)="submit($event)" novalidate>
+          <label class="field"><span>Código</span><input formControlName="code" maxlength="50" placeholder="Ej.: TAR-GEN-2027-V2" autocomplete="off" /><small>Cada versión requiere un código que no esté registrado.</small></label>
+          <label class="field"><span>Nombre</span><input formControlName="name" maxlength="150" placeholder="Ej.: Tarifa general de estacionamiento" /></label>
+          @if (revisionOf()) { <p class="field"><span>Aplicación conservada</span><strong>{{ revisionOf()!.zoneId ? displayZone(revisionOf()!.zoneCode, revisionOf()!.zoneName) : 'General para todas las zonas' }}</strong></p> }
+          @else { <label class="field"><span>Aplicación</span><select formControlName="scope"><option value="GENERAL">General para todas las zonas</option><option value="ZONE">Excepción para una zona</option></select></label> }
+          @if (!revisionOf() && form.controls.scope.value === 'ZONE') {
+            <label class="field"><span>Zona</span><select formControlName="zoneId"><option value="">Seleccione una zona</option>@for (zone of zones(); track zone.id) { <option [value]="zone.id">{{ zone.code }} · {{ zone.name }}</option> }</select></label>
+          }
+          <label class="field"><span>Importe</span><input formControlName="amount" inputmode="decimal" placeholder="Ej.: 0,25" /><small>Use hasta dos decimales. El importe se transmite como decimal exacto.</small></label>
+          <label class="field"><span>Moneda</span><input formControlName="currency" maxlength="3" placeholder="Ej.: USD" autocomplete="off" /></label>
+          <label class="field"><span>Duración por importe (minutos)</span><input formControlName="durationMinutes" type="number" min="1" placeholder="Ej.: 60" /></label>
+          <label class="field"><span>Mínimo facturable (minutos)</span><input formControlName="minMinutes" type="number" min="1" placeholder="Ej.: 15" /></label>
+          <label class="field"><span>Máximo continuo (minutos)</span><input formControlName="maxContinuousMinutes" type="number" min="1" placeholder="Ej.: 240" /></label>
+          <label class="field"><span>Tolerancia (minutos)</span><input formControlName="gracePeriodMinutes" type="number" min="0" placeholder="Ej.: 0" /></label>
+          <label class="field"><span>Regla de redondeo</span><select formControlName="roundingMode"><option value="HALF_UP">Redondeo convencional</option><option value="HALF_EVEN">Redondeo al par</option><option value="DOWN">Hacia abajo</option><option value="UP">Hacia arriba</option><option value="CEILING">Techo</option><option value="FLOOR">Piso</option><option value="HALF_DOWN">Mitad hacia abajo</option></select></label>
+          <label class="field"><span>Vigente desde</span><input formControlName="validFrom" type="datetime-local" /><small>Seleccione fecha y hora futuras. Ejemplo: 01/01/2027, 00:00.</small></label>
+          <label class="field"><span>Vigente hasta (opcional)</span><input formControlName="validTo" type="datetime-local" /><small>Déjelo vacío si no se ha definido una fecha final.</small></label>
+          <label class="field wide"><span>Referencia normativa</span><input formControlName="normativeReference" maxlength="255" placeholder="Ej.: Ordenanza municipal N.º 001-2027, artículo 5" /></label>
+          <div class="form-actions wide"><button class="button primary" type="submit" [disabled]="saving()">{{ saving() ? 'Guardando…' : revisionOf() ? 'Guardar nueva versión' : 'Registrar tarifa' }}</button><button class="button secondary" type="button" (click)="cancelForms()">Cancelar</button></div>
+        </form>
+      </section>
     }
-  </section>
-}
+
+    @if (endingTariff(); as ending) {
+      <section class="config-section card" aria-labelledby="end-tariff-title">
+        <h2 id="end-tariff-title">Programar finalización de {{ ending.code }}</h2>
+        <p class="section-note">La versión seguirá vigente hasta el instante seleccionado. Las sesiones existentes conservan su referencia tarifaria.</p>
+        <form class="inline-form" [formGroup]="endForm" (ngSubmit)="submitEnd($event)" novalidate>
+          <label class="field"><span>Vigente hasta</span><input formControlName="validTo" type="datetime-local" /><small>Ejemplo: 31/12/2027, 23:59.</small></label>
+          <button class="button primary" type="submit" [disabled]="saving()">Confirmar fecha futura</button>
+          <button class="button secondary" type="button" (click)="cancelForms()">Cancelar</button>
+        </form>
+      </section>
+    }
+
+    <section class="config-section card" aria-labelledby="effective-tariffs-title">
+      <header class="section-heading"><div><p class="eyebrow">HERENCIA POR ZONA</p><h2 id="effective-tariffs-title">Tarifa efectiva vigente</h2></div><span class="tag">Consulta: {{ effective()?.at ? formatDateTime(effective()!.at) : '—' }}</span></header>
+      <p class="section-note">Una excepción tarifaria sustituye solo la tarifa general de esa zona. No cambia sus días de cobro.</p>
+      @if (!effective()?.generalTariff) { <p class="list-empty">No hay una tarifa general vigente configurada.</p> }
+      <div class="table-scroll"><table><thead><tr><th>Zona</th><th>Tarifa aplicada</th><th>Origen</th><th>Vigencia</th></tr></thead><tbody>
+        @for (zone of effective()?.zones ?? []; track zone.zoneId) {
+          <tr><td><strong>{{ zone.zoneCode }} · {{ zone.zoneName }}</strong></td><td>{{ zone.tariff ? zone.tariff.code + ' · ' + formatAmount(zone.tariff.amount, zone.tariff.currency) : 'Sin tarifa vigente' }}<small>{{ zone.tariff?.name ?? 'No se presenta un importe de ejemplo.' }}</small></td><td>{{ tariffSource(zone.tariffSource) }}</td><td>{{ zone.tariff ? formatDateTime(zone.tariff.validFrom) : '—' }}</td></tr>
+        } @empty { <tr><td colspan="4">No hay zonas registradas para mostrar herencia.</td></tr> }
+      </tbody></table></div>
+    </section>
+
+    <section class="config-section card" aria-labelledby="tariff-versions-title">
+      <header class="section-heading"><div><p class="eyebrow">VERSIONES Y VIGENCIAS</p><h2 id="tariff-versions-title">Configuraciones registradas</h2></div><a class="text-link" routerLink="/admin/tariffs/history">Consultar historial</a></header>
+      <div class="filters tariff-filters">
+        <label class="field"><span>Buscar por código, nombre, zona o referencia</span><input type="search" [value]="query()" (input)="query.set($any($event.target).value)" placeholder="Ej.: TAR-GEN o Centro" autocomplete="off" /></label>
+        <label class="field"><span>Filtrar versiones</span><select [value]="statusFilter()" (change)="statusFilter.set($any($event.target).value)"><option value="all">Todas</option><option value="vigentes">Vigentes</option><option value="programadas">Programadas</option><option value="finalizadas">Finalizadas</option></select></label>
+      </div>
+      @if (!visibleTariffs().length) { <p class="list-empty">No hay tarifas que coincidan con los filtros.</p> } @else {
+        <div class="table-scroll"><table><thead><tr><th>Tarifa</th><th>Aplicación</th><th>Importe y duración</th><th>Vigencia</th><th>Referencia normativa</th><th>Acciones</th></tr></thead><tbody>
+          @for (row of visibleTariffs(); track row.id) {
+            <tr><td><strong>{{ row.code }} · {{ row.name }}</strong><small>{{ row.active ? 'Habilitada' : 'Deshabilitada' }}</small></td><td>{{ displayZone(row.zoneCode, row.zoneName) }}</td><td>{{ formatAmount(row.amount, row.currency ?? 'USD') }}<small>Por {{ row.durationMinutes }} minutos</small></td><td>{{ formatDateTime(row.validFrom) }}<small>Hasta: {{ row.validTo ? formatDateTime(row.validTo) : 'Sin fecha final' }}</small></td><td>{{ row.normativeReference || 'No registrada' }}</td><td class="row-actions">
+              @if (canModify(row)) { <button class="button secondary" type="button" (click)="openRevision(row)">Modificar</button><button class="button secondary" type="button" (click)="openEnd(row)">Finalizar</button> }
+              @else if (row.active) { <span class="tag">Programada</span> }
+              @else { <span class="tag inactive">Finalizada</span> }
+            </td></tr>
+          }
+        </tbody></table></div>
+      }
+    </section>
+  }
+</section>

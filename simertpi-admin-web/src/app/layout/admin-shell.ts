@@ -49,6 +49,7 @@ export class AdminShell {
   private readonly router = inject(Router);
   readonly groups = NAVIGATION;
   readonly opened = signal(false);
+  readonly tariffsMenuExpanded = signal(false);
   readonly compact = signal(window.matchMedia('(max-width: 960px)').matches);
   readonly tooltip = signal<NavigationTooltip | null>(null);
   readonly preview = inject(ActivatedRoute).snapshot.data['preview'] === true;
@@ -56,6 +57,7 @@ export class AdminShell {
   readonly menuButton = viewChild<ElementRef<HTMLButtonElement>>('menuButton');
   private hideTimer: ReturnType<typeof setTimeout> | undefined;
   constructor() {
+    this.tariffsMenuExpanded.set(!this.isCollapsed() && this.isTariffsActive());
     const destroy = inject(DestroyRef);
     destroy.onDestroy(() => {
       if (this.hideTimer) clearTimeout(this.hideTimer);
@@ -67,6 +69,7 @@ export class AdminShell {
       )
       .subscribe(() => {
         this.opened.set(false);
+        this.tariffsMenuExpanded.set(!this.isCollapsed() && this.isTariffsActive());
         this.hideTooltip();
         afterNextRender(() => document.getElementById('main-content')?.focus(), {
           injector: this.injector,
@@ -98,6 +101,7 @@ export class AdminShell {
     this.hideTooltip();
     if (!this.compact()) {
       this.preference.toggle();
+      this.tariffsMenuExpanded.set(!this.isCollapsed() && this.isTariffsActive());
       return;
     }
     this.opened.update((value) => !value);
@@ -125,6 +129,17 @@ export class AdminShell {
       });
     }
   }
+  toggleTariffsMenu() {
+    if (this.isCollapsed()) {
+      this.preference.toggle();
+      this.tariffsMenuExpanded.set(true);
+      return;
+    }
+    const expanding = !this.tariffsMenuExpanded();
+    this.tariffsMenuExpanded.set(expanding);
+  }
+  isTariffsActive() { return this.router.url.startsWith(this.base + '/tariffs'); }
+  childRoute(path: string) { return [this.base, ...path.split('/')]; }
   showTooltip(event: Event, key: string, pending = false) {
     if (!this.isCollapsed()) return;
     this.keepTooltip();

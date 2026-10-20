@@ -1,0 +1,75 @@
+<section lang="es-EC">
+  <app-page-heading
+    eyebrow="ADMINISTRACIÓN / CONFIGURACIÓN MUNICIPAL"
+    title="Días de cobro"
+    description="Configure el calendario semanal general y sus excepciones por zona. Las zonas sin excepción heredan el calendario general."
+  >
+    @if (!preview) { <button class="button primary" type="button" (click)="openCreate()">Crear calendario</button> }
+  </app-page-heading>
+
+  @if (preview) {
+    <section class="notice preview-note" role="status"><strong>Previsualización local</strong><p>Esta vista no consulta ni modifica datos. No se muestran calendarios de ejemplo.</p></section>
+  } @else if (state() === 'loading') {
+    <app-data-state kind="loading" title="Consultando días de cobro" description="Cargando el calendario semanal y las excepciones registradas." />
+  } @else if (state() === 'error') {
+    <app-data-state kind="error" title="No se pudo cargar el calendario" [description]="errorMessage()"><button class="button secondary" type="button" (click)="load()">Reintentar</button></app-data-state>
+  } @else {
+    @if (actionMessage()) { <p class="notice success-note" role="status">{{ actionMessage() }}</p> }
+    @if (actionError()) { <p class="notice error-note" role="alert">{{ actionError() }}</p> }
+
+    <div class="summary-grid" aria-label="Resumen del calendario de cobro">
+      <article class="summary-card card"><span class="eyebrow">CALENDARIO GENERAL</span>
+        @if (generalCalendar(); as calendar) { <strong>{{ daysLabel(calendar.days) }}</strong><span>Vigente desde {{ formatDate(calendar.validFrom) }}</span><small>{{ calendar.normativeReference }}</small> }
+        @else { <strong>Sin calendario semanal general</strong><span>No se presumen días aprobados por ordenanza.</span> }
+      </article>
+      <article class="summary-card card"><span class="eyebrow">EXCEPCIONES VIGENTES</span><strong>{{ zoneExceptions().length }}</strong><span>{{ zoneExceptions().length === 1 ? 'zona con calendario propio' : 'zonas con calendario propio' }}</span></article>
+      <article class="summary-card card"><span class="eyebrow">CAMBIOS PROGRAMADOS</span><strong>{{ scheduled().length }}</strong><span>Calendarios con vigencia futura</span></article>
+    </div>
+
+    <p class="notice calendar-meaning" role="note"><strong>Importante:</strong> un día sin cobro significa estacionamiento gratuito durante el horario operativo; no prohíbe estacionar ni confirma que un espacio esté disponible. La habilitación física del espacio es independiente.</p>
+
+    @if (showForm()) {
+      <section class="config-section card" aria-labelledby="billing-form-title">
+        <header class="section-heading"><div><p class="eyebrow">{{ revisionOf() ? 'NUEVA VERSIÓN' : 'NUEVA CONFIGURACIÓN' }}</p><h2 id="billing-form-title">{{ revisionOf() ? 'Modificar mediante una nueva versión' : 'Crear calendario semanal' }}</h2></div><button class="button secondary" type="button" (click)="cancelForms()">Cancelar</button></header>
+        @if (revisionOf()) { <p class="notice" role="note">La semana anterior terminará el día previo al inicio de esta versión. No se sobrescribe el historial.</p> }
+        <form class="admin-form" [formGroup]="form" (ngSubmit)="submit($event)" novalidate>
+          <label class="field"><span>Aplicación</span><select formControlName="scope"><option value="GENERAL">General para todas las zonas</option><option value="ZONE">Excepción para una zona</option></select><small>La excepción reemplaza el calendario semanal completo de esa zona.</small></label>
+          @if (form.controls.scope.value === 'ZONE') { <label class="field"><span>Zona</span><select formControlName="zoneId"><option value="">Seleccione una zona</option>@for (zone of zones(); track zone.id) { <option [value]="zone.id">{{ zone.code }} · {{ zone.name }}</option> }</select></label> }
+          <label class="field"><span>Vigente desde</span><input formControlName="validFrom" type="date" /><small>Seleccione una fecha futura. Ejemplo: 01/01/2027.</small></label>
+          <label class="field"><span>Vigente hasta (opcional)</span><input formControlName="validTo" type="date" /><small>Déjelo vacío si no se ha definido fecha final.</small></label>
+          <fieldset class="weekday-field wide"><legend>Días con cobro</legend><p class="section-note">Los días no marcados serán gratuitos. No se precarga ningún día como aprobado.</p>
+            @for (day of weekDays; track day.value) { <label><input type="checkbox" [checked]="chargeableDays().includes(day.value)" (change)="toggleDay(day.value, $any($event.target).checked)" />{{ day.label }}</label> }
+          </fieldset>
+          <label class="field wide"><span>Referencia normativa</span><input formControlName="normativeReference" maxlength="255" placeholder="Ej.: Ordenanza municipal N.º 001-2027, artículo 5" /></label>
+          <div class="form-actions wide"><button class="button primary" type="submit" [disabled]="saving()">{{ saving() ? 'Guardando…' : revisionOf() ? 'Guardar nueva versión' : 'Registrar calendario' }}</button><button class="button secondary" type="button" (click)="cancelForms()">Cancelar</button></div>
+        </form>
+      </section>
+    }
+
+    @if (endingCalendar(); as calendar) {
+      <section class="config-section card" aria-labelledby="end-calendar-title"><h2 id="end-calendar-title">Finalizar calendario de {{ zoneName(calendar.zoneCode, calendar.zoneName) }}</h2><p class="section-note">Si se trata de una excepción, desde esta fecha la zona volverá a heredar el calendario general.</p><form class="inline-form" [formGroup]="endForm" (ngSubmit)="submitEnd($event)" novalidate><label class="field"><span>Aplicar herencia desde</span><input formControlName="effectiveFrom" type="date" /><small>Seleccione una fecha futura; ejemplo: 01/01/2027.</small></label><button class="button primary" type="submit" [disabled]="saving()">Confirmar finalización</button><button class="button secondary" type="button" (click)="cancelForms()">Cancelar</button></form></section>
+    }
+
+    <section class="config-section card" aria-labelledby="effective-days-title">
+      <header class="section-heading"><div><p class="eyebrow">HERENCIA POR ZONA</p><h2 id="effective-days-title">Calendario semanal efectivo</h2></div><span class="tag">Consulta: {{ effective()?.at ? formatDate(effective()!.at) : '—' }}</span></header>
+      @if (!generalCalendar()) { <p class="list-empty">No hay calendario general configurado. No se muestran días cobrables por defecto.</p> }
+      <div class="table-scroll"><table><thead><tr><th>Zona</th><th>Días con cobro</th><th>Origen</th><th>Estado vigente</th></tr></thead><tbody>
+        @for (zone of effective()?.zones ?? []; track zone.zoneId) {
+          <tr><td><strong>{{ zone.zoneCode }} · {{ zone.zoneName }}</strong></td><td>{{ daysLabel(inheritedCalendar(zone.zoneId)?.days) }}</td><td>{{ zone.billingDaysSource === 'ZONE' ? 'Excepción por zona' : zone.billingDaysSource === 'GENERAL' ? 'Calendario general heredado' : 'Sin calendario configurado' }}</td><td>{{ zone.billingDaysConfigured ? (zone.chargeable ? 'Hoy: cobrable' : 'Hoy: gratuito') : 'Sin regla semanal nueva' }}</td></tr>
+        } @empty { <tr><td colspan="4">No hay zonas registradas para mostrar herencia.</td></tr> }
+      </tbody></table></div>
+    </section>
+
+    <section class="config-section card" aria-labelledby="calendar-list-title">
+      <header class="section-heading"><div><p class="eyebrow">VERSIONES Y EXCEPCIONES</p><h2 id="calendar-list-title">Calendarios registrados</h2></div></header>
+      <label class="field calendar-search"><span>Buscar por zona o referencia normativa</span><input type="search" [value]="query()" (input)="query.set($any($event.target).value)" placeholder="Ej.: Centro o artículo 5" autocomplete="off" /></label>
+      @if (!visibleCalendars().length) { <p class="list-empty">No hay calendarios semanales registrados.</p> } @else {
+        <div class="table-scroll"><table><thead><tr><th>Aplicación</th><th>Días con cobro</th><th>Vigencia</th><th>Referencia</th><th>Estado y acciones</th></tr></thead><tbody>
+          @for (calendar of visibleCalendars(); track calendar.id) {
+            <tr><td>{{ zoneName(calendar.zoneCode, calendar.zoneName) }}</td><td>{{ daysLabel(calendar.days) }}</td><td>{{ formatDate(calendar.validFrom) }}<small>Hasta: {{ formatDate(calendar.validTo) }}</small></td><td>{{ calendar.normativeReference }}</td><td><span class="tag" [class.inactive]="!calendar.active">{{ isScheduled(calendar) ? 'Programado' : isCurrent(calendar) ? 'Vigente' : calendar.active ? 'Fuera de vigencia' : 'Deshabilitado' }}</span><div class="row-actions">@if (canModify(calendar)) { <button class="button secondary" type="button" (click)="openRevision(calendar)">Modificar</button><button class="button secondary" type="button" (click)="openEnd(calendar)">Finalizar</button> }</div></td></tr>
+          }
+        </tbody></table></div>
+      }
+    </section>
+  }
+</section>

@@ -1477,6 +1477,48 @@ app-icon svg {
 .nav-item.pending {
   cursor: default;
 }
+.nav-disclosure {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.nav-disclosure-mark {
+  margin-left: auto;
+  font-size: 18px;
+  line-height: 1;
+}
+.nav-submenu {
+  margin: 2px 0 8px 16px;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+}
+.nav-subitem {
+  display: grid;
+  gap: 3px;
+  padding: 8px 9px;
+  margin: 2px 0;
+  border-radius: 6px;
+  color: #46576a;
+  font-size: 12px;
+  line-height: 1.35;
+  text-decoration: none;
+}
+.nav-subitem small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.nav-subitem.active {
+  background: #eaf4ed;
+  color: var(--green);
+  font-weight: 600;
+}
+.nav-subitem:focus-visible,
+.nav-disclosure:focus-visible {
+  outline: 3px solid #020562;
+  outline-offset: 2px;
+}
 .nav-item:focus-visible {
   outline-offset: -3px;
 }
