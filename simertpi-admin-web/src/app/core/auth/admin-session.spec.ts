@@ -103,6 +103,7 @@ describe('Real administrative session client', () => {
   });
   it('allows only known internal return destinations', () => {
     expect(safeReturnUrl('/admin/personal')).toBe('/admin/personal');
+    expect(safeReturnUrl('/admin/access')).toBe('/admin/access');
     expect(safeReturnUrl('/admin/map')).toBe('/admin/map');
     expect(safeReturnUrl('/admin/payments')).toBe('/admin/payments');
     expect(safeReturnUrl('/admin/reports')).toBe('/admin/reports');

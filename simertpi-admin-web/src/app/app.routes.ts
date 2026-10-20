@@ -17,6 +17,11 @@ const pages: Routes = [
     loadComponent: () => import('./features/municipal-users/personnel').then((m) => m.Personnel),
   },
   {
+    path: 'access',
+    title: 'Usuarios, roles y permisos | SIMERTPI',
+    loadComponent: () => import('./features/users-roles/users-roles').then((m) => m.UsersRoles),
+  },
+  {
     path: 'audit',
     title: 'Auditoría administrativa | SIMERTPI',
     loadComponent: () => import('./features/audit/audit').then((m) => m.Audit),

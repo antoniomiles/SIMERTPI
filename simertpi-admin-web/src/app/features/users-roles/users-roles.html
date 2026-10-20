@@ -1,0 +1,129 @@
+<app-page-heading
+  eyebrow="ADMINISTRACIÓN / ACCESOS"
+  title="Usuarios, roles y permisos"
+  description="Consulta las cuentas y los roles registrados en SIMERTPI."
+>
+  <span class="read-only-tag">Solo lectura</span>
+</app-page-heading>
+
+<section class="access-note" role="note" aria-label="Alcance de la administración de accesos">
+  <strong>Los permisos se controlan en el backend.</strong>
+  <p>
+    El sistema conserva un catálogo de roles, pero no una matriz editable de permisos. Esta vista no
+    asigna roles, crea cuentas ni cambia estados; el acceso efectivo se valida por ruta en el servidor.
+  </p>
+  <p>Para el alta y activación de inspectores utilice Personal municipal.</p>
+</section>
+
+<div class="tabs" role="tablist" aria-label="Administración de accesos">
+  <button type="button" role="tab" [attr.aria-selected]="tab() === 'users'" (click)="setTab('users')">
+    Cuentas
+  </button>
+  <button type="button" role="tab" [attr.aria-selected]="tab() === 'roles'" (click)="setTab('roles')">
+    Catálogo de roles
+  </button>
+</div>
+
+@if (preview) {
+  <app-data-state
+    title="Previsualización sin datos"
+    description="Esta vista local no consulta el backend ni muestra cuentas o roles de ejemplo."
+  />
+} @else if (tab() === 'users') {
+  <section class="card directory" aria-labelledby="accounts-title">
+    <div class="section-heading">
+      <div>
+        <h2 id="accounts-title">Cuentas de acceso</h2>
+        <p>Datos mínimos del usuario, roles asignados y estado de la cuenta.</p>
+      </div>
+      <button class="button secondary" type="button" (click)="loadUsers()" [disabled]="usersState() === 'loading'">
+        Actualizar
+      </button>
+    </div>
+    <form class="filters" [formGroup]="filters" (ngSubmit)="$event.preventDefault()">
+      <label>
+        <span>Buscar</span>
+        <input formControlName="query" type="search" maxlength="100" placeholder="Nombre, usuario o correo" />
+      </label>
+      <label>
+        <span>Rol</span>
+        <select formControlName="role">
+          <option value="">Todos los roles</option>
+          @for (role of roleCatalog(); track role.code) {
+            <option [value]="role.code">{{ role.code }} · {{ role.name }}</option>
+          }
+        </select>
+      </label>
+      <label>
+        <span>Estado</span>
+        <select formControlName="status">
+          <option value="all">Todos</option>
+          <option value="enabled">Habilitadas</option>
+          <option value="disabled">Deshabilitadas</option>
+        </select>
+      </label>
+    </form>
+    @if (usersState() === 'loading') {
+      <app-data-state kind="loading" title="Consultando cuentas" description="Cargando el directorio administrativo." />
+    } @else if (usersState() === 'error') {
+      <app-data-state kind="error" title="No se pudo cargar el directorio" [description]="usersError()">
+        <button class="button secondary" type="button" (click)="loadUsers()">Reintentar</button>
+      </app-data-state>
+    } @else if (usersState() === 'empty') {
+      <app-data-state title="Sin cuentas para estos filtros" description="No se encontraron cuentas registradas que coincidan con la consulta." />
+    } @else if (directory(); as result) {
+      <div class="table-scroll" tabindex="0" role="region" aria-label="Directorio de cuentas">
+        <table>
+          <caption class="sr-only">Cuentas y roles registrados en SIMERTPI</caption>
+          <thead><tr><th scope="col">Cuenta</th><th scope="col">Correo</th><th scope="col">Roles</th><th scope="col">Estado</th><th scope="col">Creada</th></tr></thead>
+          <tbody>
+            @for (account of result.content; track account.id) {
+              <tr>
+                <td><strong>{{ account.firstName }} {{ account.lastName }}</strong><span class="secondary-text">{{ account.username }}</span></td>
+                <td>{{ account.email }}</td>
+                <td><ul class="role-list">@for (code of account.roles; track code) { <li>{{ code }} · {{ roleName(code) }}</li> }</ul></td>
+                <td><span class="status" [class.disabled]="!account.enabled">{{ accountStatus(account.enabled, account.activationPending) }}</span></td>
+                <td>{{ account.createdAt | date: 'mediumDate' }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      <div class="pagination" aria-label="Paginación de cuentas">
+        <span>{{ result.totalElements }} cuenta(s) · Página {{ result.page + 1 }} de {{ result.totalPages }}</span>
+        <button class="button secondary" type="button" [disabled]="!hasPrevious()" (click)="previousPage()">Anterior</button>
+        <button class="button secondary" type="button" [disabled]="!hasNext()" (click)="nextPage()">Siguiente</button>
+      </div>
+    }
+  </section>
+} @else {
+  <section class="card role-catalog" aria-labelledby="roles-title">
+    <div class="section-heading">
+      <div>
+        <h2 id="roles-title">Roles existentes</h2>
+        <p>El catálogo procede de la base de datos; la cantidad indica cuentas vinculadas a cada rol.</p>
+      </div>
+      <button class="button secondary" type="button" (click)="loadRoles()" [disabled]="rolesState() === 'loading'">
+        Actualizar
+      </button>
+    </div>
+    @if (rolesState() === 'loading') {
+      <app-data-state kind="loading" title="Consultando roles" description="Cargando el catálogo registrado." />
+    } @else if (rolesState() === 'error') {
+      <app-data-state kind="error" title="No se pudo cargar el catálogo" [description]="rolesError()">
+        <button class="button secondary" type="button" (click)="loadRoles()">Reintentar</button>
+      </app-data-state>
+    } @else if (rolesState() === 'empty') {
+      <app-data-state title="No hay roles registrados" description="El catálogo de roles está vacío." />
+    } @else {
+      <div class="table-scroll" tabindex="0" role="region" aria-label="Catálogo de roles">
+        <table>
+          <caption class="sr-only">Roles registrados y cuentas asignadas</caption>
+          <thead><tr><th scope="col">Código</th><th scope="col">Nombre</th><th scope="col">Descripción del catálogo</th><th scope="col">Cuentas</th></tr></thead>
+          <tbody>@for (role of roleCatalog(); track role.code) { <tr><td><code>{{ role.code }}</code></td><td>{{ role.name }}</td><td>{{ role.description || 'Sin descripción' }}</td><td>{{ role.assignedAccounts }}</td></tr> }</tbody>
+        </table>
+      </div>
+      <p class="permission-note">La descripción del catálogo no constituye una concesión de permisos. Las autorizaciones se definen y aplican en el backend por endpoint; no se pueden editar desde el portal.</p>
+    }
+  </section>
+}
