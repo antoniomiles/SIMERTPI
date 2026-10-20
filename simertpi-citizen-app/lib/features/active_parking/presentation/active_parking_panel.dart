@@ -463,7 +463,11 @@ class _ExtensionPageState extends State<ExtensionPage> {
                       const InfoCard(
                         'La extensión de tiempo no está habilitada para este ambiente.',
                       ),
-                    if (c.intent == null && p == null && q != null) ...[
+                    if (c.intent == null && p == null && q?.freeParking == true)
+                      const InfoCard(
+                        'El calendario indica que este período es gratuito. No se generará una cotización ni un pago por extensión desde esta pantalla.',
+                      )
+                    else if (c.intent == null && p == null && q != null) ...[
                       Text(
                         '¿Cuánto tiempo deseas agregar?',
                         style: Theme.of(context).textTheme.titleLarge,

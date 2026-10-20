@@ -193,8 +193,9 @@ class ActiveParkingController extends ChangeNotifier {
       }
       if (!selected!.extensionAllowed(now())) return;
       final policy = await gateway.quote(id, null);
+      quote = policy;
       final minutes = policy.minimum;
-      if (minutes != null && minutes > 0) {
+      if (!policy.freeParking && minutes != null && minutes > 0) {
         quote = await gateway.quote(id, minutes);
       }
     } catch (e) {
@@ -205,10 +206,26 @@ class ActiveParkingController extends ChangeNotifier {
     }
   }
 
-  Future<List<ParkingRules>> durationOptions() async =>
-      gateway is DurationOptionsGateway
-      ? (gateway as DurationOptionsGateway).options(selected!.id)
-      : [if (quote?.quoted == true) quote!];
+  Future<List<ParkingRules>> durationOptions() async {
+    if (quote?.freeParking == true) return const [];
+    final parking = selected;
+    if (parking == null) return const [];
+    if (gateway is! DurationOptionsGateway) {
+      return [if (quote?.quoted == true) quote!];
+    }
+    final options = await (gateway as DurationOptionsGateway).options(
+      parking.id,
+    );
+    if (options.isEmpty && !_disposed && selected?.id == parking.id) {
+      final current = await gateway.quote(parking.id, null);
+      if (current.freeParking) {
+        quote = current;
+        emit();
+      }
+    }
+    return options;
+  }
+
   void selectDuration(ParkingRules value) {
     if (busy ||
         intent != null ||

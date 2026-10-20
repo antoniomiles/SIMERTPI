@@ -47,6 +47,23 @@ Map<String, Object?> ruleFixture([int? minutes]) => {
     'source': 'ZONE',
   },
 };
+Map<String, Object?> freeRuleFixture() => {
+  ...ruleFixture(),
+  'chargeable': false,
+  'reasonCode': 'FREE_PARKING',
+  'minimumFractionMinutes': null,
+  'maximumContinuousMinutes': null,
+  'gracePeriodMinutes': null,
+  'currency': null,
+  'applicableTariff': null,
+  'unitPrice': null,
+  'unitDurationMinutes': null,
+  'requestedDurationMinutes': null,
+  'billedDurationMinutes': null,
+  'calculatedAmount': null,
+  'expiresAt': null,
+  'extensionAllowed': false,
+};
 ParkingReceipt receipt(
   ParkingIntent i, {
   String status = 'PENDING_PAYMENT',
@@ -98,6 +115,7 @@ class FakeParking implements ParkingGateway {
   int creates = 0, queries = 0;
   String amount = '0.31';
   bool open = true;
+  bool free = false;
   Object? failure, createFailure;
   Completer<void>? gate;
   ParkingIntent? intent;
@@ -106,6 +124,7 @@ class FakeParking implements ParkingGateway {
   Future<ParkingRules> rules(String id, [int? minutes]) async {
     queries++;
     if (failure != null) throw failure!;
+    if (free) return ParkingRules(freeRuleFixture());
     return ParkingRules({
       ...ruleFixture(minutes),
       'operational': open,
@@ -130,6 +149,15 @@ class FakeParking implements ParkingGateway {
 
   @override
   Future<List<ParkingReceipt>> mine(String owner) async => existing;
+}
+
+class FreeTransitionParking extends FakeParking
+    implements DurationOptionsGateway {
+  @override
+  Future<List<ParkingRules>> options(String id) async {
+    free = true;
+    return const [];
+  }
 }
 
 ParkingController controller(
@@ -174,6 +202,20 @@ Future<Widget> page(ParkingController c, {bool dark = false}) async {
 }
 
 void main() {
+  test(
+    'Empty duration options recheck and surface a newly free billing period',
+    () async {
+      final p = FreeTransitionParking();
+      final c = controller(p);
+      await c.load();
+      expect(c.quote?.quoted, isTrue);
+      expect(await c.durationOptions(), isEmpty);
+      expect(c.freeParking, isTrue);
+      expect(c.minutes, isNull);
+      expect(c.phase, ParkingPhase.ready);
+      c.dispose();
+    },
+  );
   for (final dark in [false, true]) {
     testWidgets('Local flow back and Home abandonment dark=$dark', (
       tester,
@@ -247,6 +289,44 @@ void main() {
     });
     expect(q.quoted, false);
     expect(ruleMessage(q.reason), isNot(contains('UNKNOWN')));
+  });
+  test(
+    'FREE_PARKING is operational but non-chargeable and has no payment data',
+    () {
+      final free = ParkingRules(freeRuleFixture());
+      expect(free.operational, isTrue);
+      expect(free.chargeable, isFalse);
+      expect(free.freeParking, isTrue);
+      expect(free.quoted, isFalse);
+      expect(free.amount, isNull);
+      expect(free.code, isNull);
+      expect(ruleMessage(free.reason), contains('gratuito'));
+      expect(
+        () => ParkingRules({...ruleFixture(), 'reasonCode': 'FREE_PARKING'}),
+        throwsA(isA<AppFailure>()),
+      );
+    },
+  );
+  testWidgets('Free parking bypasses duration, payment and session creation', (
+    tester,
+  ) async {
+    final p = FakeParking()..free = true;
+    final c = controller(p);
+    await tester.pumpWidget(await page(c));
+    await tester.pumpAndSettle();
+    expect(find.text('Estacionamiento gratuito'), findsOneWidget);
+    expect(
+      find.textContaining('Este período de estacionamiento es gratuito.'),
+      findsOneWidget,
+    );
+    expect(find.text('Tiempo de estacionamiento'), findsNothing);
+    expect(find.text('Seleccionar método de pago'), findsNothing);
+    expect(c.minutes, isNull);
+    expect(c.canSubmit, isFalse);
+    expect(await c.durationOptions(), isEmpty);
+    await c.create();
+    expect(p.creates, 0);
+    c.dispose();
   });
   test('Load revalidates space, selects sole real vehicle and uses backend minimum/quote', () async {
     final p = FakeParking(), cat = d.FakeCatalog();

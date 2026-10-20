@@ -58,6 +58,7 @@ class ParkingController extends ChangeNotifier {
   ParkingIntent? _intent;
   bool _busy = false, _disposed = false;
   bool get busy => _busy;
+  bool get freeParking => quote?.freeParking == true;
   bool get canSubmit =>
       !busy &&
       phase == ParkingPhase.ready &&
@@ -66,10 +67,27 @@ class ParkingController extends ChangeNotifier {
       !occupiedVehicles.contains(vehicleId) &&
       quote?.quoted == true &&
       minutes == quote?.minutes;
-  Future<List<ParkingRules>> durationOptions() async =>
-      parking is DurationOptionsGateway
-      ? (parking as DurationOptionsGateway).options(space.space.id)
-      : [if (quote?.quoted == true) quote!];
+  Future<List<ParkingRules>> durationOptions() async {
+    if (freeParking) return const [];
+    if (parking is! DurationOptionsGateway) {
+      return [if (quote?.quoted == true) quote!];
+    }
+    final options = await (parking as DurationOptionsGateway).options(
+      space.space.id,
+    );
+    if (options.isEmpty && !_disposed) {
+      final current = await parking.rules(space.space.id);
+      if (current.freeParking) {
+        quote = current;
+        minutes = null;
+        message = null;
+        phase = ParkingPhase.ready;
+        _notify();
+      }
+    }
+    return options;
+  }
+
   void selectDuration(ParkingRules value) {
     if (busy ||
         _intent != null ||
@@ -138,8 +156,15 @@ class ParkingController extends ChangeNotifier {
         vehicleId = free.length == 1 ? free.single.id : null;
       }
       quote = results[2] as ParkingRules;
-      minutes = minutes ?? quote!.minimum;
-      if (space.selectable && quote!.operational && minutes != null) {
+      if (quote!.freeParking) {
+        minutes = null;
+      } else {
+        minutes = minutes ?? quote!.minimum;
+      }
+      if (!quote!.freeParking &&
+          space.selectable &&
+          quote!.operational &&
+          minutes != null) {
         quote = await parking.rules(space.space.id, minutes);
       }
       if (_disposed) return;
@@ -176,7 +201,7 @@ class ParkingController extends ChangeNotifier {
   }
 
   Future<void> estimate() async {
-    if (_busy || _disposed || _intent != null) return;
+    if (_busy || _disposed || _intent != null || freeParking) return;
     if (minutes == null ||
         quote?.minimum == null ||
         quote?.maximum == null ||
@@ -194,7 +219,11 @@ class ParkingController extends ChangeNotifier {
       if (_disposed) return;
       quote = fresh;
       phase = ParkingPhase.ready;
-      if (!fresh.operational) message = ruleMessage(fresh.reason);
+      if (fresh.freeParking) {
+        minutes = null;
+      } else if (!fresh.operational) {
+        message = ruleMessage(fresh.reason);
+      }
     } catch (e) {
       if (!_disposed) {
         quote = null;
@@ -247,7 +276,8 @@ class ParkingController extends ChangeNotifier {
       }
       if (!fresh.quoted) {
         quote = fresh;
-        message = ruleMessage(fresh.reason);
+        minutes = fresh.freeParking ? null : minutes;
+        message = fresh.freeParking ? null : ruleMessage(fresh.reason);
         phase = ParkingPhase.ready;
         return;
       }

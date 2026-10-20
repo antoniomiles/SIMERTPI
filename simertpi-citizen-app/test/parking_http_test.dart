@@ -46,6 +46,42 @@ void main() {
       }
     },
   );
+  test(
+    'Free rules and empty duration options parse without creating a quote',
+    () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final paths = <String>[];
+      server.listen((r) async {
+        paths.add(r.uri.path);
+        r.response.headers.contentType = ContentType.json;
+        if (r.uri.path == '/api/v1/parking/rules') {
+          r.response.write(jsonEncode(fixture.freeRuleFixture()));
+        } else if (r.uri.path == '/api/v1/parking/rules/options') {
+          r.response.write('[]');
+        } else {
+          r.response.statusCode = 404;
+        }
+        await r.response.close();
+      });
+      final api = ApiClient(
+        baseUrl: Uri.parse('http://127.0.0.1:${server.port}/api/v1'),
+      );
+      try {
+        final service = ParkingService(api);
+        final free = await service.rules('s');
+        expect(free.freeParking, isTrue);
+        expect(free.quoted, isFalse);
+        expect(await service.options('s'), isEmpty);
+        expect(paths, [
+          '/api/v1/parking/rules',
+          '/api/v1/parking/rules/options',
+        ]);
+      } finally {
+        api.close();
+        await server.close(force: true);
+      }
+    },
+  );
   test('Lost POST response is not retried; own-session GET recovers the durable intention', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final gate = Completer<void>();

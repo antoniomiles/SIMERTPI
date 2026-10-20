@@ -45,6 +45,7 @@ class ParkingRules {
       reason = requiredText(data, 'reasonCode'),
       evaluatedAt = requiredText(data, 'evaluatedAt'),
       operational = data['operational'] == true,
+      chargeable = data['chargeable'] == true,
       holiday = data['holiday'] == true,
       minimum = optionalMinutes(data, 'minimumFractionMinutes'),
       maximum = optionalMinutes(data, 'maximumContinuousMinutes'),
@@ -61,11 +62,35 @@ class ParkingRules {
       expiresAt = data['expiresAt'] as String?,
       schedule = data['applicableSchedule'] as Map? {
     if (data['operational'] is! bool ||
+        data['chargeable'] is! bool ||
         data['holiday'] is! bool ||
         !RegExp(r'(Z|[+-]\d{2}:\d{2})(?:\[[^\]]+\])?$').hasMatch(evaluatedAt)) {
       throw invalidParking;
     }
-    if (operational &&
+    if (reason == 'FREE_PARKING' && (!operational || chargeable)) {
+      throw invalidParking;
+    }
+    if (operational && !chargeable) {
+      if (reason != 'FREE_PARKING' ||
+          data['applicableTariff'] != null ||
+          data['minimumFractionMinutes'] != null ||
+          data['maximumContinuousMinutes'] != null ||
+          data['gracePeriodMinutes'] != null ||
+          data['currency'] != null ||
+          data['unitPrice'] != null ||
+          data['unitDurationMinutes'] != null ||
+          data['calculatedAmount'] != null ||
+          data['billedDurationMinutes'] != null ||
+          data['requestedDurationMinutes'] != null ||
+          data['expiresAt'] != null ||
+          data['extensionAllowed'] == true) {
+        throw invalidParking;
+      }
+      if (schedule?['startTime'] is! String ||
+          schedule?['endTime'] is! String) {
+        throw invalidParking;
+      }
+    } else if (operational &&
         (minimum == null ||
             minimum! <= 0 ||
             maximum == null ||
@@ -90,18 +115,21 @@ class ParkingRules {
     }
   }
   final String spaceId, reason, evaluatedAt;
-  final bool operational, holiday;
+  final bool operational, chargeable, holiday;
   final int? minimum, maximum, grace, minutes, billed, unitMinutes;
   final String? currency, code, amount, unitPrice, expiresAt;
   final Map? schedule;
   bool get quoted =>
       operational &&
+      chargeable &&
       reason == 'RULES_RESOLVED' &&
       amount != null &&
       minutes != null &&
       billed != null &&
       billed! >= minutes! &&
       expiresAt != null;
+  bool get freeParking =>
+      operational && !chargeable && reason == 'FREE_PARKING';
   String get conditions =>
       '$code|$currency|$unitPrice|$unitMinutes|$minimum|$maximum|$grace|$amount|$billed|$minutes|${schedule?['startTime']}|${schedule?['endTime']}|$holiday';
   String get window => '${schedule?['startTime']} – ${schedule?['endTime']}';
@@ -365,7 +393,10 @@ class ParkingService implements ParkingGateway, DurationOptionsGateway {
 }
 
 String ruleMessage(String reason) => switch (reason) {
-  'OUTSIDE_OPERATION_HOURS' || 'DURATION_OUTSIDE_OPERATION_HOURS' => 'La duración no cabe en el horario habilitado. Consulta un tiempo menor o vuelve en otro horario.',
+  'FREE_PARKING' => 'Este período es gratuito. No necesitas seleccionar una duración ni realizar un pago.',
+  'OUTSIDE_OPERATION_HOURS' => 'Este espacio no está operativo en este horario. El calendario de cobro no habilita el estacionamiento.',
+  'DURATION_OUTSIDE_OPERATION_HOURS' => 'La duración solicitada no cabe en el horario operativo. Consulta un tiempo menor.',
+  'NO_ACTIVE_TARIFF' => 'No hay una tarifa vigente configurada para este período. No se puede preparar una cotización de pago.',
   'HOLIDAY_NON_CHARGEABLE' =>
     'Hoy no está habilitado el estacionamiento tarifado según el calendario.',
   'INACTIVE_PARKING_LOCATION' => 'Esta ubicación ya no está habilitada.',

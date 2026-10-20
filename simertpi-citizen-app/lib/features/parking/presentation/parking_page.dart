@@ -167,7 +167,9 @@ class _ParkingPageState extends State<ParkingPage> {
         child: AppPage(
           showNavigation: c.phase != ParkingPhase.processing,
           onNavigationSelected: _leave,
-          title: step == 0
+          title: c.freeParking
+              ? 'Estacionamiento gratuito'
+              : step == 0
               ? 'Selecciona un vehículo'
               : step == 1
               ? 'Tiempo de estacionamiento'
@@ -196,7 +198,18 @@ class _ParkingPageState extends State<ParkingPage> {
                 if (c.message != null)
                   ErrorState(message: c.message!, onRetry: _load),
                 if (c.busy) const LinearProgressIndicator(),
-                if (step == 0) ...[
+                if (c.freeParking) ...[
+                  const InfoCard(
+                    'Este período de estacionamiento es gratuito. No necesitas seleccionar una duración ni realizar un pago; esta pantalla no crea una sesión gratuita.',
+                  ),
+                  if (!c.space.selectable)
+                    InfoCard(
+                      c.space.space.operationalStatus == 'DISABLED'
+                          ? 'El espacio no está habilitado. La gratuidad no cambia su estado operativo.'
+                          : 'El espacio no está disponible actualmente. La gratuidad no garantiza disponibilidad.',
+                      icon: Icons.info_outline,
+                    ),
+                ] else if (step == 0) ...[
                   if (c.items.isEmpty)
                     EmptyState(
                       message: 'No tienes vehículos habilitados.',

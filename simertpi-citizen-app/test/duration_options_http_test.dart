@@ -9,6 +9,33 @@ import 'package:simertpi_citizen_app/features/active_parking/data/active_parking
 import 'parking_test.dart' as fixture;
 
 void main() {
+  test(
+    'Free period returns no chargeable initial or extension duration options',
+    () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final paths = <String>[];
+      server.listen((r) async {
+        paths.add(r.uri.path);
+        r.response.headers.contentType = ContentType.json;
+        r.response.write('[]');
+        await r.response.close();
+      });
+      final api = ApiClient(
+        baseUrl: Uri.parse('http://127.0.0.1:${server.port}/api/v1'),
+      );
+      try {
+        expect(await ParkingService(api).options('s'), isEmpty);
+        expect(await ActiveParkingService(api).options('receipt'), isEmpty);
+        expect(paths, [
+          '/api/v1/parking/rules/options',
+          '/api/v1/parking-sessions/receipt/extensions/options',
+        ]);
+      } finally {
+        api.close();
+        await server.close(force: true);
+      }
+    },
+  );
   test('Batch initial and extension quotes retain exact money, Bearer and correlation', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final paths = <String>[];

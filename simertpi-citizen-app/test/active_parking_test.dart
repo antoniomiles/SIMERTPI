@@ -33,7 +33,7 @@ class MemoryExtension implements ExtensionStore {
 class FakeActive implements ActiveParkingGateway {
   String state = 'ACTIVE';
   int loads = 0, closes = 0, extensions = 0, gets = 0;
-  bool empty = false, approve = false;
+  bool empty = false, approve = false, free = false;
   Object? error;
   Completer<void>? gate;
   Map<String, Object>? sent;
@@ -72,10 +72,14 @@ class FakeActive implements ActiveParkingGateway {
   }
 
   @override
-  Future<ParkingRules> quote(String id, int? minutes) async => ParkingRules({
-    ...p.ruleFixture(minutes),
-    'expiresAt': minutes == null ? null : '2026-10-04T15:30:00Z',
-  });
+  Future<ParkingRules> quote(String id, int? minutes) async => ParkingRules(
+    free
+        ? p.freeRuleFixture()
+        : {
+            ...p.ruleFixture(minutes),
+            'expiresAt': minutes == null ? null : '2026-10-04T15:30:00Z',
+          },
+  );
   @override
   Future<Map> extend(String id, Map<String, Object> request) async {
     extensions++;
@@ -88,6 +92,15 @@ class FakeActive implements ActiveParkingGateway {
       'paymentId': 'payment-fixture',
       'additionalMinutes': request['additionalMinutes'],
     };
+  }
+}
+
+class FreeTransitionActive extends FakeActive
+    implements DurationOptionsGateway {
+  @override
+  Future<List<ParkingRules>> options(String id) async {
+    free = true;
+    return const [];
   }
 }
 
@@ -117,6 +130,19 @@ Widget panel(ActiveParkingController c, {double scale = 1}) => MaterialApp(
   ),
 );
 void main() {
+  test(
+    'Empty extension options recheck and surface a newly free billing period',
+    () async {
+      final g = FreeTransitionActive();
+      final c = controller(g);
+      await c.prepare('receipt');
+      expect(c.quote?.quoted, isTrue);
+      expect(await c.durationOptions(), isEmpty);
+      expect(c.quote?.freeParking, isTrue);
+      expect(c.canExtend, isFalse);
+      c.dispose();
+    },
+  );
   test('Countdown derives only from backend timestamp, clamps zero, never mutates status', () {
     final s = pay.session('ACTIVE');
     expect(remainingTime(s, pay.clock), '00:14:00');
@@ -126,6 +152,44 @@ void main() {
     );
     expect(s.status, 'ACTIVE');
   });
+  test('Free-day extension is explicit and cannot quote, persist or dispatch payment', () async {
+    final g = FakeActive()..free = true;
+    final c = controller(g);
+    await c.prepare('receipt');
+    expect(c.quote?.freeParking, isTrue);
+    expect(c.quote?.amount, isNull);
+    expect(c.durationOptions(), completion(isEmpty));
+    expect(c.canExtend, isFalse);
+    await c.confirmExtension();
+    expect(g.extensions, 0);
+    expect(c.intent, isNull);
+    expect(c.extensionAmount, isNull);
+    c.dispose();
+  });
+  testWidgets(
+    'Active parking shows free-day extension status without duration choices',
+    (tester) async {
+      final g = FakeActive()..free = true;
+      final c = controller(g);
+      await c.prepare('receipt');
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(body: ExtensionPage(controller: c)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('El calendario indica que'), findsOneWidget);
+      expect(
+        find.text('No hay tiempos disponibles con las condiciones actuales.'),
+        findsNothing,
+      );
+      expect(c.canExtend, isFalse);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+      c.dispose();
+    },
+  );
   test('Empty and multiple operational states filter terminal and pending sessions', () async {
     final g = FakeActive()..empty = true;
     final c = controller(g);
