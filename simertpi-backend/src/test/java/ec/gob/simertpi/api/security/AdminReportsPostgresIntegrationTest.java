@@ -138,11 +138,11 @@ class AdminReportsPostgresIntegrationTest extends AbstractPostgresIntegrationTes
     }
 
     @Test
-    void testDatabaseIsMigratedThroughV43WithoutIntroducingNewMigrations() {
+    void testDatabaseIsMigratedThroughV44WithoutIntroducingNewMigrations() {
         String latestVersion = jdbc.queryForObject(
                 "SELECT version FROM flyway_schema_history WHERE success=TRUE ORDER BY installed_rank DESC LIMIT 1",
                 String.class);
-        assertThat(latestVersion).isEqualTo("43");
+        assertThat(latestVersion).isEqualTo("44");
     }
 
     private Fixture fixture() {

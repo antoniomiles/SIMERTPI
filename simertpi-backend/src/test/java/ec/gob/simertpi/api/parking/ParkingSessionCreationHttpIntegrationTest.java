@@ -888,10 +888,45 @@ class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupp
         UUID holiday = UUID.randomUUID();
         try {
             jdbc.update("INSERT INTO parking.holidays(id, holiday_date, name, zone_id, holiday_type, tariffed, valid_from) VALUES (?, ?, 'TEST ONLY', ?, 'NON_TARIFFED', false, ?)", holiday, LocalDate.now(TEST_TIME_ZONE), fixture.zone, LocalDate.of(2026,1,1));
-            assertThat(objectMapper.readTree(queryRules("spaceId=" + fixture.spaceA).getBody()).get("reasonCode").asText()).isEqualTo("HOLIDAY_NON_CHARGEABLE");
+            var freeDayQuote = objectMapper.readTree(queryRules("spaceId=" + fixture.spaceA).getBody());
+            assertThat(freeDayQuote.get("reasonCode").asText()).isEqualTo("FREE_PARKING");
+            assertThat(freeDayQuote.get("operational").asBoolean()).isTrue();
+            assertThat(freeDayQuote.get("chargeable").asBoolean()).isFalse();
+            assertThat(freeDayQuote.get("calculatedAmount").isNull()).isTrue();
             assertThat(post("citizen-a-" + fixture.tag, "HOLIDAY", fixture.spaceA, fixture.vehicleA).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
             assertThat(sessionRepository.countByParkingSpaceId(fixture.spaceA)).isZero();
         } finally { jdbc.update("DELETE FROM parking.holidays WHERE id = ?", holiday); }
+    }
+    @Test
+    void weeklyFreeDayDoesNotCreateSessionOrPayment() throws Exception {
+        UUID calendar = UUID.randomUUID();
+        String reference = "FREE-DAY-SESSION-" + fixture.tag;
+        LocalDate today = LocalDate.now(TEST_TIME_ZONE);
+        int todayIsoDay = today.getDayOfWeek().getValue();
+        jdbc.update("INSERT INTO parking.billing_day_calendars(id, zone_id, valid_from, normative_reference, active) VALUES (?, NULL, ?, ?, TRUE)",
+                calendar, today, reference);
+        for (short day = 1; day <= 7; day++) {
+            jdbc.update("INSERT INTO parking.billing_day_calendar_days(calendar_id, day_of_week, chargeable) VALUES (?, ?, ?)",
+                    calendar, day, day != todayIsoDay);
+        }
+
+        try {
+            var quote = objectMapper.readTree(queryRules("spaceId=" + fixture.spaceA).getBody());
+            assertThat(quote.get("reasonCode").asText()).isEqualTo("FREE_PARKING");
+            assertThat(quote.get("operational").asBoolean()).isTrue();
+            assertThat(quote.get("chargeable").asBoolean()).isFalse();
+            assertThat(quote.get("calculatedAmount").isNull()).isTrue();
+            assertThat(quote.has("tariffId")).isFalse();
+
+            assertThat(post("citizen-a-" + fixture.tag, "WEEKLY-FREE-DAY", fixture.spaceA, fixture.vehicleA)
+                    .getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.parking_sessions WHERE vehicle_id=?", Integer.class,
+                    fixture.vehicleA)).isZero();
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM payments.payments WHERE idempotency_key=?", Integer.class,
+                    "WEEKLY-FREE-DAY")).isZero();
+        } finally {
+            jdbc.update("DELETE FROM parking.billing_day_calendars WHERE id = ?", calendar);
+        }
     }
     @Test
     void configuredQuoteMatchesPaymentAndAccumulatedExtensionLimit() throws Exception {

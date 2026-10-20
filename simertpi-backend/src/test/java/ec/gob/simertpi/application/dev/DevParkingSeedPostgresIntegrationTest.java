@@ -42,7 +42,11 @@ class DevParkingSeedPostgresIntegrationTest extends AbstractPostgresIntegrationT
             assertThat(quote.maximumContinuousMinutes()).isEqualTo(240);
             assertThat(rules.evaluate(space,null,at,270).operational()).isFalse();
             var exempt=java.time.LocalDateTime.of(2026,11,8,9,0).atZone(zone).toInstant();
-            assertThat(rules.evaluate(space,null,exempt,60).operational()).isFalse();
+            var freeDay = rules.evaluate(space,null,exempt,60);
+            assertThat(freeDay.operational()).isTrue();
+            assertThat(freeDay.chargeable()).isFalse();
+            assertThat(freeDay.reasonCode()).isEqualTo("FREE_PARKING");
+            assertThat(freeDay.calculatedAmount()).isNull();
         } finally {
             // Isolated Testcontainers fixtures only; preserve the base scenario for the remaining tests.
             jdbc.update("DELETE FROM parking.holidays WHERE name='DEV REFERENCIA 2021 / DIA NO TARIFADO'");

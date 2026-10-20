@@ -102,7 +102,7 @@ class ParkingCalendarServiceTest {
     }
 
     @Test
-    void shouldReturnFalseWhenGlobalHolidayIsNonTariffed() {
+    void globalNonTariffedHolidayMeansFreeParkingWithinOperatingHours() {
 
         LocalDate date = LocalDate.of(2026, 12, 25);
 
@@ -124,17 +124,13 @@ class ParkingCalendarServiceTest {
         when(holidayRepository.findByHolidayDateAndZoneIdIsNullAndActiveTrue(
                 date
         )).thenReturn(List.of(holiday));
+        when(scheduleRepository.findByZoneIdAndDayOfWeekAndActiveTrue(zoneId, (short) 5))
+                .thenReturn(List.of(schedule((short) 5, LocalTime.of(8, 0), LocalTime.of(18, 0))));
 
-        assertFalse(
-                service.isOperational(
-                        zoneId,
-                        date,
-                        LocalTime.of(10, 0)
-                )
-        );
-
-        verify(scheduleRepository, never())
-                .findByZoneIdAndDayOfWeekAndActiveTrue(any(), anyShort());
+        var result = service.resolve(zoneId, date, LocalTime.of(10, 0));
+        assertTrue(result.operational());
+        assertFalse(result.chargeable());
+        assertEquals("FREE_PARKING", result.reasonCode());
     }
 
     @Test

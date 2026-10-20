@@ -32,6 +32,9 @@ public class Tariff {
     @Column(name = "zone_id")
     private UUID zoneId;
 
+    @Column(name = "normative_reference", length = 255)
+    private String normativeReference;
+
     @Column(name = "currency", length = 3)
     private String currency;
 

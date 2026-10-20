@@ -140,6 +140,18 @@ class PaymentCreationHttpPostgresIntegrationTest extends ec.gob.simertpi.testsup
     }
 
     @Test
+    void pendingSessionUsesItsReferencedTariffAfterAReplacementVersionTakesEffect() throws Exception {
+        OffsetDateTime tariffEnd = OffsetDateTime.now().minusSeconds(20);
+        jdbc.update("UPDATE parking.tariffs SET valid_to=? WHERE id=?", tariffEnd, tariffId);
+        ResponseEntity<String> created = post("PAY-OLD-TARIFF-PENDING", sessionId);
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(objectMapper.readTree(created.getBody()).get("amount").decimalValue())
+                .isEqualByComparingTo("1.25");
+        assertThat(jdbc.queryForObject("SELECT total_amount FROM parking.parking_sessions WHERE id=?", BigDecimal.class, sessionId))
+                .isEqualByComparingTo("1.25");
+    }
+
+    @Test
     void rejectsUnauthenticatedOrNonCitizenPaymentRequests() {
         HttpHeaders anonymous = new HttpHeaders();
         anonymous.setContentType(MediaType.APPLICATION_JSON);

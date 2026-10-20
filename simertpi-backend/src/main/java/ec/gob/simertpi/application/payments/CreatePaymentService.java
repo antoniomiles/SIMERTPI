@@ -116,9 +116,10 @@ public class CreatePaymentService {
         }
         Tariff tariff = tariffRepository.findById(session.getTariffId())
                 .orElseThrow(() -> new ResourceNotFoundException("Tariff not found"));
-        if (!tariff.isActive() || tariff.getValidFrom().isAfter(now)
-                || (tariff.getValidTo() != null && tariff.getValidTo().isBefore(now))) {
-            throw new IllegalArgumentException("Tariff is not currently available");
+        OffsetDateTime sessionStartedAt = session.getStartedAt();
+        if (!tariff.isActive() || sessionStartedAt == null || tariff.getValidFrom().isAfter(sessionStartedAt)
+                || (tariff.getValidTo() != null && tariff.getValidTo().isBefore(sessionStartedAt))) {
+            throw new IllegalArgumentException("Tariff was not valid when the session started");
         }
         // Preserve pre-CP10 sessions with unconfigured legacy tariffs; configured tariffs use the central calculation.
         BigDecimal amount = tariff.getRoundingMode() == null ? tariff.getAmount()

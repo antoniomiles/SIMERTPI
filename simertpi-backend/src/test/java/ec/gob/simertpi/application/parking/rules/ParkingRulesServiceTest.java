@@ -20,6 +20,7 @@ class ParkingRulesServiceTest {
     ZoneRepository zones;
     ParkingRulesService service;
     ec.gob.simertpi.application.enforcement.VerbalWarningStore warnings;
+    ec.gob.simertpi.application.parking.BillingDayCalendarService billingDays;
     UUID zoneId, spaceId;
     Instant at = Instant.parse("2026-10-05T15:00:00Z");
     Tariff tariff;
@@ -32,7 +33,9 @@ class ParkingRulesServiceTest {
         tariffs = mock(TariffRepository.class); spaces = mock(ParkingSpaceRepository.class);
         streets = mock(StreetRepository.class); zones = mock(ZoneRepository.class);
         warnings=mock(ec.gob.simertpi.application.enforcement.VerbalWarningStore.class);
-        service = new ParkingRulesService(new ParkingCalendarService(schedules, holidays), tariffs, spaces, streets, zones, "America/Guayaquil", warnings);
+        billingDays=mock(ec.gob.simertpi.application.parking.BillingDayCalendarService.class);
+        when(billingDays.resolve(any(),any())).thenReturn(new ec.gob.simertpi.application.parking.BillingDayCalendarService.Policy(null,null,null,true,false));
+        service = new ParkingRulesService(new ParkingCalendarService(schedules, holidays), tariffs, spaces, streets, zones, "America/Guayaquil", warnings, billingDays);
         schedule = new Schedule(); schedule.setId(UUID.randomUUID()); schedule.setZoneId(zoneId); schedule.setDayOfWeek((short)1);
         schedule.setStartTime(LocalTime.of(9,0)); schedule.setEndTime(LocalTime.of(18,0));
         when(schedules.findByZoneIdAndDayOfWeekAndActiveTrue(eq(zoneId), anyShort())).thenReturn(List.of(schedule));
@@ -65,7 +68,34 @@ class ParkingRulesServiceTest {
     @Test void noSchedule() { when(schedules.findByZoneIdAndDayOfWeekAndActiveTrue(any(),any())).thenReturn(List.of()); assertThat(evaluate(60).reasonCode()).isEqualTo("NO_ACTIVE_SCHEDULE"); }
     @Test void nonChargeableHolidayPrevails() {
         when(holidays.findByHolidayDateAndZoneIdIsNullAndActiveTrue(any())).thenReturn(List.of(holiday(false,null,null)));
-        var r=evaluate(60); assertThat(r.holiday()).isTrue(); assertThat(r.chargeable()).isFalse(); assertThat(r.reasonCode()).isEqualTo("HOLIDAY_NON_CHARGEABLE");
+        var r=evaluate(60); assertThat(r.holiday()).isTrue(); assertThat(r.operational()).isTrue();
+        assertThat(r.chargeable()).isFalse(); assertThat(r.reasonCode()).isEqualTo("FREE_PARKING");
+        assertThat(r.calculatedAmount()).isNull(); assertThat(r.tariffId()).isNull();
+        assertThat(r.requestedDurationMinutes()).isNull(); assertThat(r.expiresAt()).isNull();
+    }
+    @Test void weeklyFreeDayIsOperationalButHasNoTariffOrPaymentAmount() {
+        when(billingDays.resolve(eq(zoneId), any())).thenReturn(new ec.gob.simertpi.application.parking.BillingDayCalendarService.Policy(
+                UUID.randomUUID(), zoneId, "ORD-TEST", false, true));
+        var r=evaluate(60);
+        assertThat(r.operational()).isTrue(); assertThat(r.chargeable()).isFalse();
+        assertThat(r.reasonCode()).isEqualTo("FREE_PARKING"); assertThat(r.calculatedAmount()).isNull();
+        assertThat(r.unitPrice()).isNull(); assertThat(r.tariffId()).isNull();
+        assertThat(r.requestedDurationMinutes()).isNull(); assertThat(r.expiresAt()).isNull();
+    }
+    @Test void freeDayExtensionIsExplicitAndContainsNoDurationOrPaymentQuote() {
+        when(billingDays.resolve(eq(zoneId), any())).thenReturn(new ec.gob.simertpi.application.parking.BillingDayCalendarService.Policy(
+                UUID.randomUUID(), zoneId, "ORD-TEST", false, true));
+        var r = service.evaluateExtension(session, 30, at);
+        assertThat(r.operational()).isTrue(); assertThat(r.chargeable()).isFalse();
+        assertThat(r.reasonCode()).isEqualTo("FREE_PARKING");
+        assertThat(r.extensionAllowed()).isFalse(); assertThat(r.applicableTariff()).isNull();
+        assertThat(r.calculatedAmount()).isNull(); assertThat(r.requestedDurationMinutes()).isNull();
+        assertThat(r.expiresAt()).isNull();
+    }
+    @Test void paidQuoteCannotCrossTheOperatingDayIntoAnotherBillingDay() {
+        var r=service.evaluate(spaceId,null,Instant.parse("2026-10-05T22:30:00Z"),120);
+        assertThat(r.reasonCode()).isEqualTo("DURATION_OUTSIDE_OPERATION_HOURS");
+        assertThat(r.calculatedAmount()).isNull();
     }
     @Test void chargeableHolidayInheritsSchedule() {
         when(holidays.findByHolidayDateAndZoneIdIsNullAndActiveTrue(any())).thenReturn(List.of(holiday(true,null,null)));
@@ -88,6 +118,13 @@ class ParkingRulesServiceTest {
     @Test void minimumFraction() { var r=evaluate(15); assertThat(r.minimumFractionMinutes()).isEqualTo(15); assertThat(r.calculatedAmount()).isEqualByComparingTo("0.31"); }
     @Test void belowMinimumIsInvalid() { assertThat(evaluate(14).reasonCode()).isEqualTo("INVALID_DURATION"); }
     @Test void exactDuration() { assertThat(evaluate(60).calculatedAmount()).isEqualTo(new BigDecimal("1.23")); }
+    @Test void extensionKeepsTheTariffReferencedByTheStartedSessionAfterItsSalesValidityEnds() {
+        tariff.setValidTo(at.minusSeconds(1).atOffset(ZoneOffset.UTC));
+        var quote = service.evaluateExtension(session, 30, at);
+        assertThat(quote.extensionAllowed()).isTrue();
+        assertThat(quote.tariffId()).isEqualTo(tariff.getId());
+        assertThat(quote.calculatedAmount()).isEqualByComparingTo("0.62");
+    }
     @Test void nonMultipleBillsCompleteFraction() { var r=evaluate(16); assertThat(r.billedDurationMinutes()).isEqualTo(30); assertThat(r.calculatedAmount()).isEqualTo(new BigDecimal("0.62")); assertThat(r.expiresAt()).isEqualTo(at.plusSeconds(16*60)); }
     @Test void maximumAllowed() { assertThat(evaluate(180).operational()).isTrue(); }
     @Test void maximumExceeded() { assertThat(evaluate(181).reasonCode()).isEqualTo("MAX_CONTINUOUS_EXCEEDED"); }

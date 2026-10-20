@@ -23,13 +23,16 @@ public class ParkingRulesService {
     private final ZoneRepository zones;
     private final ZoneId timeZone;
     private final ec.gob.simertpi.application.enforcement.VerbalWarningStore warnings;
+    private final ec.gob.simertpi.application.parking.BillingDayCalendarService billingDays;
 
     public ParkingRulesService(ParkingCalendarService calendar, TariffRepository tariffs,
             ParkingSpaceRepository spaces, StreetRepository streets, ZoneRepository zones,
             @Value("${simertpi.parking.rules.time-zone}") String timeZone,
-            ec.gob.simertpi.application.enforcement.VerbalWarningStore warnings) {
+            ec.gob.simertpi.application.enforcement.VerbalWarningStore warnings,
+            ec.gob.simertpi.application.parking.BillingDayCalendarService billingDays) {
         this.calendar = calendar; this.tariffs = tariffs; this.spaces = spaces;
         this.streets = streets; this.zones = zones; this.timeZone = ZoneId.of(timeZone); this.warnings=warnings;
+        this.billingDays = billingDays;
     }
     public ParkingRulesResult evaluate(UUID spaceId, String qrCode, Instant at, Integer minutes) {
         if ((spaceId == null) == (qrCode == null || qrCode.isBlank()))
@@ -52,6 +55,9 @@ public class ParkingRulesService {
         ZonedDateTime local = at.atZone(timeZone);
         CalendarRules day = calendar.resolve(zoneId, local.toLocalDate(), local.toLocalTime());
         if (!day.operational()) return result(zoneId, spaceId, at, minutes, day, null, day.reasonCode(), null, null, null);
+        var billingPolicy = billingDays.resolve(zoneId, local.toLocalDate());
+        if (!day.chargeable() || !billingPolicy.chargeable())
+            return freeParkingResult(zoneId, spaceId, at, minutes, day);
         List<Tariff> candidates = retainedTariff != null ? List.of() : tariffs.findActiveTariffsAt(at.atOffset(ZoneOffset.UTC)).stream()
                 .filter(t -> validAt(t, at) && (t.getZoneId() == null || zoneId.equals(t.getZoneId())))
                 .sorted(Comparator.<Tariff, Boolean>comparing(t -> zoneId.equals(t.getZoneId())).reversed()
@@ -64,7 +70,8 @@ public class ParkingRulesService {
                     && tariff.getValidFrom().toInstant().equals(candidates.get(1).getValidFrom().toInstant()))
                 return result(zoneId, spaceId, at, minutes, day, null, "AMBIGUOUS_ACTIVE_TARIFF", null, null, null);
         }
-        if (tariff == null || !validAt(tariff, at) || (tariff.getZoneId() != null && !zoneId.equals(tariff.getZoneId())))
+        if (tariff == null || (retainedTariff == null && !validAt(tariff, at))
+                || (tariff.getZoneId() != null && !zoneId.equals(tariff.getZoneId())))
             return result(zoneId, spaceId, at, minutes, day, null, "NO_ACTIVE_TARIFF", null, null, null);
         String invalid = configurationError(tariff);
         if (invalid != null) return result(zoneId, spaceId, at, minutes, day, tariff, invalid, null, null, null);
@@ -89,18 +96,19 @@ public class ParkingRulesService {
         if (!lifecycle(session, at, 0).extensionEligible()) reason = "SESSION_NOT_EXTENSIBLE";
         else if (retained == null) reason = "NO_ACTIVE_TARIFF";
         else if (minutes == null || minutes <= 0 || session.getStartedAt() == null || session.getExpectedEndAt() == null) reason = "INVALID_DURATION";
-        else if (quote.operational()) {
+        else if (quote.operational() && quote.chargeable()) {
             expires = session.getExpectedEndAt().toInstant().plus(Duration.ofMinutes(minutes));
             Duration total = Duration.between(session.getStartedAt().toInstant(), expires);
             if (total.isNegative() || total.compareTo(Duration.ofMinutes(quote.maximumContinuousMinutes())) > 0) reason = "MAX_CONTINUOUS_EXCEEDED";
             else if (!expires.isAfter(at)) reason = "EXTENSION_END_NOT_FUTURE";
             else if (expires.isAfter(quote.evaluatedAt().toLocalDate().atTime(quote.applicableSchedule().endTime()).atZone(timeZone).toInstant())) reason = "DURATION_OUTSIDE_OPERATION_HOURS";
         }
+        boolean freeParking = "FREE_PARKING".equals(reason) && quote.operational() && !quote.chargeable();
         return new ParkingRulesResult(quote.zoneId(), quote.spaceId(), quote.evaluatedAt(), quote.chargeable(),
-                "RULES_RESOLVED".equals(reason), quote.holiday(), quote.applicableSchedule(), quote.applicableTariff(),
+                freeParking || "RULES_RESOLVED".equals(reason), quote.holiday(), quote.applicableSchedule(), quote.applicableTariff(),
                 quote.minimumFractionMinutes(), quote.maximumContinuousMinutes(), quote.gracePeriodMinutes(), quote.currency(),
                 quote.unitPrice(), quote.unitDurationMinutes(), "RULES_RESOLVED".equals(reason) ? quote.calculatedAmount() : null,
-                minutes, quote.billedDurationMinutes(), "RULES_RESOLVED".equals(reason) ? expires : null,
+                freeParking ? null : minutes, quote.billedDurationMinutes(), "RULES_RESOLVED".equals(reason) ? expires : null,
                 "RULES_RESOLVED".equals(reason), reason, quote.tariffId());
     }
     // Existing sessions retain the policy of their referenced tariff, even after its sales validity ends.
@@ -144,6 +152,11 @@ public class ParkingRulesService {
                 t == null ? null : t.getMinMinutes(), t == null ? null : t.getMaxContinuousMinutes(), t == null ? null : t.getGracePeriodMinutes(),
                 t == null ? null : t.getCurrency(), t == null ? null : t.getAmount(), t == null ? null : t.getDurationMinutes(),
                 amount, minutes, billed, expires, resolved, reason, t == null ? null : t.getId());
+    }
+    private ParkingRulesResult freeParkingResult(UUID zone, UUID space, Instant at, Integer minutes, CalendarRules day) {
+        String reason = "FREE_PARKING";
+        return new ParkingRulesResult(zone, space, at.atZone(timeZone), false, true, day.holiday(), day.schedule(),
+                null, null, null, null, null, null, null, null, null, null, null, false, reason, null);
     }
     public record SessionPolicy(Integer maximumContinuousMinutes, Integer gracePeriodMinutes, String reasonCode) { }
     public SessionLifecycle.View lifecycle(ParkingSession session, Instant at, long threshold) {

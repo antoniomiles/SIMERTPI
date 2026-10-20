@@ -39,7 +39,7 @@ public class AdminParkingTariffScheduleController {
                 .map(t -> new TariffView(t.getId(), t.getCode(), t.getName(), t.getZoneId(), zoneCode(zones, t.getZoneId()),
                         zoneName(zones, t.getZoneId()), t.getCurrency(), t.getAmount(), t.getDurationMinutes(),
                         t.getMinMinutes(), t.getMaxContinuousMinutes(), t.getGracePeriodMinutes(), t.getRoundingMode(),
-                        t.isActive(), t.getValidFrom(), t.getValidTo(), t.getCreatedAt(), t.getUpdatedAt()))
+                        t.getNormativeReference(), t.isActive(), t.getValidFrom(), t.getValidTo(), t.getCreatedAt(), t.getUpdatedAt()))
                 .toList();
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(rows);
     }
@@ -84,7 +84,7 @@ public class AdminParkingTariffScheduleController {
 
     public record TariffView(UUID id, String code, String name, UUID zoneId, String zoneCode, String zoneName,
             String currency, BigDecimal amount, Integer durationMinutes, Integer minMinutes,
-            Integer maxContinuousMinutes, Integer gracePeriodMinutes, String roundingMode, boolean active,
+            Integer maxContinuousMinutes, Integer gracePeriodMinutes, String roundingMode, String normativeReference, boolean active,
             OffsetDateTime validFrom, OffsetDateTime validTo, OffsetDateTime createdAt, OffsetDateTime updatedAt) { }
 
     public record ScheduleView(UUID id, UUID zoneId, String zoneCode, String zoneName, Short dayOfWeek,
