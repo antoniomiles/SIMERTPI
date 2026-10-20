@@ -1,6 +1,7 @@
 package ec.gob.simertpi.api.identity;
 import ec.gob.simertpi.application.identity.admin.AdminAuthenticationService;
 import ec.gob.simertpi.config.AdminSessionFilter;
+import ec.gob.simertpi.api.OperationalRequestLogFilter;
 import jakarta.servlet.http.*;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
@@ -16,11 +17,12 @@ public class AdminAuthController {
  @GetMapping("/csrf") public ResponseEntity<Void> csrf(CsrfToken token){token.getToken();return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();}
  @PostMapping("/login") public ResponseEntity<AdminAuthenticationService.Identity> login(@Valid @RequestBody Login body,HttpServletRequest request,HttpServletResponse response){
   var issued=auth.login(body.username(),body.password(),AdminSessionFilter.cookie(request),request.getRemoteAddr());
+  request.setAttribute(OperationalRequestLogFilter.ACTOR_ID,issued.identity().userId());
   response.addHeader(HttpHeaders.SET_COOKIE,cookie(issued.opaque(),false).toString());csrf.saveToken(csrf.generateToken(request),request,response);
   return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(issued.identity());
  }
  @GetMapping("/me") public ResponseEntity<AdminAuthenticationService.Identity> me(HttpServletRequest request){return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body((AdminAuthenticationService.Identity)request.getAttribute("admin.identity"));}
  @PostMapping("/logout") public ResponseEntity<Void> logout(HttpServletRequest request,HttpServletResponse response){auth.logout(AdminSessionFilter.cookie(request));response.addHeader(HttpHeaders.SET_COOKIE,cookie("",true).toString());csrf.saveToken(null,request,response);return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();}
- @ExceptionHandler(AuthenticationException.class) public ResponseEntity<java.util.Map<String,Object>> rejected(){return ResponseEntity.status(401).cacheControl(CacheControl.noStore()).body(java.util.Map.of("status",401,"message","Acceso administrativo rechazado"));}
+ @ExceptionHandler(AuthenticationException.class) public ResponseEntity<java.util.Map<String,Object>> rejected(HttpServletRequest request,AuthenticationException failure){OperationalRequestLogFilter.mark(request,"LOGIN_REJECTED",failure);return ResponseEntity.status(401).cacheControl(CacheControl.noStore()).body(java.util.Map.of("status",401,"message","Acceso administrativo rechazado"));}
  private static ResponseCookie cookie(String value,boolean delete){var builder=ResponseCookie.from(AdminAuthenticationService.COOKIE,value).httpOnly(true).secure(true).sameSite("Strict").path("/");if(delete)builder.maxAge(0);return builder.build();}
 }

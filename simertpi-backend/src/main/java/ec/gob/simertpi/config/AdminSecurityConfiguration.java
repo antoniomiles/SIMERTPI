@@ -1,5 +1,6 @@
 package ec.gob.simertpi.config;
 import ec.gob.simertpi.application.identity.admin.AdminAuthenticationService;
+import ec.gob.simertpi.api.OperationalRequestLogFilter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.*;
 import org.springframework.core.annotation.Order;
@@ -28,7 +29,11 @@ public class AdminSecurityConfiguration {
    .sessionManagement(s->s.sessionCreationPolicy(SessionCreationPolicy.STATELESS)).requestCache(c->c.disable())
    .httpBasic(c->c.disable()).formLogin(c->c.disable()).logout(c->c.disable())
    .csrf(c->c.csrfTokenRepository(adminCsrfRepository).csrfTokenRequestHandler(spa))
-   .exceptionHandling(e->e.authenticationEntryPoint((q,s,x)->AdminSessionFilter.error(s,401)).accessDeniedHandler((q,s,x)->{audit.recordOutcome("ADMIN_ACCESS_REJECTED","ADMIN_SESSION",null,"FAILURE",java.util.Map.of("reason","CSRF_OR_PERMISSION"));AdminSessionFilter.error(s,403);}))
+   .exceptionHandling(e->e.authenticationEntryPoint((q,s,x)->AdminSessionFilter.error(s,401)).accessDeniedHandler((q,s,x)->{
+    OperationalRequestLogFilter.mark(q,accessDeniedReason(x),x);
+    audit.recordOutcome("ADMIN_ACCESS_REJECTED","ADMIN_SESSION",null,"FAILURE",java.util.Map.of("reason","CSRF_OR_PERMISSION"));
+    AdminSessionFilter.error(s,403);
+   }))
    .authorizeHttpRequests(a->a
     .requestMatchers(HttpMethod.GET,"/api/v1/admin/auth/csrf").permitAll()
     .requestMatchers(HttpMethod.POST,"/api/v1/admin/auth/login","/api/v1/admin/auth/logout").permitAll()
@@ -64,5 +69,11 @@ public class AdminSecurityConfiguration {
     .anyRequest().denyAll())
    .addFilterAfter(new AdminSessionFilter(auth,origin),SecurityContextHolderFilter.class);
   return http.build();
+ }
+
+ static String accessDeniedReason(org.springframework.security.access.AccessDeniedException exception) {
+  if (exception instanceof MissingCsrfTokenException) return "CSRF_MISSING";
+  if (exception instanceof InvalidCsrfTokenException) return "CSRF_INVALID";
+  return "ACCESS_DENIED";
  }
 }

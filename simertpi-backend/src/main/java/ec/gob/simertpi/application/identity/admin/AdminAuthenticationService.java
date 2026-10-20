@@ -73,10 +73,13 @@ public class AdminAuthenticationService {
   if(session==null||session.revoked())throw invalid();
   User user=users.findById(session.userId()).flatMap(u->users.findByUsernameWithRoles(u.getUsername())).orElse(null);
   OffsetDateTime now=now();
-  if(user==null||!allowed(user)||!stamp(user).equals(session.stamp())||!session.absolute().isAfter(now)||!session.idle().isAfter(now)) {
+  boolean expired=!session.absolute().isAfter(now)||!session.idle().isAfter(now);
+  boolean accessChanged=user==null||!allowed(user)||!stamp(user).equals(session.stamp());
+  if(expired||accessChanged) {
    if(user!=null)establish(user);
    jdbc.update("UPDATE identity.admin_web_sessions SET revoked_at=? WHERE id=?",now,session.id());
    audit.recordOutcome("ADMIN_SESSION_REVOKED","ADMIN_SESSION",session.id(),"FAILURE",Map.of("reason","EXPIRED_OR_ACCESS_CHANGED"));
+   if(expired)throw new AdminSessionExpiredAuthenticationException();
    throw invalid();
   }
   OffsetDateTime idle=now.plus(idleTtl);if(idle.isAfter(session.absolute()))idle=session.absolute();

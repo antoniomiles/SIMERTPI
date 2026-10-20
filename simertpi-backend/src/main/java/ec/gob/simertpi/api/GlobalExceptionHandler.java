@@ -6,6 +6,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.dao.DataIntegrityViolationException;
+import jakarta.servlet.http.HttpServletRequest;
 
 import java.time.OffsetDateTime;
 import java.util.HashMap;
@@ -66,26 +67,29 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<Map<String,Object>> handleOperationalFailure(Exception exception) {
+    public ResponseEntity<Map<String,Object>> handleOperationalFailure(Exception exception, HttpServletRequest request) {
         if(exception instanceof org.springframework.web.ErrorResponse error && error.getStatusCode().is4xxClientError()) {
             int status=error.getStatusCode().value();
+            OperationalRequestLogFilter.mark(request, status == 409 ? "BUSINESS_CONFLICT" : "REQUEST_REJECTED", exception);
             return ResponseEntity.status(status).body(Map.of("status",status,"error","Request rejected","message","Request could not be accepted"));
         }
-        org.slf4j.LoggerFactory.getLogger(GlobalExceptionHandler.class).warn("event=operational_request result=FAILED");
+        OperationalRequestLogFilter.mark(request, "UNEXPECTED_ERROR", exception);
         return ResponseEntity.status(500).body(Map.of("status",500,"error","Internal Server Error",
                 "message","Operational request failed"));
     }
 
     @ExceptionHandler(InvalidIdempotencyKeyException.class)
     public ResponseEntity<Map<String, Object>> handleInvalidIdempotencyKey(
-            InvalidIdempotencyKeyException exception) {
+            InvalidIdempotencyKeyException exception, HttpServletRequest request) {
+        OperationalRequestLogFilter.mark(request, "INVALID_IDEMPOTENCY_KEY", exception);
         return ResponseEntity.badRequest().body(Map.of(
                 "timestamp", OffsetDateTime.now(), "status", 400,
                 "error", "Bad Request", "message", exception.getMessage()));
     }
 
     @ExceptionHandler(InvalidRequestException.class)
-    public ResponseEntity<Map<String, Object>> handleInvalidRequest(InvalidRequestException exception) {
+    public ResponseEntity<Map<String, Object>> handleInvalidRequest(InvalidRequestException exception, HttpServletRequest request) {
+        OperationalRequestLogFilter.mark(request, "INVALID_REQUEST", exception);
         return ResponseEntity.badRequest().body(Map.of(
                 "timestamp", OffsetDateTime.now(), "status", 400,
                 "error", "Bad Request", "message", exception.getMessage()));
@@ -101,7 +105,8 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<Map<String, Object>> handleDataIntegrityConflict(
-            DataIntegrityViolationException exception) {
+            DataIntegrityViolationException exception, HttpServletRequest request) {
+        OperationalRequestLogFilter.mark(request, "DATA_INTEGRITY_CONFLICT", exception);
         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                 "timestamp", OffsetDateTime.now(), "status", 409,
                 "error", "Conflict",
@@ -141,7 +146,8 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, Object>> handleIllegalArgumentException(
-            IllegalArgumentException exception) {
+            IllegalArgumentException exception, HttpServletRequest request) {
+        OperationalRequestLogFilter.mark(request, "BUSINESS_RULE_CONFLICT", exception);
 
         Map<String, Object> response = Map.of(
                 "timestamp", OffsetDateTime.now(),
@@ -157,7 +163,8 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Map<String, Object>> handleValidationException(
-            MethodArgumentNotValidException exception) {
+            MethodArgumentNotValidException exception, HttpServletRequest request) {
+        OperationalRequestLogFilter.mark(request, "VALIDATION_ERROR", exception);
 
         Map<String, String> fields = new HashMap<>();
 
