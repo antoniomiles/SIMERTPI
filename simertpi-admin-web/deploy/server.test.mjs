@@ -32,12 +32,12 @@ test('deployment rejects HTTP upstream and credentials in URL',()=>{
  for(const upstream of ['http://example.invalid','https://user:secret@example.invalid','https://example.invalid/path'])assert.throws(()=>createPortalServer({root:'.',upstream}));
 });
 
-async function withProxy({backendHandler, authTimeoutMs=100, upstreamTimeoutMs=35}, run) {
+async function withProxy({backendHandler, authTimeoutMs=100, upstreamTimeoutMs=35, logger={warn(){}}}, run) {
  const root=mkdtempSync(join(tmpdir(),'simertpi-timeout-'));
  writeFileSync(join(root,'index.html'),'<h1>portal</h1>');
  const backend=http.createServer(backendHandler);
  await new Promise(r=>backend.listen(0,'127.0.0.1',r));
- const edge=createPortalServer({root,upstream:'http://127.0.0.1:'+backend.address().port,allowLoopback:true,authTimeoutMs,upstreamTimeoutMs});
+ const edge=createPortalServer({root,upstream:'http://127.0.0.1:'+backend.address().port,allowLoopback:true,authTimeoutMs,upstreamTimeoutMs,logger});
  await new Promise(r=>edge.listen(0,'127.0.0.1',r));
  try { await run('http://127.0.0.1:'+edge.address().port); }
  finally { edge.closeAllConnections(); await new Promise(r=>edge.close(r)); backend.closeAllConnections(); await new Promise(r=>backend.close(r)); rmSync(root,{recursive:true}); }
@@ -99,5 +99,52 @@ test('non-auth upstream timeout maps to 504 while connection failures map to 502
   assert.equal(upstreamError.status,502);
   assert.equal(upstreamError.headers.get('x-admin-proxy-error'),null);
   assert.equal(await upstreamError.text(),'{"message":"upstream gateway response"}');
+ });
+});
+
+test('proxy failure logs are correlated and exclude query strings, cookies and CSRF values',async()=>{
+ const events=[];
+ const sensitive=['proxy-cookie-never-log','proxy-csrf-never-log','query-secret-never-log','proxy-password-never-log'];
+ await withProxy({upstreamTimeoutMs:30,logger:{warn:event=>events.push(event)},backendHandler:(req,res)=>{}},async base=>{
+  const correlationId='portal-correlation-2026-1';
+  const response=await fetch(base+'/api/v1/admin/parking/tariffs/11111111-1111-4111-8111-111111111111/end?key='+sensitive[2],{
+   method:'POST',headers:{cookie:sensitive[0],'X-XSRF-TOKEN':sensitive[1],'X-Correlation-ID':correlationId,'Content-Type':'application/json'},
+   body:JSON.stringify({password:sensitive[3]})
+  });
+  assert.equal(response.status,504);
+  assert.equal(response.headers.get('x-correlation-id'),correlationId);
+  assert.equal(events.length,1);
+  assert.match(events[0],/event=admin_proxy_upstream_failure/);
+  assert.match(events[0],/method=POST/);
+  assert.match(events[0],/route=\/api\/v1\/admin\/parking\/tariffs\/\{id\}\/end/);
+  assert.match(events[0],/status=504/);
+  assert.match(events[0],/reason=UPSTREAM_TIMEOUT/);
+  assert.match(events[0],/correlationId=portal-correlation-2026-1/);
+  for(const secret of sensitive) assert.equal(events[0].includes(secret),false);
+ });
+});
+
+test('proxy logs normalize plate and username path values',async()=>{
+ const events=[];
+ await withProxy({upstreamTimeoutMs:25,logger:{warn:event=>events.push(event)},backendHandler:(req,res)=>{}},async base=>{
+  assert.equal((await fetch(base+'/api/v1/admin/access/users/username/admin.private')).status,504);
+  assert.equal(events.length,1);
+  assert.match(events[0],/route=\/api\/v1\/admin\/access\/users\/username\/\{value\}/);
+  assert.equal(events[0].includes('admin.private'),false);
+ });
+});
+
+test('proxy marks an upstream 502 separately from its own network timeout',async()=>{
+ const events=[];
+ await withProxy({logger:{warn:event=>events.push(event)},backendHandler:(req,res)=>{
+  res.writeHead(502,{'Content-Type':'application/json'});res.end('{"message":"gateway unavailable"}');
+ }},async base=>{
+  const response=await fetch(base+'/api/v1/admin/auth/csrf',{headers:{'X-Correlation-ID':'upstream-correlation-2'}});
+  assert.equal(response.status,502);
+  assert.equal(response.headers.get('x-correlation-id'),'upstream-correlation-2');
+  assert.equal(events.length,1);
+  assert.match(events[0],/event=admin_proxy_upstream_response/);
+  assert.match(events[0],/reason=UPSTREAM_HTTP_RESPONSE/);
+  assert.match(events[0],/upstreamCorrelationPresent=false/);
  });
 });
