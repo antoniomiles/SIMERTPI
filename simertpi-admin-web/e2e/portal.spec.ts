@@ -320,6 +320,66 @@ test('tariff editor is opened on demand and sends the exact API decimal using ad
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
+test('tariff write uses the CSRF cookie issued by its preflight, not the token read before rotation', async ({ page }) => {
+  let cookieAndHeaderMatch = false;
+  let postCount = 0;
+  const identity = {
+    userId: 'local-test-admin', username: 'admin.fixture', roles: ['SIMERTPI_ADMIN'], enabled: true,
+    sessionExpiresAt: new Date(Date.now() + 600000).toISOString(), absoluteExpiresAt: new Date(Date.now() + 3600000).toISOString(),
+  };
+  const tariff = {
+    id: 'local-tariff-rotation', code: 'ROTATION-2027', name: 'Tarifa de prueba', zoneId: null, zoneCode: null, zoneName: null,
+    currency: 'USD', amount: 0.25, durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240,
+    gracePeriodMinutes: 0, roundingMode: 'HALF_UP', normativeReference: 'Referencia local de prueba', active: true,
+    validFrom: '2027-01-01T05:00:00Z', validTo: null, createdAt: '2026-10-20T00:00:00Z', updatedAt: '2026-10-20T00:00:00Z',
+  };
+  await page.route('**/api/v1/admin/auth/me', (route) => route.fulfill({ json: identity }));
+  let csrfReads = 0;
+  await page.route('**/api/v1/admin/auth/csrf', (route) => {
+    csrfReads++;
+    const value = csrfReads === 1 ? 'initial-fixture' : 'rotated-fixture';
+    return route.fulfill({ status: 204, headers: {
+      'Set-Cookie': `__Host-SIMERTPI_ADMIN_XSRF=${value}; Path=/; Secure; SameSite=Strict`,
+    } });
+  });
+  await page.route('**/api/v1/admin/parking/tariffs', (route) => {
+    if (route.request().method() === 'POST') {
+      postCount++;
+      const cookie = route.request().headers().cookie ?? '';
+      const match = cookie.match(/(?:^|; )__Host-SIMERTPI_ADMIN_XSRF=([^;]*)/);
+      cookieAndHeaderMatch = match?.[1] === 'rotated-fixture' &&
+        route.request().headers()['x-xsrf-token'] === match?.[1];
+      return route.fulfill({ status: cookieAndHeaderMatch ? 201 : 403, json: cookieAndHeaderMatch ? tariff : { status: 403 } });
+    }
+    return route.fulfill({ json: [] });
+  });
+  await page.route('**/api/v1/admin/parking/zones', (route) => route.fulfill({ json: [] }));
+  await page.route('**/api/v1/admin/parking/configuration/effective*', (route) => route.fulfill({ json: {
+    at: new Date().toISOString(), generalTariff: null, generalBillingCalendarId: null, generalChargeable: true,
+    generalBillingDaysConfigured: false, generalBillingNormativeReference: null, zones: [],
+  } }));
+  await page.goto('http://localhost:4301/admin/tariffs');
+  await page.evaluate(async () => {
+    await fetch('/api/v1/admin/auth/csrf', { credentials: 'include' });
+  });
+  await expect(page.getByRole('heading', { name: 'Configuración de tarifas' })).toBeVisible();
+  await page.getByRole('button', { name: 'Crear tarifa' }).click();
+  await page.locator('[formControlName="code"]').fill('ROTATION-2027');
+  await page.locator('[formControlName="name"]').fill('Tarifa de prueba');
+  await page.locator('[formControlName="currency"]').fill('USD');
+  await page.locator('[formControlName="amount"]').fill('0,25');
+  await page.locator('[formControlName="durationMinutes"]').fill('60');
+  await page.locator('[formControlName="minMinutes"]').fill('15');
+  await page.locator('[formControlName="maxContinuousMinutes"]').fill('240');
+  await page.locator('[formControlName="gracePeriodMinutes"]').fill('0');
+  await page.locator('[formControlName="validFrom"]').fill('2027-01-01T00:00');
+  await page.locator('[formControlName="normativeReference"]').fill('Referencia local de prueba');
+  await page.getByRole('button', { name: 'Registrar tarifa' }).click();
+  await expect.poll(() => postCount).toBe(1);
+  expect(cookieAndHeaderMatch).toBe(true);
+  expect(postCount).toBe(1);
+});
+
 test('parking sessions preview stays local and never calls operational APIs', async ({ page }) => {
   const requests: string[] = [];
   page.on('request', (request) => {

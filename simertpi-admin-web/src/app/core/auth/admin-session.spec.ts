@@ -15,6 +15,7 @@ import { apiInterceptor } from '../http/api.interceptor';
 describe('Real administrative session client', () => {
   let session: AdminSession;
   let http: HttpTestingController;
+  let xsrfToken: string;
   function identity(seconds = 60): AdminIdentity {
     return {
       userId: 'isolated-fixture',
@@ -26,6 +27,7 @@ describe('Real administrative session client', () => {
     };
   }
   beforeEach(() => {
+    xsrfToken = 'test-csrf-token';
     TestBed.configureTestingModule({
       providers: [
         provideRouter([]),
@@ -34,7 +36,7 @@ describe('Real administrative session client', () => {
           withXsrfConfiguration({ cookieName: '__Host-SIMERTPI_ADMIN_XSRF', headerName: 'X-XSRF-TOKEN' }),
         ),
         provideHttpClientTesting(),
-        { provide: HttpXsrfTokenExtractor, useValue: { getToken: () => 'test-csrf-token' } },
+        { provide: HttpXsrfTokenExtractor, useValue: { getToken: () => xsrfToken } },
         {
           provide: PORTAL_CONFIG,
           useValue: {
@@ -67,6 +69,20 @@ describe('Real administrative session client', () => {
     const login = http.expectOne('/api/v1/admin/auth/login');
     expect(login.request.method).toBe('POST');
     expect(login.request.headers.get('X-XSRF-TOKEN')).toBe('test-csrf-token');
+    login.flush(identity());
+    expect(session.authenticated()).toBe(true);
+  });
+  it('uses the cookie refreshed by preflight when signing in after the previous session expired', () => {
+    xsrfToken = 'token-before-rotation';
+    session.restore().subscribe((ok) => expect(ok).toBe(false));
+    http.expectOne('/api/v1/admin/auth/me').flush(null, { status: 401, statusText: 'Unauthorized' });
+
+    session.signIn('fixture.admin', 'unit-test-only').subscribe();
+    const csrf = http.expectOne('/api/v1/admin/auth/csrf');
+    xsrfToken = 'token-after-rotation';
+    csrf.flush(null, { status: 204, statusText: 'No Content' });
+    const login = http.expectOne('/api/v1/admin/auth/login');
+    expect(login.request.headers.get('X-XSRF-TOKEN')).toBe('token-after-rotation');
     login.flush(identity());
     expect(session.authenticated()).toBe(true);
   });

@@ -83,7 +83,7 @@ describe('Fail-closed administrative transport', () => {
   });
 
   it('obtains CSRF before each administrative mutation, including after session renewal', async () => {
-    let xsrfToken = 'test-csrf-token';
+    let xsrfToken = 'stale-csrf-token';
     TestBed.overrideProvider(PORTAL_CONFIG, {
       useValue: { ...environment, administrativeApiEnabled: true },
     });
@@ -98,6 +98,7 @@ describe('Fail-closed administrative transport', () => {
     expect(csrf.request.withCredentials).toBe(true);
     csrf.flush(null, { status: 502, statusText: 'Bad Gateway' });
     const recoveredCsrf = await vi.waitFor(() => http.expectOne('/api/v1/admin/auth/csrf'));
+    xsrfToken = 'test-csrf-token';
     recoveredCsrf.flush(null, { status: 204, statusText: 'No Content' });
     const create = http.expectOne('/api/v1/admin/parking/tariffs');
     expect(create.request.method).toBe('POST');
@@ -113,6 +114,70 @@ describe('Fail-closed administrative transport', () => {
     expect(createAfterRenewal.request.headers.get('X-XSRF-TOKEN')).toBe('renewed-csrf-token');
     createAfterRenewal.flush({ id: 'fixture-two' });
     await expect(renewed).resolves.toEqual({ id: 'fixture-two' });
+  });
+
+  it('replaces a token captured before preflight when the CSRF cookie rotates', async () => {
+    let xsrfToken = 'token-before-rotation';
+    TestBed.overrideProvider(PORTAL_CONFIG, {
+      useValue: { ...environment, administrativeApiEnabled: true },
+    });
+    TestBed.overrideProvider(HttpXsrfTokenExtractor, {
+      useValue: { getToken: () => xsrfToken },
+    });
+    const api = TestBed.inject(ApiClient);
+    const http = TestBed.inject(HttpTestingController);
+    const pending = firstValueFrom(api.post('admin/parking/tariffs', { code: 'rotation-fixture' }));
+    const csrf = http.expectOne('/api/v1/admin/auth/csrf');
+    xsrfToken = 'token-after-rotation';
+    csrf.flush(null, { status: 204, statusText: 'No Content' });
+    const mutation = http.expectOne('/api/v1/admin/parking/tariffs');
+    expect(mutation.request.headers.get('X-XSRF-TOKEN')).toBe('token-after-rotation');
+    mutation.flush({ id: 'rotation-fixture' });
+    await expect(pending).resolves.toEqual({ id: 'rotation-fixture' });
+  });
+
+  it('coalesces concurrent writes behind one CSRF GET and applies the same current token', async () => {
+    let xsrfToken = 'old-cookie-token';
+    TestBed.overrideProvider(PORTAL_CONFIG, {
+      useValue: { ...environment, administrativeApiEnabled: true },
+    });
+    TestBed.overrideProvider(HttpXsrfTokenExtractor, {
+      useValue: { getToken: () => xsrfToken },
+    });
+    const api = TestBed.inject(ApiClient);
+    const http = TestBed.inject(HttpTestingController);
+    const first = firstValueFrom(api.post('admin/parking/tariffs', { code: 'parallel-one' }));
+    const second = firstValueFrom(api.post('admin/parking/tariffs', { code: 'parallel-two' }));
+    const csrf = http.expectOne('/api/v1/admin/auth/csrf');
+    xsrfToken = 'current-cookie-token';
+    csrf.flush(null, { status: 204, statusText: 'No Content' });
+    const writes = http.match('/api/v1/admin/parking/tariffs');
+    expect(writes).toHaveLength(2);
+    expect(writes.map((write) => write.request.headers.get('X-XSRF-TOKEN'))).toEqual([
+      'current-cookie-token',
+      'current-cookie-token',
+    ]);
+    writes[0].flush({ id: 'parallel-one' });
+    writes[1].flush({ id: 'parallel-two' });
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { id: 'parallel-one' },
+      { id: 'parallel-two' },
+    ]);
+  });
+
+  it('fails closed without sending a mutation when the CSRF response did not set a readable cookie', async () => {
+    TestBed.overrideProvider(PORTAL_CONFIG, {
+      useValue: { ...environment, administrativeApiEnabled: true },
+    });
+    TestBed.overrideProvider(HttpXsrfTokenExtractor, {
+      useValue: { getToken: () => null },
+    });
+    const api = TestBed.inject(ApiClient);
+    const http = TestBed.inject(HttpTestingController);
+    const pending = firstValueFrom(api.post('admin/parking/tariffs', { code: 'missing-token' }));
+    http.expectOne('/api/v1/admin/auth/csrf').flush(null, { status: 204, statusText: 'No Content' });
+    await expect(pending).rejects.toMatchObject({ kind: 'forbidden' });
+    http.expectNone('/api/v1/admin/parking/tariffs');
   });
 
   it('does not send an administrative mutation when the CSRF preflight fails', async () => {

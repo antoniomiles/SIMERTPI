@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { Component } from '@angular/core';
 import { provideRouter } from '@angular/router';
-import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import { HttpXsrfTokenExtractor, provideHttpClient, withInterceptors } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { Login } from './login';
 import { AdminSession } from '../../core/auth/admin-session';
@@ -62,6 +62,7 @@ describe('Login request lifecycle', () => {
         provideRouter([{ path: 'admin/dashboard', component: LoginTestDestination }]),
         provideHttpClient(withInterceptors([apiInterceptor])),
         provideHttpClientTesting(),
+        { provide: HttpXsrfTokenExtractor, useValue: { getToken: () => 'test-csrf-token' } },
         { provide: PORTAL_CONFIG, useValue: { ...environment, administrativeApiEnabled: true } },
       ],
     }),

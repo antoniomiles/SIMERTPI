@@ -1,7 +1,7 @@
 import { DestroyRef, inject, Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
-import { catchError, map, Observable, of, switchMap, tap, throwError } from 'rxjs';
+import { catchError, map, Observable, of, tap, throwError } from 'rxjs';
 import { PORTAL_CONFIG } from '../config/portal-config';
 import { normalizeError, PortalError } from '../http/portal-error';
 import { AdminIdentity, AdminSessionState } from './admin-session-state';
@@ -28,13 +28,10 @@ export class AdminSession {
             'El acceso administrativo aún no está habilitado. No se enviaron las credenciales.',
           ),
       );
-    return this.csrf().pipe(
-      switchMap(() =>
-        this.http.post<AdminIdentity>(`${this.config.apiBaseUrl}/admin/auth/login`, {
+    return this.http.post<AdminIdentity>(`${this.config.apiBaseUrl}/admin/auth/login`, {
           username,
           password,
-        }),
-      ),
+        }).pipe(
       tap((identity) => this.accept(identity)),
       catchError((error: unknown) => throwError(() => normalizeError(error))),
     );
@@ -51,16 +48,12 @@ export class AdminSession {
     );
   }
   signOut(): Observable<void> {
-    return this.csrf().pipe(
-      switchMap(() => this.http.post<void>(`${this.config.apiBaseUrl}/admin/auth/logout`, {})),
+    return this.http.post<void>(`${this.config.apiBaseUrl}/admin/auth/logout`, {}).pipe(
       tap(() => {
         if (this.expiry) clearTimeout(this.expiry);
         this.state.clear();
       }),
     );
-  }
-  private csrf() {
-    return this.http.get<void>(`${this.config.apiBaseUrl}/admin/auth/csrf`);
   }
   private accept(identity: AdminIdentity) {
     const expires = Date.parse(identity.sessionExpiresAt);

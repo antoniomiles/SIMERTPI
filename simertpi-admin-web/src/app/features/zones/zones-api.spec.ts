@@ -1,4 +1,4 @@
-import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import { HttpXsrfTokenExtractor, provideHttpClient, withInterceptors } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { apiInterceptor } from '../../core/http/api.interceptor';
@@ -12,6 +12,7 @@ describe('Administrative parking catalog API', () => {
       providers: [
         provideHttpClient(withInterceptors([apiInterceptor])),
         provideHttpClientTesting(),
+        { provide: HttpXsrfTokenExtractor, useValue: { getToken: () => 'test-csrf-token' } },
         { provide: PORTAL_CONFIG, useValue: { ...environment, administrativeApiEnabled: true } },
       ],
     }),
