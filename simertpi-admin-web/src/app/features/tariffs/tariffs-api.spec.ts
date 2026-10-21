@@ -39,11 +39,15 @@ describe('Administrative tariffs and schedules API', () => {
       generalBillingDaysConfigured: false, generalBillingNormativeReference: null, zones: [] });
   });
 
-  it('posts only administrative versioned configuration through the existing CSRF interceptor', () => {
+  it('posts only administrative versioned configuration after obtaining CSRF', () => {
     const api = TestBed.inject(TariffsApi);
     const http = TestBed.inject(HttpTestingController);
     api.createBillingCalendar({ zoneId: null, validFrom: '2026-10-20', validTo: null,
       chargeableDays: [1, 2, 3, 4, 5], normativeReference: 'Ordenanza aprobada' }).subscribe();
+    const csrf = http.expectOne('/api/v1/admin/auth/csrf');
+    expect(csrf.request.method).toBe('GET');
+    expect(csrf.request.withCredentials).toBe(true);
+    csrf.flush(null, { status: 204, statusText: 'No Content' });
     const request = http.expectOne('/api/v1/admin/parking/billing-day-calendars');
     expect(request.request.method).toBe('POST');
     expect(request.request.withCredentials).toBe(true);

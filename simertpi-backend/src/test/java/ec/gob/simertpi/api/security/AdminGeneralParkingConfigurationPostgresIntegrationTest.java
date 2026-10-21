@@ -59,6 +59,7 @@ class AdminGeneralParkingConfigurationPostgresIntegrationTest extends AbstractPo
                         .content("{\"username\":\"" + username + "\",\"password\":\"" + PASSWORD + "\"}"))
                 .andExpect(status().isOk()).andReturn();
         session = cookie(login, AdminAuthenticationService.COOKIE);
+        csrf = cookie(login, "__Host-SIMERTPI_ADMIN_XSRF");
     }
 
     @AfterEach
@@ -78,6 +79,30 @@ class AdminGeneralParkingConfigurationPostgresIntegrationTest extends AbstractPo
         mvc.perform(post("/api/v1/admin/parking/billing-day-calendars").secure(true).cookie(session)
                         .contentType("application/json").content("{}"))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void tariffCreationAcceptsRenewedCsrfAndRejectsMissingOrInvalidTokensWithoutWriting() throws Exception {
+        String code = "QA-CSRF-TARIFF-" + UUID.randomUUID().toString().substring(0, 8);
+        OffsetDateTime starts = OffsetDateTime.now(ZoneOffset.UTC).plusDays(10).withNano(0);
+        String body = tariffBody(null, code, starts);
+
+        mvc.perform(post("/api/v1/admin/parking/tariffs").secure(true).cookie(csrf)
+                        .header("X-XSRF-TOKEN", csrf.getValue()).contentType("application/json").content(body))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/v1/admin/parking/tariffs").secure(true).cookie(session, csrf)
+                        .contentType("application/json").content(body))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/admin/parking/tariffs").secure(true).cookie(session, csrf)
+                        .header("X-XSRF-TOKEN", "incorrect-token").contentType("application/json").content(body))
+                .andExpect(status().isForbidden());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.tariffs WHERE code=?", Integer.class, code)).isZero();
+
+        MvcResult refreshed = mvc.perform(get("/api/v1/admin/auth/csrf").secure(true).cookie(session))
+                .andExpect(status().isNoContent()).andReturn();
+        csrf = cookie(refreshed, "__Host-SIMERTPI_ADMIN_XSRF");
+        postTariff(null, code, starts).andExpect(status().isCreated());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.tariffs WHERE code=?", Integer.class, code)).isEqualTo(1);
     }
 
     @Test
@@ -205,13 +230,16 @@ class AdminGeneralParkingConfigurationPostgresIntegrationTest extends AbstractPo
     }
 
     private org.springframework.test.web.servlet.ResultActions postTariff(UUID zoneId, String code, OffsetDateTime validFrom) throws Exception {
+        return mvc.perform(post("/api/v1/admin/parking/tariffs").secure(true).cookie(session, csrf)
+                .header("X-XSRF-TOKEN", csrf.getValue()).contentType("application/json").content(tariffBody(zoneId, code, validFrom)));
+    }
+
+    private String tariffBody(UUID zoneId, String code, OffsetDateTime validFrom) {
         String zone = zoneId == null ? "null" : "\"" + zoneId + "\"";
-        String body = "{\"code\":\"" + code + "\",\"name\":\"" + code + "\",\"zoneId\":" + zone
+        return "{\"code\":\"" + code + "\",\"name\":\"" + code + "\",\"zoneId\":" + zone
                 + ",\"currency\":\"USD\",\"amount\":\"1.25\",\"durationMinutes\":60,\"minMinutes\":15"
                 + ",\"maxContinuousMinutes\":180,\"gracePeriodMinutes\":5,\"roundingMode\":\"HALF_UP\""
                 + ",\"validFrom\":\"" + validFrom + "\",\"validTo\":null,\"normativeReference\":\"" + reference + "\"}";
-        return mvc.perform(post("/api/v1/admin/parking/tariffs").secure(true).cookie(session, csrf)
-                .header("X-XSRF-TOKEN", csrf.getValue()).contentType("application/json").content(body));
     }
 
     private static Cookie cookie(MvcResult result, String name) {

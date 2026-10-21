@@ -253,6 +253,8 @@ test('billing calendar preview states that unselected days are free and does not
 
 test('tariff editor is opened on demand and sends the exact API decimal using admin CSRF', async ({ page }) => {
   const createBodies: unknown[] = [];
+  const csrfHeaders: string[] = [];
+  let csrfReads = 0;
   const identity = {
     userId: 'local-test-admin', username: 'admin.fixture', roles: ['SIMERTPI_ADMIN'], enabled: true,
     sessionExpiresAt: new Date(Date.now() + 600000).toISOString(), absoluteExpiresAt: new Date(Date.now() + 3600000).toISOString(),
@@ -267,11 +269,27 @@ test('tariff editor is opened on demand and sends the exact API decimal using ad
     at: new Date().toISOString(), generalTariff: null, generalBillingCalendarId: null, generalChargeable: true,
     generalBillingDaysConfigured: false, generalBillingNormativeReference: null, zones: [],
   };
+  await page.addInitScript(() => {
+    const nativeCookie = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie');
+    Object.defineProperty(document, 'cookie', {
+      configurable: true,
+      get: () => `${nativeCookie?.get?.call(document) ?? ''}; __Host-SIMERTPI_ADMIN_XSRF=browser-csrf-fixture`,
+      set: (value: string) => nativeCookie?.set?.call(document, value),
+    });
+  });
   await page.route('**/api/v1/admin/auth/me', (route) => route.fulfill({ json: identity }));
-  await page.route('**/api/v1/admin/auth/csrf', (route) => route.fulfill({ status: 204 }));
+  await page.route('**/api/v1/admin/auth/csrf', async (route) => {
+    csrfReads++;
+    if (csrfReads === 1) {
+      await route.fulfill({ status: 502, body: '{"code":"UPSTREAM_HTTP_RESPONSE"}' });
+      return;
+    }
+    await route.fulfill({ status: 204 });
+  });
   await page.route('**/api/v1/admin/parking/tariffs', (route) => {
     if (route.request().method() === 'POST') {
       createBodies.push(route.request().postDataJSON());
+      csrfHeaders.push(route.request().headers()['x-xsrf-token'] ?? '');
       return route.fulfill({ status: 201, json: tariff });
     }
     return route.fulfill({ json: [] });
@@ -296,6 +314,8 @@ test('tariff editor is opened on demand and sends the exact API decimal using ad
   await page.locator('[formControlName="normativeReference"]').fill('Ordenanza de prueba');
   await page.getByRole('button', { name: 'Registrar tarifa' }).click();
   await expect.poll(() => createBodies.length).toBe(1);
+  expect(csrfReads).toBe(2);
+  expect(csrfHeaders).toEqual(['browser-csrf-fixture']);
   expect(createBodies[0]).toMatchObject({ amount: '0.25', currency: 'USD', zoneId: null, code: 'GEN-2027' });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

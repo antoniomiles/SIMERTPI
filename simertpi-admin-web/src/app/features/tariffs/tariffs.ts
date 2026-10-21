@@ -1,4 +1,5 @@
 import { Component, computed, inject, signal } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { forkJoin, finalize, switchMap, tap } from 'rxjs';
@@ -10,6 +11,28 @@ import { ConfiguredTariff, EffectiveConfiguration, TariffsApi } from './tariffs-
 import { formatConfigurationDate, formatConfigurationDateTime, formatConfigurationAmount, localDateTimeToIso } from './tariffs-format';
 
 type ViewState = 'loading' | 'error' | 'empty' | 'ready';
+
+const TARIFF_CONFLICT_MESSAGES: Record<string, string> = {
+  TARIFF_VALIDITY_OVERLAP: 'Ya existe una tarifa con una vigencia que se cruza para esta misma aplicación.',
+  TARIFF_CODE_ALREADY_EXISTS: 'El código de tarifa ya está registrado. Use un código diferente.',
+  TARIFF_START_MUST_BE_FUTURE: 'La vigencia de la nueva tarifa debe comenzar en una fecha futura.',
+  INVALID_CONFIGURATION_VALIDITY: 'La fecha final debe ser posterior a la fecha de inicio.',
+  INVALID_TARIFF_AMOUNT: 'El importe debe ser mayor que cero y tener como máximo dos decimales.',
+  INVALID_TARIFF_DURATION_RANGE: 'Revise la duración, el mínimo facturable y el máximo continuo.',
+  INVALID_TARIFF_CURRENCY: 'La moneda indicada no es válida.',
+};
+
+function normalizeTariffWriteError(error: unknown) {
+  if (error instanceof HttpErrorResponse && error.status === 409) {
+    const code = typeof error.error?.message === 'string' ? error.error.message : '';
+    return {
+      message:
+        TARIFF_CONFLICT_MESSAGES[code] ??
+        'La tarifa entra en conflicto con una configuración existente. Revise el código y las vigencias.',
+    };
+  }
+  return normalizeError(error);
+}
 
 @Component({
   selector: 'app-tariffs',
@@ -155,7 +178,7 @@ export class Tariffs {
       error: (error: unknown) => {
         this.actionError.set(previousVersionEnded
           ? 'La versión anterior quedó programada para finalizar, pero la nueva versión no se confirmó. Revise la configuración antes de continuar.'
-          : normalizeError(error).message);
+          : normalizeTariffWriteError(error).message);
         if (previousVersionEnded) this.load();
       },
     });
@@ -177,7 +200,7 @@ export class Tariffs {
     this.saving.set(true);
     this.api.endTariff(row.id, value).pipe(finalize(() => this.saving.set(false))).subscribe({
       next: () => { this.endingTariff.set(null); this.actionMessage.set('La finalización futura quedó registrada.'); this.load(); },
-      error: (error: unknown) => this.actionError.set(normalizeError(error).message),
+      error: (error: unknown) => this.actionError.set(normalizeTariffWriteError(error).message),
     });
   }
 

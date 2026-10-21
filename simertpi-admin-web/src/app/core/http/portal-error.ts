@@ -20,11 +20,13 @@ export function normalizeError(error: unknown): PortalError {
     if (error.status === 401)
       return new PortalError('unauthorized', 'Debe iniciar una sesión administrativa.');
     if (error.status === 403)
-      return new PortalError('forbidden', 'No tiene permiso para esta operación.');
+      return new PortalError('forbidden', 'La solicitud fue rechazada por seguridad o permisos. Actualice la pantalla e inténtelo nuevamente.');
     if (error.status === 502 && error.headers.get('X-Admin-Proxy-Error') === 'UPSTREAM_UNAVAILABLE')
       return new PortalError('network', 'No se pudo conectar con el servicio administrativo. Espere un momento y vuelva a intentarlo.');
-    if (error.status === 502 || error.status === 503)
-      return new PortalError('unavailable', 'El servicio administrativo no está disponible o se está iniciando. Espere un momento y vuelva a intentarlo.');
+    if (error.status === 502)
+      return new PortalError('unavailable', 'El backend o su gateway respondió HTTP 502. Espere unos segundos y vuelva a intentarlo.');
+    if (error.status === 503)
+      return new PortalError('unavailable', 'El servicio administrativo respondió HTTP 503 y no está disponible temporalmente. Vuelva a intentarlo en un momento.');
     if (error.status === 504)
       return new PortalError('timeout', 'El servicio administrativo tardó demasiado en responder. No se repitió el inicio de sesión; puede intentarlo nuevamente.');
     if (error.status === 400 || error.status === 422)

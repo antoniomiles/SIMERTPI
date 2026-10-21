@@ -29,6 +29,7 @@ describe('Administrative parking catalog API', () => {
     zones.flush([]);
 
     api.createZone({ code: 'Z-01', name: 'Centro' }).subscribe();
+    http.expectOne('/api/v1/admin/auth/csrf').flush(null, { status: 204, statusText: 'No Content' });
     const zone = http.expectOne('/api/v1/admin/parking/zones');
     expect(zone.request.method).toBe('POST');
     expect(zone.request.body).toEqual({ code: 'Z-01', name: 'Centro' });
@@ -36,12 +37,14 @@ describe('Administrative parking catalog API', () => {
     zone.flush({ id: 'zone-1' });
 
     api.createStreet('zone-1', { code: 'S-01', name: 'Calle registrada' }).subscribe();
+    http.expectOne('/api/v1/admin/auth/csrf').flush(null, { status: 204, statusText: 'No Content' });
     const street = http.expectOne('/api/v1/admin/parking/zones/zone-1/streets');
     expect(street.request.body).toEqual({ code: 'S-01', name: 'Calle registrada' });
     expect(street.request.body).not.toHaveProperty('zoneId');
     street.flush({ id: 'street-1' });
 
     api.createSpace('street-1', { code: 'P-01', qrCode: 'QR-01', spaceNumber: '01' }).subscribe();
+    http.expectOne('/api/v1/admin/auth/csrf').flush(null, { status: 204, statusText: 'No Content' });
     const space = http.expectOne('/api/v1/admin/parking/streets/street-1/spaces');
     expect(space.request.body).toEqual({ code: 'P-01', qrCode: 'QR-01', spaceNumber: '01' });
     expect(space.request.body).not.toHaveProperty('streetId');

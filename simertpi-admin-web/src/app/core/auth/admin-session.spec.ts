@@ -1,10 +1,16 @@
 import { TestBed } from '@angular/core/testing';
-import { provideHttpClient } from '@angular/common/http';
+import {
+  HttpXsrfTokenExtractor,
+  provideHttpClient,
+  withInterceptors,
+  withXsrfConfiguration,
+} from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter, Router } from '@angular/router';
 import { AdminSession } from './admin-session';
 import { AdminIdentity, safeReturnUrl } from './admin-session-state';
 import { PORTAL_CONFIG } from '../config/portal-config';
+import { apiInterceptor } from '../http/api.interceptor';
 
 describe('Real administrative session client', () => {
   let session: AdminSession;
@@ -23,8 +29,12 @@ describe('Real administrative session client', () => {
     TestBed.configureTestingModule({
       providers: [
         provideRouter([]),
-        provideHttpClient(),
+        provideHttpClient(
+          withInterceptors([apiInterceptor]),
+          withXsrfConfiguration({ cookieName: '__Host-SIMERTPI_ADMIN_XSRF', headerName: 'X-XSRF-TOKEN' }),
+        ),
         provideHttpClientTesting(),
+        { provide: HttpXsrfTokenExtractor, useValue: { getToken: () => 'test-csrf-token' } },
         {
           provide: PORTAL_CONFIG,
           useValue: {
@@ -56,7 +66,35 @@ describe('Real administrative session client', () => {
     http.expectOne('/api/v1/admin/auth/csrf').flush(null);
     const login = http.expectOne('/api/v1/admin/auth/login');
     expect(login.request.method).toBe('POST');
+    expect(login.request.headers.get('X-XSRF-TOKEN')).toBe('test-csrf-token');
     login.flush(identity());
+    expect(session.authenticated()).toBe(true);
+  });
+  it('recovers login after a transient CSRF gateway response without repeating the login POST', async () => {
+    session.restore().subscribe((ok) => expect(ok).toBe(false));
+    http.expectOne('/api/v1/admin/auth/me').flush(null, { status: 401, statusText: 'Unauthorized' });
+
+    session.signIn('fixture.admin', 'unit-test-only').subscribe();
+    http.expectOne('/api/v1/admin/auth/csrf').flush(null, { status: 502, statusText: 'Bad Gateway' });
+    (await vi.waitFor(() => http.expectOne('/api/v1/admin/auth/csrf')))
+      .flush(null, { status: 204, statusText: 'No Content' });
+    const login = http.expectOne('/api/v1/admin/auth/login');
+    expect(login.request.method).toBe('POST');
+    expect(login.request.headers.get('X-XSRF-TOKEN')).toBe('test-csrf-token');
+    login.flush(identity());
+    expect(session.authenticated()).toBe(true);
+    http.expectNone('/api/v1/admin/auth/login');
+  });
+  it('does not retry login POST and allows a later user-initiated attempt', () => {
+    session.signIn('fixture.admin', 'unit-test-only').subscribe({ error: () => {} });
+    http.expectOne('/api/v1/admin/auth/csrf').flush(null, { status: 204, statusText: 'No Content' });
+    http.expectOne('/api/v1/admin/auth/login').flush(null, { status: 503, statusText: 'Unavailable' });
+    http.expectNone('/api/v1/admin/auth/login');
+    expect(session.authenticated()).toBe(false);
+
+    session.signIn('fixture.admin', 'unit-test-only').subscribe();
+    http.expectOne('/api/v1/admin/auth/csrf').flush(null, { status: 204, statusText: 'No Content' });
+    http.expectOne('/api/v1/admin/auth/login').flush(identity());
     expect(session.authenticated()).toBe(true);
   });
   it('restores a cookie session through me, without a token response', () => {

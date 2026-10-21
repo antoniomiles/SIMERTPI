@@ -1,4 +1,5 @@
 import { TestBed } from '@angular/core/testing';
+import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute } from '@angular/router';
 import { of, throwError } from 'rxjs';
 import { PortalError } from '../../core/http/portal-error';
@@ -119,6 +120,22 @@ describe('Tariff configuration screen', () => {
     page.form.setValue({ code: 'GEN-02', name: 'Tarifa revisada', scope: 'GENERAL', zoneId: '', currency: 'USD', amount: '0,30', durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240, gracePeriodMinutes: 0, roundingMode: 'HALF_UP', validFrom: '2027-02-01T00:00', validTo: '', normativeReference: 'Nueva ordenanza' });
     page.submit(new Event('submit'));
     expect(page.actionError()).toContain('la nueva versión no se confirmó');
+  });
+
+  it('explains tariff validity conflicts instead of reporting a user permission or duplicate-account error', () => {
+    api.createTariff.mockReturnValue(throwError(() => new HttpErrorResponse({
+      status: 409,
+      error: { status: 409, message: 'TARIFF_VALIDITY_OVERLAP' },
+    })));
+    const fixture = TestBed.createComponent(Tariffs);
+    fixture.detectChanges();
+    const page = fixture.componentInstance;
+    page.openCreate();
+    page.form.setValue({ code: 'GEN-2027', name: 'Tarifa general', scope: 'GENERAL', zoneId: '', currency: 'USD', amount: '0,25', durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240, gracePeriodMinutes: 0, roundingMode: 'HALF_UP', validFrom: '2027-01-01T00:00', validTo: '', normativeReference: 'Ordenanza artículo 5' });
+    page.submit(new Event('submit'));
+    expect(page.actionError()).toContain('vigencia que se cruza');
+    expect(page.actionError()).not.toContain('permiso');
+    expect(page.actionError()).not.toContain('usuario');
   });
 
   it('keeps the approved tariff data and provides a retry after a read error', () => {
