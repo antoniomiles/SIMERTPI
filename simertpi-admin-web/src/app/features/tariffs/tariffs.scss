@@ -1,3 +1,8 @@
+:host {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
 .preview-note,
 .config-section,
 .calendar-meaning {
@@ -52,6 +57,8 @@
   line-height: 1.55;
 }
 .table-scroll {
+  max-width: 100%;
+  min-width: 0;
   overflow-x: auto;
 }
 table {
@@ -90,9 +97,22 @@ td small {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
-  align-items: end;
+  align-items: start;
   margin: 18px 0 8px;
 }
+.admin-form > .field {
+  display: grid;
+  grid-template-rows: auto 45px minmax(2.4em, auto);
+  align-content: start;
+  min-width: 0;
+  gap: 7px;
+}
+.admin-form > .field > span { grid-row: 1; }
+.admin-form > .field > input,
+.admin-form > .field > select,
+.admin-form > .field > strong { grid-row: 2; align-self: start; }
+.admin-form > .field > small { grid-row: 3; margin: 0; }
+.admin-form > .field > strong { display: flex; align-items: center; min-height: 45px; }
 .admin-form .wide,
 .weekday-field {
   grid-column: 1 / -1;
@@ -163,8 +183,22 @@ td small {
   min-width: min(320px, 100%);
 }
 .row-actions {
-  margin-top: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  flex-wrap: nowrap;
+  min-width: 196px;
+  margin-top: 0;
 }
+.row-actions .button {
+  width: 100%;
+  height: 44px;
+  min-height: 44px;
+  padding: 8px;
+  font-size: 12px;
+  white-space: nowrap;
+  line-height: 1.35;
+}
+.row-actions .tag { align-self: flex-start; }
 .success-note,
 .error-note {
   margin-bottom: 16px;
@@ -192,4 +226,5 @@ td small {
   .config-section { padding: 16px; }
   .section-heading { align-items: flex-start; }
   .form-actions { align-items: stretch; }
+  .row-actions { min-width: 196px; }
 }

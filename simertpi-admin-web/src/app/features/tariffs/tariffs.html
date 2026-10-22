@@ -48,15 +48,15 @@
       </article>
     </div>
 
-    @if (showForm()) {
-      <section class="config-section card" aria-labelledby="tariff-form-title">
+    <ng-template #tariffFormTemplate>
         <header class="section-heading">
           <div>
             <p class="eyebrow">{{ editingScheduled() ? 'PROGRAMACIÓN' : revisionOf() ? 'NUEVA VERSIÓN' : 'NUEVA CONFIGURACIÓN' }}</p>
             <h2 id="tariff-form-title">{{ editingScheduled() ? 'Editar tarifa programada' : revisionOf() ? 'Crear nueva versión de tarifa vigente' : 'Crear configuración de tarifa' }}</h2>
           </div>
-          <button class="button secondary" type="button" (click)="cancelForms()">Cancelar</button>
+          <button class="button secondary" type="button" (click)="editingScheduled() ? requestEditClose() : cancelForms()">Cancelar</button>
         </header>
+        @if (editingScheduled() && actionError()) { <p class="notice error-note" role="alert">{{ actionError() }}</p> }
         @if (editingScheduled()) {
           <p class="notice" role="note">Se actualizará la misma programación. Esta opción solo está disponible antes de su inicio de vigencia.</p>
         } @else if (revisionOf()) {
@@ -82,9 +82,29 @@
           <label class="field"><span>Vigente desde</span><input formControlName="validFrom" type="datetime-local" /><small>Seleccione fecha y hora futuras. Ejemplo: 01/01/2027, 00:00.</small></label>
           <label class="field"><span>Vigente hasta (opcional)</span><input formControlName="validTo" type="datetime-local" /><small>Déjelo vacío si no se ha definido una fecha final.</small></label>
           <label class="field wide"><span>Referencia normativa</span><input formControlName="normativeReference" maxlength="255" placeholder="Ej.: Ordenanza municipal N.º 001-2027, artículo 5" /></label>
-          <div class="form-actions wide"><button class="button primary" type="submit" [disabled]="saving()">{{ saving() ? 'Guardando…' : editingScheduled() ? 'Guardar cambios' : revisionOf() ? 'Guardar nueva versión' : 'Registrar tarifa' }}</button><button class="button secondary" type="button" (click)="cancelForms()">Cancelar</button></div>
+          <div class="form-actions wide"><button class="button primary" type="submit" [disabled]="saving()">{{ saving() ? 'Guardando…' : editingScheduled() ? 'Guardar cambios' : revisionOf() ? 'Guardar nueva versión' : 'Registrar tarifa' }}</button><button class="button secondary" type="button" (click)="editingScheduled() ? requestEditClose() : cancelForms()">Cancelar</button></div>
         </form>
+    </ng-template>
+
+    @if (showForm() && !editingScheduled()) {
+      <section class="config-section card" aria-labelledby="tariff-form-title">
+        <ng-container [ngTemplateOutlet]="tariffFormTemplate"></ng-container>
       </section>
+    }
+
+    @if (editingScheduled(); as scheduled) {
+      <dialog #editDialog class="tariff-dialog tariff-edit-dialog" aria-labelledby="tariff-form-title" (cancel)="requestEditClose($event)">
+        <section class="config-section card dialog-shell" aria-labelledby="tariff-form-title">
+          <ng-container [ngTemplateOutlet]="tariffFormTemplate"></ng-container>
+          @if (confirmEditDiscard()) {
+            <div class="discard-confirmation" role="alertdialog" aria-labelledby="discard-title" aria-describedby="discard-description">
+              <h3 id="discard-title">¿Descartar los cambios?</h3>
+              <p id="discard-description">Hay cambios sin guardar en {{ scheduled.code }}. Si cierra el formulario, se perderán.</p>
+              <div class="form-actions"><button class="button secondary" type="button" (click)="confirmEditDiscard.set(false)">Seguir editando</button><button class="button subtle-danger" type="button" (click)="closeScheduledEditor()">Descartar cambios</button></div>
+            </div>
+          }
+        </section>
+      </dialog>
     }
 
     @if (cancellingTariff(); as cancelling) {
@@ -132,14 +152,64 @@
         <div class="table-scroll"><table><thead><tr><th>Tarifa</th><th>Aplicación</th><th>Importe y duración</th><th>Vigencia</th><th>Referencia normativa</th><th>Acciones</th></tr></thead><tbody>
           @for (row of visibleTariffs(); track row.id) {
             <tr><td><strong>{{ row.code }} · {{ row.name }}</strong><small class="tag">{{ statusLabel(row) }}</small></td><td>{{ displayZone(row.zoneCode, row.zoneName) }}</td><td>{{ formatAmount(row.amount, row.currency ?? 'USD') }}<small>Por {{ row.durationMinutes }} minutos</small></td><td>{{ formatDateTime(row.validFrom) }}<small>Hasta: {{ row.validTo ? formatDateTime(row.validTo) : 'Sin fecha final' }}</small>@if (row.cancelledAt) { <small>Cancelada el {{ formatDateTime(row.cancelledAt) }}</small> }</td><td>{{ row.normativeReference || 'No registrada' }}</td><td class="row-actions">
-              <details><summary>Ver</summary><dl><dt>Aplicación</dt><dd>{{ displayZone(row.zoneCode, row.zoneName) }}</dd><dt>Vigencia desde</dt><dd>{{ formatDateTime(row.validFrom) }}</dd><dt>Vigencia hasta</dt><dd>{{ row.validTo ? formatDateTime(row.validTo) : 'Sin fecha final' }}</dd><dt>Referencia normativa</dt><dd>{{ row.normativeReference || 'No registrada' }}</dd>@if (row.cancelledAt) { <dt>Cancelada por</dt><dd>{{ row.cancelledByUsername || 'Cuenta administrativa registrada' }}</dd><dt>Motivo</dt><dd>{{ row.cancellationReason }}</dd> }</dl></details>
-              @if (isScheduled(row)) { <button class="button secondary" type="button" (click)="openEditScheduled(row)">Editar</button><button class="button secondary" type="button" (click)="openCancel(row)">Cancelar programación</button> }
+              <button class="button secondary" type="button" (click)="openView(row)" aria-haspopup="dialog">Ver</button>
+              @if (isScheduled(row)) { <button class="button secondary" type="button" (click)="openEditScheduled(row)">Editar</button><button class="button subtle-danger" type="button" (click)="openCancel(row)">Cancelar programación</button> }
               @else if (canModify(row)) { <button class="button secondary" type="button" (click)="openRevision(row)">Crear nueva versión</button><button class="button secondary" type="button" (click)="openEnd(row)">Finalizar</button> }
-              @else { <span class="tag inactive">{{ statusLabel(row) }}</span> }
+              @else if (!isScheduled(row)) { <span class="tag inactive">{{ statusLabel(row) }}</span> }
             </td></tr>
           }
         </tbody></table></div>
       }
     </section>
+
+    @if (viewingTariff(); as viewed) {
+      <dialog #detailDialog class="tariff-dialog tariff-detail-dialog" aria-labelledby="tariff-detail-title" (cancel)="closeView($event)" (close)="closeView()">
+        <div class="dialog-content">
+          <header class="dialog-heading">
+            <div><p class="eyebrow">VERSIÓN TARIFARIA</p><h2 id="tariff-detail-title">Detalle de tarifa</h2></div>
+            <button class="icon-button" type="button" aria-label="Cerrar detalle de tarifa" autofocus (click)="closeView()">×</button>
+          </header>
+          <div class="dialog-scroll">
+            <section class="detail-section" aria-labelledby="detail-identity-title">
+              <h3 id="detail-identity-title">Identificación y aplicación</h3>
+              <dl class="tariff-detail-grid">
+                <div><dt>Código</dt><dd>{{ viewed.code }}</dd></div>
+                <div><dt>Nombre</dt><dd>{{ viewed.name }}</dd></div>
+                <div><dt>Estado</dt><dd><span class="tag" [class.inactive]="!viewed.active || !!viewed.cancelledAt">{{ statusLabel(viewed) }}</span></dd></div>
+                <div><dt>Aplicación</dt><dd>{{ viewed.zoneId ? 'Excepción para zona' : 'General para todas las zonas' }}</dd></div>
+                @if (viewed.zoneId) { <div><dt>Zona</dt><dd>{{ displayZone(viewed.zoneCode, viewed.zoneName) }}</dd></div> }
+              </dl>
+            </section>
+            <section class="detail-section" aria-labelledby="detail-amount-title">
+              <h3 id="detail-amount-title">Importes y límites</h3>
+              <dl class="tariff-detail-grid">
+                <div><dt>Importe</dt><dd>{{ formatAmount(viewed.amount, viewed.currency ?? 'USD') }}</dd></div>
+                <div><dt>Duración por importe</dt><dd>{{ viewed.durationMinutes }} minutos</dd></div>
+                <div><dt>Mínimo facturable</dt><dd>{{ viewed.minMinutes }} minutos</dd></div>
+                <div><dt>Máximo continuo</dt><dd>{{ viewed.maxContinuousMinutes }} minutos</dd></div>
+                <div><dt>Tolerancia</dt><dd>{{ viewed.gracePeriodMinutes ?? 0 }} minutos</dd></div>
+                <div><dt>Regla de redondeo</dt><dd>{{ viewed.roundingMode ?? 'No especificada' }}</dd></div>
+              </dl>
+            </section>
+            <section class="detail-section" aria-labelledby="detail-validity-title">
+              <h3 id="detail-validity-title">Vigencia y respaldo</h3>
+              <dl class="tariff-detail-grid">
+                <div><dt>Vigente desde (hora de Ecuador)</dt><dd>{{ formatDateTime(viewed.validFrom) }}</dd></div>
+                <div><dt>Vigente hasta (hora de Ecuador)</dt><dd>{{ viewed.validTo ? formatDateTime(viewed.validTo) : 'Sin fecha final' }}</dd></div>
+                <div class="detail-wide"><dt>Referencia normativa</dt><dd>{{ viewed.normativeReference || 'No registrada' }}</dd></div>
+                @if (viewed.createdAt) { <div><dt>Registrada</dt><dd>{{ formatDateTime(viewed.createdAt) }}</dd></div> }
+                @if (viewed.updatedAt) { <div><dt>Última actualización</dt><dd>{{ formatDateTime(viewed.updatedAt) }}</dd></div> }
+                @if (viewed.cancelledAt) {
+                  <div><dt>Cancelada el</dt><dd>{{ formatDateTime(viewed.cancelledAt) }}</dd></div>
+                  <div><dt>Cancelada por</dt><dd>{{ viewed.cancelledByUsername || 'Cuenta administrativa registrada' }}</dd></div>
+                  <div class="detail-wide"><dt>Motivo de cancelación</dt><dd>{{ viewed.cancellationReason || 'No registrado' }}</dd></div>
+                }
+              </dl>
+            </section>
+          </div>
+          <footer class="dialog-actions"><button class="button secondary" type="button" (click)="closeView()">Cerrar</button></footer>
+        </div>
+      </dialog>
+    }
   }
 </section>

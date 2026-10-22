@@ -49,6 +49,16 @@ describe('Tariff configuration screen', () => {
   let zonesApi: { listZones: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
+    // JSDOM does not implement the native dialog API; the browser E2E suite
+    // verifies the real showModal/close behavior.
+    Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
+      configurable: true,
+      value(this: HTMLDialogElement) { this.setAttribute('open', ''); },
+    });
+    Object.defineProperty(HTMLDialogElement.prototype, 'close', {
+      configurable: true,
+      value(this: HTMLDialogElement) { this.removeAttribute('open'); },
+    });
     api = {
       listTariffs: vi.fn().mockReturnValue(of([tariff])), listSchedules: vi.fn().mockReturnValue(of([])),
       listCalendarExceptions: vi.fn().mockReturnValue(of([])), listBillingCalendars: vi.fn().mockReturnValue(of([])),
@@ -166,9 +176,76 @@ describe('Tariff configuration screen', () => {
     const fixture = TestBed.createComponent(Tariffs);
     fixture.componentInstance.tariffs.set([scheduled]);
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('Editar');
-    expect(fixture.nativeElement.textContent).toContain('Cancelar programación');
+    const actionButtons = fixture.nativeElement.querySelectorAll('.row-actions .button') as NodeListOf<HTMLButtonElement>;
+    const actions = [...actionButtons].map((button) => button.textContent?.trim() ?? '');
+    expect(actions).toEqual(['Ver', 'Editar', 'Cancelar programación']);
+    expect(fixture.nativeElement.querySelector('details')).toBeNull();
     expect(fixture.nativeElement.textContent).toContain('Programada');
+  });
+
+  it('opens a dedicated tariff detail dialog with Ecuador-local dates and cancellation history', () => {
+    const scheduled: ConfiguredTariff = {
+      ...tariff,
+      zoneId: zone.id,
+      zoneCode: zone.code,
+      zoneName: zone.name,
+      validFrom: new Date(Date.now() + 86400000).toISOString(),
+      cancelledAt: '2026-10-20T15:00:00Z',
+      cancelledByUsername: 'admin.fixture',
+      cancellationReason: 'Se corrigió el importe',
+    };
+    const fixture = TestBed.createComponent(Tariffs);
+    fixture.componentInstance.tariffs.set([scheduled]);
+    fixture.detectChanges();
+    const viewButton = fixture.nativeElement.querySelector('.row-actions button');
+    viewButton.click();
+    fixture.detectChanges();
+
+    const dialog = fixture.nativeElement.querySelector('.tariff-detail-dialog');
+    expect(dialog).not.toBeNull();
+    expect(dialog.getAttribute('aria-labelledby')).toBe('tariff-detail-title');
+    expect(dialog.textContent).toContain('Detalle de tarifa');
+    expect(dialog.textContent).toContain('GEN-01');
+    expect(dialog.textContent).toContain('Tarifa aprobada');
+    expect(dialog.textContent).toContain('Excepción para zona');
+    expect(dialog.textContent).toContain('Centro');
+    expect(dialog.textContent).toContain('0,25 USD');
+    expect(dialog.textContent).toContain('Duración por importe');
+    expect(dialog.textContent).toContain('Mínimo facturable');
+    expect(dialog.textContent).toContain('Máximo continuo');
+    expect(dialog.textContent).toContain('Tolerancia');
+    expect(dialog.textContent).toContain('Regla de redondeo');
+    expect(dialog.textContent).toContain('hora de Ecuador');
+    expect(dialog.textContent).toContain('admin.fixture');
+    expect(dialog.textContent).toContain('Se corrigió el importe');
+    expect(dialog.querySelector('details')).toBeNull();
+  });
+
+  it('opens scheduled editing in a dialog and asks before discarding unsaved values', () => {
+    const scheduled: ConfiguredTariff = { ...tariff, validFrom: new Date(Date.now() + 86400000).toISOString() };
+    const fixture = TestBed.createComponent(Tariffs);
+    fixture.componentInstance.tariffs.set([scheduled]);
+    fixture.detectChanges();
+    fixture.nativeElement.querySelectorAll('.row-actions button')[1].click();
+    fixture.detectChanges();
+
+    const dialog = fixture.nativeElement.querySelector('.tariff-edit-dialog');
+    expect(dialog).not.toBeNull();
+    expect(dialog.textContent).toContain('Editar tarifa programada');
+    expect(dialog.querySelector('[formControlName="code"]').value).toBe(scheduled.code);
+    expect(dialog.querySelector('[formControlName="amount"]').value).toBe('0,25');
+    expect(dialog.textContent).toContain('Guardar cambios');
+
+    fixture.componentInstance.form.controls.amount.setValue('0,50');
+    fixture.componentInstance.form.controls.amount.markAsDirty();
+    fixture.componentInstance.requestEditClose();
+    fixture.detectChanges();
+    expect(dialog.textContent).toContain('Descartar los cambios?');
+    expect(fixture.componentInstance.editingScheduled()).toEqual(scheduled);
+    fixture.componentInstance.confirmEditDiscard.set(false);
+    fixture.componentInstance.closeScheduledEditor();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.tariff-edit-dialog')).toBeNull();
   });
 
   it('revises an existing version by ending it at the new start and creating a new version', () => {

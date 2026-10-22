@@ -302,6 +302,12 @@ test('tariff editor is opened on demand and sends the exact API decimal using ad
   await page.getByRole('button', { name: 'Crear tarifa' }).click();
   await expect(page.getByPlaceholder('Ej.: Tarifa general de estacionamiento')).toBeVisible();
   await expect(page.getByPlaceholder('Ej.: 0,25')).toBeVisible();
+  const firstFormRow = await page.locator('.admin-form > .field').evaluateAll((fields) => fields.slice(0, 3).map((field) => ({
+    fieldTop: field.getBoundingClientRect().top,
+    controlTop: field.querySelector('input, select')?.getBoundingClientRect().top,
+  })));
+  expect(new Set(firstFormRow.map((field) => field.fieldTop)).size).toBe(1);
+  expect(new Set(firstFormRow.map((field) => field.controlTop)).size).toBe(1);
   await page.locator('[formControlName="code"]').fill('GEN-2027');
   await page.locator('[formControlName="name"]').fill('Tarifa general');
   await page.locator('[formControlName="currency"]').fill('USD');
@@ -318,6 +324,97 @@ test('tariff editor is opened on demand and sends the exact API decimal using ad
   expect(csrfHeaders).toEqual(['browser-csrf-fixture']);
   expect(createBodies[0]).toMatchObject({ amount: '0.25', currency: 'USD', zoneId: null, code: 'GEN-2027' });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('scheduled tariff actions are aligned and view/edit use accessible responsive dialogs', async ({ page }) => {
+  const identity = {
+    userId: 'local-test-admin', username: 'admin.fixture', roles: ['SIMERTPI_ADMIN'], enabled: true,
+    sessionExpiresAt: new Date(Date.now() + 600000).toISOString(), absoluteExpiresAt: new Date(Date.now() + 3600000).toISOString(),
+  };
+  const scheduled = {
+    id: 'scheduled-visual-1', code: 'GEN-FUT-01', name: 'Tarifa programada', zoneId: null, zoneCode: null, zoneName: null,
+    currency: 'USD', amount: 0.25, durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240,
+    gracePeriodMinutes: 5, roundingMode: 'HALF_UP', normativeReference: 'Ordenanza local de prueba', active: true,
+    validFrom: new Date(Date.now() + 86400000).toISOString(), validTo: null,
+    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), cancelledAt: null,
+    cancelledByUserId: null, cancellationReason: null, cancelledByUsername: null,
+  };
+  let updatedBody: Record<string, unknown> | null = null;
+  let updateCount = 0;
+  await page.addInitScript(() => {
+    const nativeCookie = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie');
+    Object.defineProperty(document, 'cookie', {
+      configurable: true,
+      get: () => `${nativeCookie?.get?.call(document) ?? ''}; __Host-SIMERTPI_ADMIN_XSRF=visual-csrf-fixture`,
+      set: (value: string) => nativeCookie?.set?.call(document, value),
+    });
+  });
+  await page.route('**/api/v1/admin/auth/me', (route) => route.fulfill({ json: identity }));
+  await page.route('**/api/v1/admin/auth/csrf', (route) => route.fulfill({ status: 204 }));
+  await page.route('**/api/v1/admin/parking/tariffs', (route) => route.fulfill({ json: [scheduled] }));
+  await page.route('**/api/v1/admin/parking/tariffs/scheduled-visual-1', async (route) => {
+    if (route.request().method() !== 'PUT') return route.fallback();
+    updateCount++;
+    updatedBody = route.request().postDataJSON();
+    return route.fulfill({ status: 200, json: { ...scheduled, ...updatedBody } });
+  });
+  await page.route('**/api/v1/admin/parking/zones', (route) => route.fulfill({ json: [] }));
+  await page.route('**/api/v1/admin/parking/configuration/effective*', (route) => route.fulfill({ json: {
+    at: new Date().toISOString(), generalTariff: null, generalBillingCalendarId: null, generalChargeable: true,
+    generalBillingDaysConfigured: false, generalBillingNormativeReference: null, zones: [],
+  } }));
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto('http://127.0.0.1:4301/admin/tariffs');
+  await expect(page.getByRole('heading', { name: 'Configuración de tarifas' })).toBeVisible();
+
+  const actions = page.locator('.row-actions .button');
+  await expect(actions).toHaveText(['Ver', 'Editar', 'Cancelar programación']);
+  const actionBoxes = await actions.evaluateAll((buttons) => buttons.map((button) => {
+    const rect = button.getBoundingClientRect();
+    return { width: rect.width, top: rect.top, height: rect.height };
+  }));
+  expect(Math.max(...actionBoxes.map((box) => box.width)) - Math.min(...actionBoxes.map((box) => box.width))).toBeLessThan(1);
+  expect(actionBoxes[0].top).toBeLessThan(actionBoxes[1].top);
+  expect(actionBoxes[1].top).toBeLessThan(actionBoxes[2].top);
+  expect(new Set(actionBoxes.map((box) => box.height)).size).toBe(1);
+
+  await actions.nth(0).click();
+  const detail = page.getByRole('dialog', { name: 'Detalle de tarifa' });
+  await expect(detail).toBeVisible();
+  for (const label of ['Código', 'Nombre', 'Estado', 'Aplicación', 'Importe', 'Duración por importe', 'Mínimo facturable', 'Máximo continuo', 'Tolerancia', 'Regla de redondeo', 'Vigente desde (hora de Ecuador)', 'Referencia normativa']) {
+    await expect(detail.getByText(label, { exact: true })).toBeVisible();
+  }
+  const detailA11y = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+  expect(detailA11y.violations.map((item) => item.id)).toEqual([]);
+  await page.keyboard.press('Escape');
+  await expect(detail).toBeHidden();
+  await expect(actions.nth(0)).toBeFocused();
+  await actions.nth(0).click();
+  await expect(detail).toBeVisible();
+  await detail.getByRole('button', { name: 'Cerrar', exact: true }).click();
+  await expect(detail).toBeHidden();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await actions.nth(1).click();
+  const editor = page.getByRole('dialog', { name: 'Editar tarifa programada' });
+  await expect(editor).toBeVisible();
+  const box = await editor.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+  const editorShell = editor.locator('.dialog-shell');
+  expect(await editorShell.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+  await expect(editor.locator('[formControlName="amount"]')).toHaveValue('0,25');
+  await editor.locator('[formControlName="amount"]').fill('0,50');
+  await page.keyboard.press('Escape');
+  await expect(editor.getByRole('alertdialog')).toContainText('Hay cambios sin guardar');
+  await editor.getByRole('button', { name: 'Seguir editando' }).click();
+  await editor.locator('[formControlName="amount"]').fill('0,75');
+  await editor.getByRole('button', { name: 'Guardar cambios' }).click();
+  await expect.poll(() => updateCount).toBe(1);
+  expect(updatedBody).toMatchObject({ amount: '0.75' });
+  await expect(editor).toBeHidden();
+  await expect(page.getByRole('status')).toContainText('La tarifa programada se actualizó correctamente.');
 });
 
 test('tariff write uses the CSRF cookie issued by its preflight, not the token read before rotation', async ({ page }) => {

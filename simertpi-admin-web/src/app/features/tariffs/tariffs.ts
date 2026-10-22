@@ -1,7 +1,8 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { NgTemplateOutlet } from '@angular/common';
 import { forkJoin, finalize, switchMap, tap } from 'rxjs';
 import { normalizeError } from '../../core/http/portal-error';
 import { DataState } from '../../shared/ui/data-state';
@@ -40,7 +41,7 @@ function normalizeTariffWriteError(error: unknown) {
 
 @Component({
   selector: 'app-tariffs',
-  imports: [ReactiveFormsModule, RouterLink, DataState, PageHeading],
+  imports: [ReactiveFormsModule, RouterLink, NgTemplateOutlet, DataState, PageHeading],
   templateUrl: './tariffs.html',
   styleUrl: './tariffs.scss',
 })
@@ -58,6 +59,10 @@ export class Tariffs {
   readonly actionMessage = signal('');
   readonly saving = signal(false);
   readonly showForm = signal(false);
+  readonly viewingTariff = signal<ConfiguredTariff | null>(null);
+  readonly detailDialog = viewChild<ElementRef<HTMLDialogElement>>('detailDialog');
+  readonly editDialog = viewChild<ElementRef<HTMLDialogElement>>('editDialog');
+  readonly confirmEditDiscard = signal(false);
   readonly revisionOf = signal<ConfiguredTariff | null>(null);
   readonly endingTariff = signal<ConfiguredTariff | null>(null);
   readonly query = signal('');
@@ -103,7 +108,20 @@ export class Tariffs {
   readonly currentExceptions = computed(() => (this.effective()?.zones ?? []).filter((zone) => zone.tariffSource === 'ZONE'));
   readonly scheduledTariffs = computed(() => this.tariffs().filter((row) => row.active && !row.cancelledAt && Date.parse(row.validFrom) > Date.now()));
 
-  constructor() { if (!this.preview) this.load(); }
+  constructor() {
+    effect(() => {
+      const viewing = this.viewingTariff();
+      const detail = this.detailDialog()?.nativeElement;
+      if (detail && viewing && !detail.open) detail.showModal();
+      else if (detail && !viewing && detail.open) detail.close();
+
+      const editing = this.editingScheduled();
+      const editor = this.editDialog()?.nativeElement;
+      if (editor && editing && !editor.open) editor.showModal();
+      else if (editor && !editing && editor.open) editor.close();
+    });
+    if (!this.preview) this.load();
+  }
 
   load() {
     if (this.preview) return;
@@ -147,14 +165,41 @@ export class Tariffs {
 
   openEditScheduled(row: ConfiguredTariff) {
     if (!this.isScheduled(row)) return;
-    this.actionError.set(''); this.actionMessage.set(''); this.showForm.set(true);
+    this.actionError.set(''); this.actionMessage.set(''); this.showForm.set(false);
     this.revisionOf.set(null); this.endingTariff.set(null); this.cancellingTariff.set(null);
+    this.viewingTariff.set(null);
+    this.confirmEditDiscard.set(false);
     this.editingScheduled.set(row);
     this.form.reset({ code: row.code, name: row.name, scope: row.zoneId ? 'ZONE' : 'GENERAL', zoneId: row.zoneId ?? '',
       currency: row.currency ?? '', amount: String(row.amount).replace('.', ','), durationMinutes: row.durationMinutes,
       minMinutes: row.minMinutes, maxContinuousMinutes: row.maxContinuousMinutes, gracePeriodMinutes: row.gracePeriodMinutes ?? 0,
       roundingMode: row.roundingMode ?? 'HALF_UP', validFrom: isoToGuayaquilDateTimeLocal(row.validFrom),
       validTo: isoToGuayaquilDateTimeLocal(row.validTo), normativeReference: row.normativeReference ?? '' });
+  }
+
+  openView(row: ConfiguredTariff) {
+    this.viewingTariff.set(row);
+  }
+
+  closeView(event?: Event) {
+    event?.preventDefault();
+    this.viewingTariff.set(null);
+  }
+
+  requestEditClose(event?: Event) {
+    event?.preventDefault();
+    if (this.saving()) return;
+    if (this.form.dirty) {
+      this.confirmEditDiscard.set(true);
+      return;
+    }
+    this.closeScheduledEditor();
+  }
+
+  closeScheduledEditor() {
+    this.confirmEditDiscard.set(false);
+    this.editingScheduled.set(null);
+    this.actionError.set('');
   }
 
   submit(event: Event) {
@@ -260,7 +305,7 @@ export class Tariffs {
     });
   }
 
-  cancelForms() { this.showForm.set(false); this.revisionOf.set(null); this.editingScheduled.set(null); this.endingTariff.set(null); this.cancellingTariff.set(null); this.actionError.set(''); }
+  cancelForms() { this.showForm.set(false); this.revisionOf.set(null); this.closeScheduledEditor(); this.endingTariff.set(null); this.cancellingTariff.set(null); this.actionError.set(''); }
   displayZone(code: string | null, name: string | null) { return code && name ? `${code} · ${name}` : code ?? name ?? 'Todas las zonas'; }
   tariffSource(source: string) { return source === 'ZONE' ? 'Excepción de zona' : source === 'GENERAL' ? 'Regla general heredada' : 'Sin tarifa vigente'; }
   canModify(row: ConfiguredTariff) { return row.active && !row.validTo && Date.parse(row.validFrom) < Date.now(); }

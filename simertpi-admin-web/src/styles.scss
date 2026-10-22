@@ -1680,3 +1680,57 @@ b {
   font: inherit;
   font-size: 12px;
 }
+
+/* Diálogos del módulo de tarifas: global para mantener el límite de estilos del componente. */
+.tariff-dialog {
+  width: min(760px, calc(100vw - 2rem));
+  max-width: none;
+  max-height: calc(100dvh - 2rem);
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  color: var(--ink);
+  background: var(--surface);
+  box-shadow: 0 24px 80px rgb(14 31 22 / 28%);
+}
+.tariff-dialog::backdrop { background: rgb(13 27 20 / 54%); backdrop-filter: blur(2px); }
+.tariff-dialog .dialog-content { display: flex; flex-direction: column; max-height: calc(100dvh - 2rem); }
+.tariff-dialog .dialog-heading,
+.tariff-dialog .dialog-actions { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 18px 22px; }
+.tariff-dialog .dialog-heading { border-bottom: 1px solid var(--border); }
+.tariff-dialog .dialog-heading h2 { margin: 0; font-size: 20px; }
+.tariff-dialog .dialog-heading .eyebrow { margin: 0 0 4px; }
+.tariff-dialog .dialog-scroll { overflow: auto; padding: 20px 22px; }
+.tariff-dialog .dialog-actions { justify-content: flex-end; border-top: 1px solid var(--border); }
+.tariff-dialog .detail-section + .detail-section { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--border); }
+.tariff-dialog .detail-section h3 { margin: 0 0 12px; color: var(--ink); font-size: 15px; }
+.tariff-dialog .tariff-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; margin: 0; }
+.tariff-dialog .tariff-detail-grid > div { min-width: 0; }
+.tariff-dialog .tariff-detail-grid dt { color: var(--muted); font-size: 12px; font-weight: 600; }
+.tariff-dialog .tariff-detail-grid dd { margin: 3px 0 0; overflow-wrap: anywhere; font-size: 14px; line-height: 1.5; }
+.tariff-dialog .tariff-detail-grid .detail-wide { grid-column: 1 / -1; }
+.tariff-edit-dialog { width: min(940px, calc(100vw - 2rem)); }
+.tariff-edit-dialog .dialog-shell { max-height: calc(100dvh - 2rem); margin: 0; overflow: auto; border: 0; border-radius: 0; }
+.tariff-edit-dialog .admin-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.tariff-edit-dialog .discard-confirmation { padding: 14px; border: 1px solid #dfc3c1; border-radius: 9px; background: #fffafa; }
+.tariff-edit-dialog .discard-confirmation h3 { margin: 0 0 5px; color: var(--ink); font-size: 15px; }
+.tariff-edit-dialog .discard-confirmation p { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+.tariff-edit-dialog .discard-confirmation .form-actions { justify-content: flex-end; }
+.tariff-dialog .button.subtle-danger,
+app-tariffs .row-actions .button.subtle-danger { color: #8a3838; border-color: #dfc3c1; background: #fffafa; }
+.tariff-dialog .button.subtle-danger:hover:not(:disabled),
+app-tariffs .row-actions .button.subtle-danger:hover:not(:disabled) { background: #f8eeee; }
+@media (max-width: 600px) {
+  .tariff-dialog,
+  .tariff-edit-dialog { width: calc(100vw - 1rem); max-height: calc(100dvh - 1rem); border-radius: 10px; }
+  .tariff-dialog .dialog-content,
+  .tariff-edit-dialog .dialog-shell { max-height: calc(100dvh - 1rem); }
+  .tariff-dialog .dialog-heading,
+  .tariff-dialog .dialog-scroll,
+  .tariff-dialog .dialog-actions,
+  .tariff-edit-dialog .dialog-shell { padding: 15px; }
+  .tariff-dialog .tariff-detail-grid,
+  .tariff-edit-dialog .admin-form { grid-template-columns: 1fr; }
+  .tariff-dialog .tariff-detail-grid .detail-wide { grid-column: auto; }
+}
