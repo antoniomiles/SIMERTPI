@@ -57,6 +57,31 @@ describe('Fail-closed administrative transport', () => {
       'timeout',
     );
   });
+  it('does not mislabel unrelated HTTP 409 conflicts as duplicate users', () => {
+    const calendarConflict = normalizeError(new HttpErrorResponse({
+      status: 409,
+      error: { message: 'BILLING_CALENDAR_VALIDITY_OVERLAP' },
+    }));
+    expect(calendarConflict.kind).toBe('conflict');
+    expect(calendarConflict.code).toBe('BILLING_CALENDAR_VALIDITY_OVERLAP');
+    expect(calendarConflict.message).not.toContain('usuario');
+    expect(calendarConflict.message).toContain('configuración o el estado actual');
+
+    const inspectorConflict = normalizeError(new HttpErrorResponse({
+      status: 409,
+      error: { message: 'Ya existe un usuario o correo con esos datos.' },
+    }));
+    expect(inspectorConflict.message).toContain('usuario o correo');
+  });
+  it('preserves only validation field names for contextual Spanish field messages', () => {
+    const validation = normalizeError(new HttpErrorResponse({
+      status: 400,
+      error: { message: 'Existen errores de validacion', fields: { validFrom: 'technical server text' } },
+    }));
+    expect(validation.kind).toBe('validation');
+    expect(validation.fieldNames).toEqual(['validFrom']);
+    expect(validation.message).not.toContain('technical');
+  });
   it('allows cold-start time for auth routes and distinguishes gateway failures', () => {
     for (const path of ['/api/v1/admin/auth/csrf', '/api/v1/admin/auth/login', '/api/v1/admin/auth/me'])
       expect(requestTimeoutMs(path)).toBe(ADMIN_AUTH_TIMEOUT_MS);

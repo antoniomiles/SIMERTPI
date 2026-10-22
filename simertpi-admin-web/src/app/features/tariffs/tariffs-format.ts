@@ -8,6 +8,18 @@ export function currentConfigurationDate(): string {
   return `${part('year')}-${part('month')}-${part('day')}`;
 }
 
+export function nextConfigurationDate(): string {
+  const [year, month, day] = currentConfigurationDate().split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
+}
+
+export function isValidConfigurationDate(value: string | null | undefined): value is string {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
 export function formatConfigurationDate(value: string | null | undefined): string {
   if (!value) return 'No definida';
   const [year, month, day] = value.slice(0, 10).split('-').map(Number);

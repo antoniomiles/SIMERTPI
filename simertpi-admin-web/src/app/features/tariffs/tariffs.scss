@@ -130,6 +130,10 @@ td small {
   font-size: 12px;
   line-height: 1.45;
 }
+.field small.field-error {
+  color: #a12622;
+  font-weight: 600;
+}
 .weekday-field {
   display: flex;
   flex-wrap: wrap;

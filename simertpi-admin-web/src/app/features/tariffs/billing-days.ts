@@ -1,15 +1,65 @@
 import { Component, computed, inject, signal } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute } from '@angular/router';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { AbstractControl, FormBuilder, ReactiveFormsModule, ValidationErrors, ValidatorFn, Validators } from '@angular/forms';
 import { forkJoin, finalize, switchMap, tap } from 'rxjs';
-import { normalizeError } from '../../core/http/portal-error';
+import { normalizeError, PortalError } from '../../core/http/portal-error';
 import { DataState } from '../../shared/ui/data-state';
 import { PageHeading } from '../../shared/ui/page-heading';
 import { ParkingZone, ZonesApi } from '../zones/zones-api';
 import { BillingCalendar, EffectiveConfiguration, TariffsApi } from './tariffs-api';
-import { currentConfigurationDate, formatConfigurationDate } from './tariffs-format';
+import { currentConfigurationDate, formatConfigurationDate, isValidConfigurationDate, nextConfigurationDate } from './tariffs-format';
 
 type ViewState = 'loading' | 'error' | 'empty' | 'ready';
+
+const dateOnlyValidator: ValidatorFn = (control: AbstractControl): ValidationErrors | null => {
+  const value = control.value as string | null;
+  return !value || isValidConfigurationDate(value) ? null : { invalidConfigurationDate: true };
+};
+
+const futureGuayaquilDateValidator: ValidatorFn = (control: AbstractControl): ValidationErrors | null => {
+  const value = control.value as string | null;
+  return !value || !isValidConfigurationDate(value) || value > currentConfigurationDate()
+    ? null
+    : { dateMustBeFuture: true };
+};
+
+const validityRangeValidator: ValidatorFn = (control: AbstractControl): ValidationErrors | null => {
+  const from = control.get('validFrom')?.value as string | null;
+  const to = control.get('validTo')?.value as string | null;
+  return from && to && isValidConfigurationDate(from) && isValidConfigurationDate(to) && to < from
+    ? { validityEndBeforeStart: true }
+    : null;
+};
+
+const billingCalendarConflictMessages: Record<string, string> = {
+  BILLING_CALENDAR_START_MUST_BE_FUTURE: 'La fecha de inicio debe ser posterior al día de hoy en Ecuador.',
+  BILLING_CALENDAR_VALIDITY_OVERLAP: 'Ya existe un calendario para el mismo alcance en el período seleccionado.',
+  INVALID_CONFIGURATION_VALIDITY: 'La fecha final debe ser igual o posterior a la fecha inicial.',
+  BILLING_CALENDAR_END_MUST_BE_FUTURE: 'La fecha de finalización debe ser posterior al día de hoy en Ecuador.',
+  INVALID_BILLING_CALENDAR_END: 'No se puede finalizar el calendario en esa fecha. Revise la vigencia actual.',
+};
+
+function normalizeBillingCalendarError(error: unknown): PortalError {
+  if (error instanceof PortalError && error.kind === 'conflict') {
+    return new PortalError('conflict', billingCalendarConflictMessages[error.code ?? '']
+      ?? 'El calendario entra en conflicto con la configuración vigente o con su estado actual. Revise el alcance y las fechas.', error.code);
+  }
+  if (error instanceof HttpErrorResponse && error.status === 409) {
+    const message = error.error?.message;
+    const code = typeof message === 'string' && /^[A-Z][A-Z0-9_]{0,95}$/.test(message) ? message : '';
+    return new PortalError('conflict', billingCalendarConflictMessages[code]
+      ?? 'El calendario entra en conflicto con la configuración vigente o con su estado actual. Revise el alcance y las fechas.', code || null);
+  }
+  if (error instanceof HttpErrorResponse && error.status === 400) {
+    const fields = error.error?.fields;
+    const fieldNames = fields && typeof fields === 'object' && !Array.isArray(fields)
+      ? Object.keys(fields).filter((field) => /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(field))
+      : [];
+    return new PortalError('validation', 'El servidor rechazó los datos del calendario. Revise las fechas y los campos obligatorios.', null, fieldNames);
+  }
+  return normalizeError(error);
+}
 
 @Component({
   selector: 'app-billing-days',
@@ -42,10 +92,14 @@ export class BillingDays {
     { value: 7, label: 'Domingo' },
   ];
   readonly form = this.builder.nonNullable.group({
-    scope: ['GENERAL', Validators.required], zoneId: [''], validFrom: ['', Validators.required],
-    validTo: [''], normativeReference: ['', [Validators.required, Validators.maxLength(255)]],
+    scope: ['GENERAL', Validators.required], zoneId: [''],
+    validFrom: ['', [Validators.required, dateOnlyValidator, futureGuayaquilDateValidator]],
+    validTo: ['', dateOnlyValidator],
+    normativeReference: ['', [Validators.required, Validators.maxLength(255)]],
+  }, { validators: validityRangeValidator });
+  readonly endForm = this.builder.nonNullable.group({
+    effectiveFrom: ['', [Validators.required, dateOnlyValidator, futureGuayaquilDateValidator]],
   });
-  readonly endForm = this.builder.nonNullable.group({ effectiveFrom: ['', Validators.required] });
   readonly generalCalendar = computed(() => {
     const id = this.effective()?.generalBillingCalendarId;
     return this.calendars().find((calendar) => calendar.id === id) ?? null;
@@ -114,10 +168,8 @@ export class BillingDays {
       this.form.controls.zoneId.setErrors({ required: true });
       return;
     }
-    if (value.validTo && value.validTo < value.validFrom) {
-      this.actionError.set('La fecha final debe ser igual o posterior a la fecha inicial.');
-      return;
-    }
+    this.form.updateValueAndValidity();
+    if (this.form.invalid) return;
     this.saving.set(true);
     this.actionError.set('');
     this.actionMessage.set('');
@@ -144,9 +196,7 @@ export class BillingDays {
         this.load();
       },
       error: (error: unknown) => {
-        this.actionError.set(previousVersionEnded
-          ? 'La versión anterior quedó finalizada antes del inicio indicado, pero el nuevo calendario no se confirmó. Revise la configuración antes de continuar.'
-          : normalizeError(error).message);
+        this.recordWriteError(error, previousVersionEnded);
         if (previousVersionEnded) this.load();
       },
     });
@@ -163,16 +213,60 @@ export class BillingDays {
     event.preventDefault();
     const calendar = this.endingCalendar();
     const effectiveFrom = this.endForm.getRawValue().effectiveFrom;
-    if (!calendar || this.endForm.invalid || this.saving()) { this.endForm.markAllAsTouched(); return; }
+    if (!calendar || this.saving()) return;
+    this.endForm.markAllAsTouched();
+    this.endForm.updateValueAndValidity();
+    if (this.endForm.invalid) return;
     this.saving.set(true);
     this.api.endBillingCalendar(calendar.id, effectiveFrom).pipe(finalize(() => this.saving.set(false))).subscribe({
       next: () => { this.endingCalendar.set(null); this.actionMessage.set('La finalización quedó registrada; desde esa fecha la zona volverá a heredar el calendario general.'); this.load(); },
-      error: (error: unknown) => this.actionError.set(normalizeError(error).message),
+      error: (error: unknown) => this.recordWriteError(error),
     });
   }
 
   cancelForms() { this.showForm.set(false); this.revisionOf.set(null); this.endingCalendar.set(null); this.actionError.set(''); }
+  private recordWriteError(error: unknown, previousVersionEnded = false) {
+    const normalized = normalizeBillingCalendarError(error);
+    if (normalized.kind === 'validation') {
+      if (normalized.fieldNames.includes('validFrom'))
+        this.form.controls.validFrom.setErrors({ ...this.form.controls.validFrom.errors, backendRejected: true });
+      if (normalized.fieldNames.includes('validTo'))
+        this.form.controls.validTo.setErrors({ ...this.form.controls.validTo.errors, backendRejected: true });
+      if (normalized.fieldNames.includes('effectiveFrom'))
+        this.endForm.controls.effectiveFrom.setErrors({ ...this.endForm.controls.effectiveFrom.errors, backendRejected: true });
+    }
+    this.actionError.set(previousVersionEnded
+      ? `La versión anterior quedó finalizada antes del inicio indicado, pero el nuevo calendario no se confirmó. ${normalized.message}`
+      : normalized.message);
+  }
   today() { return currentConfigurationDate(); }
+  minStartDate() { return nextConfigurationDate(); }
+  validFromError() {
+    const control = this.form.controls.validFrom;
+    if (!control.touched) return '';
+    if (control.hasError('required')) return 'Seleccione una fecha de inicio.';
+    if (control.hasError('invalidConfigurationDate')) return 'Ingrese una fecha válida.';
+    if (control.hasError('dateMustBeFuture')) return 'La fecha de inicio debe ser posterior al día de hoy en Ecuador.';
+    if (control.hasError('backendRejected')) return 'El servidor rechazó la fecha de inicio. Verifique que sea válida y futura en Ecuador.';
+    return '';
+  }
+  validToError() {
+    const control = this.form.controls.validTo;
+    if (!control.touched) return '';
+    if (control.hasError('invalidConfigurationDate')) return 'Ingrese una fecha final válida.';
+    if (this.form.hasError('validityEndBeforeStart')) return 'La fecha final debe ser igual o posterior a la fecha inicial.';
+    if (control.hasError('backendRejected')) return 'El servidor rechazó la fecha final. Revise su relación con la fecha inicial.';
+    return '';
+  }
+  effectiveFromError() {
+    const control = this.endForm.controls.effectiveFrom;
+    if (!control.touched) return '';
+    if (control.hasError('required')) return 'Seleccione la fecha desde la que se aplicará el cambio.';
+    if (control.hasError('invalidConfigurationDate')) return 'Ingrese una fecha válida.';
+    if (control.hasError('dateMustBeFuture')) return 'La fecha debe ser posterior al día de hoy en Ecuador.';
+    if (control.hasError('backendRejected')) return 'El servidor rechazó esta fecha. Verifique que sea futura en Ecuador.';
+    return '';
+  }
   isCurrent(calendar: BillingCalendar) { return calendar.active && calendar.validFrom <= this.today() && (!calendar.validTo || calendar.validTo >= this.today()); }
   isScheduled(calendar: BillingCalendar) { return calendar.active && calendar.validFrom > this.today(); }
   canModify(calendar: BillingCalendar) { return this.isCurrent(calendar) && !calendar.validTo; }

@@ -69,6 +69,75 @@ describe('Billing days configuration screen', () => {
     expect(api.createBillingCalendar).toHaveBeenCalledWith(expect.objectContaining({ zoneId: null, validFrom: '2027-01-01', chargeableDays: [1, 5] }));
   });
 
+  it('blocks past or impossible dates in Ecuador time and associates the messages with their fields', () => {
+    vi.useFakeTimers();
+    try {
+      // On this instant the UTC day is already October 22, while Ecuador is still October 21.
+      vi.setSystemTime(new Date('2026-10-22T03:30:00.000Z'));
+      const fixture = TestBed.createComponent(BillingDays);
+      fixture.detectChanges();
+      const page = fixture.componentInstance;
+      page.openCreate();
+      expect(page.minStartDate()).toBe('2026-10-22');
+      page.form.setValue({ scope: 'GENERAL', zoneId: '', validFrom: '2026-10-21', validTo: '', normativeReference: 'Ordenanza confirmada' });
+      page.submit(new Event('submit'));
+      expect(page.validFromError()).toBe('La fecha de inicio debe ser posterior al día de hoy en Ecuador.');
+      expect(api.createBillingCalendar).not.toHaveBeenCalled();
+
+      page.form.controls.validFrom.setValue('2026-02-30');
+      page.form.controls.validFrom.markAsTouched();
+      page.submit(new Event('submit'));
+      expect(page.validFromError()).toBe('Ingrese una fecha válida.');
+      expect(api.createBillingCalendar).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects an end date before the start date without sending a request', () => {
+    const fixture = TestBed.createComponent(BillingDays);
+    fixture.detectChanges();
+    const page = fixture.componentInstance;
+    page.openCreate();
+    page.form.setValue({ scope: 'GENERAL', zoneId: '', validFrom: '2027-01-02', validTo: '2027-01-01', normativeReference: 'Ordenanza confirmada' });
+    page.submit(new Event('submit'));
+    expect(page.validToError()).toBe('La fecha final debe ser igual o posterior a la fecha inicial.');
+    expect(api.createBillingCalendar).not.toHaveBeenCalled();
+  });
+
+  it('explains a real calendar overlap response instead of showing the user-directory conflict', () => {
+    api.createBillingCalendar.mockReturnValue(throwError(() => new PortalError(
+      'conflict', 'La operación entra en conflicto con la configuración o el estado actual.', 'BILLING_CALENDAR_VALIDITY_OVERLAP',
+    )));
+    const fixture = TestBed.createComponent(BillingDays);
+    fixture.detectChanges();
+    const page = fixture.componentInstance;
+    page.openCreate();
+    page.form.setValue({ scope: 'GENERAL', zoneId: '', validFrom: '2027-01-01', validTo: '', normativeReference: 'Ordenanza confirmada' });
+    page.toggleDay(1, true);
+    page.toggleDay(5, true);
+    page.submit(new Event('submit'));
+    expect(page.actionError()).toBe('Ya existe un calendario para el mismo alcance en el período seleccionado.');
+    expect(page.actionError()).not.toContain('usuario');
+    expect(api.createBillingCalendar).toHaveBeenCalledWith(expect.objectContaining({ chargeableDays: [1, 5] }));
+  });
+
+  it('shows backend field validation on the corresponding date without exposing server text', () => {
+    api.createBillingCalendar.mockReturnValue(throwError(() => new PortalError(
+      'validation', 'El servidor rechazó los datos del calendario.', null, ['validFrom'],
+    )));
+    const fixture = TestBed.createComponent(BillingDays);
+    fixture.detectChanges();
+    const page = fixture.componentInstance;
+    page.openCreate();
+    page.form.setValue({ scope: 'GENERAL', zoneId: '', validFrom: '2027-01-01', validTo: '', normativeReference: 'Ordenanza confirmada' });
+    page.toggleDay(2, true);
+    page.submit(new Event('submit'));
+    expect(page.validFromError()).toBe('El servidor rechazó la fecha de inicio. Verifique que sea válida y futura en Ecuador.');
+    expect(page.actionError()).not.toContain('servidor interno');
+    expect(api.createBillingCalendar).toHaveBeenCalledWith(expect.objectContaining({ chargeableDays: [2] }));
+  });
+
   it('preserves a zone exception scope and ends the old version before creating a replacement', () => {
     const local: BillingCalendar = { ...calendar, id: 'zone-calendar', zoneId: 'zone-1', zoneCode: 'Z-01', zoneName: 'Centro' };
     const calls: string[] = [];
