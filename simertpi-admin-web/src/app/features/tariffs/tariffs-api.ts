@@ -22,6 +22,10 @@ export interface ConfiguredTariff {
   validTo: string | null;
   createdAt: string;
   updatedAt: string;
+  cancelledAt: string | null;
+  cancelledByUserId: string | null;
+  cancellationReason: string | null;
+  cancelledByUsername: string | null;
 }
 
 export interface BillingCalendar {
@@ -128,6 +132,14 @@ export class TariffsApi {
 
   createTariff(body: CreateTariff) {
     return this.api.post<ConfiguredTariff>('admin/parking/tariffs', body);
+  }
+
+  updateScheduledTariff(id: string, body: CreateTariff) {
+    return this.api.put<ConfiguredTariff>(`admin/parking/tariffs/${encodeURIComponent(id)}`, body);
+  }
+
+  cancelScheduledTariff(id: string, reason: string) {
+    return this.api.post<ConfiguredTariff>(`admin/parking/tariffs/${encodeURIComponent(id)}/cancel`, { reason });
   }
 
   endTariff(id: string, effectiveAt: string) {

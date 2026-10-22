@@ -1,4 +1,4 @@
-import { currentConfigurationDate, formatConfigurationAmount, formatConfigurationDate, formatConfigurationDateTime } from './tariffs-format';
+import { currentConfigurationDate, formatConfigurationAmount, formatConfigurationDate, formatConfigurationDateTime, isoToGuayaquilDateTimeLocal, localDateTimeToIso } from './tariffs-format';
 
 describe('Spanish Ecuador configuration formatting', () => {
   it('formats date-only contract values without shifting the calendar day', () => {
@@ -17,5 +17,15 @@ describe('Spanish Ecuador configuration formatting', () => {
 
   it('uses the Guayaquil calendar date for date-only validity decisions', () => {
     expect(currentConfigurationDate()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('converts datetime-local values using Guayaquil time regardless of the administrator device timezone', () => {
+    expect(localDateTimeToIso('2027-01-01T00:00')).toBe('2027-01-01T05:00:00.000Z');
+    expect(isoToGuayaquilDateTimeLocal('2027-01-01T05:00:00Z')).toBe('2027-01-01T00:00');
+  });
+
+  it('rejects malformed and impossible calendar dates instead of sending a technical date error', () => {
+    expect(localDateTimeToIso('2027-02-29T10:00')).toBeNull();
+    expect(localDateTimeToIso('not-a-date')).toBeNull();
   });
 });

@@ -96,6 +96,8 @@ public class OperationalRequestLogFilter extends OncePerRequestFilter {
         if ("POST".equals(method) && "/api/v1/admin/auth/login".equals(path)) return "ADMIN_LOGIN";
         if ("POST".equals(method) && "/api/v1/admin/parking/tariffs".equals(path)) return "ADMIN_TARIFF_CREATE";
         if ("POST".equals(method) && path.matches("/api/v1/admin/parking/tariffs/[^/]+/end")) return "ADMIN_TARIFF_END";
+        if ("PUT".equals(method) && path.matches("/api/v1/admin/parking/tariffs/[^/]+")) return "ADMIN_TARIFF_SCHEDULE_UPDATE";
+        if ("POST".equals(method) && path.matches("/api/v1/admin/parking/tariffs/[^/]+/cancel")) return "ADMIN_TARIFF_SCHEDULE_CANCEL";
         if ("POST".equals(method) && "/api/v1/admin/parking/billing-day-calendars".equals(path)) return "ADMIN_BILLING_CALENDAR_CREATE";
         if ("POST".equals(method) && path.matches("/api/v1/admin/parking/billing-day-calendars/[^/]+/end")) return "ADMIN_BILLING_CALENDAR_END";
         if (path.startsWith("/api/v1/admin/") && (status == 401 || status == 403))

@@ -296,5 +296,5 @@ class OperationalRecoveryPostgresIntegrationTest extends ec.gob.simertpi.testsup
     @Test void citizenCannotTriggerReconciliation() {assertThat(restTemplate.withBasicAuth(username,PASSWORD).postForEntity("http://localhost:"+port+"/api/v1/admin/reconciliation/payments",null,String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);}
     @Test void inspectorCannotTriggerReconciliation() {role("INSPECTOR");assertThat(restTemplate.withBasicAuth(username,PASSWORD).postForEntity("http://localhost:"+port+"/api/v1/admin/reconciliation/evidence",null,String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);}
     @Test void anonymousCannotTriggerReconciliation() {assertThat(restTemplate.postForEntity("http://localhost:"+port+"/api/v1/admin/reconciliation/outbox",null,String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);}
-    @Test void flywayValidatesCurrentSchema() {flyway.validate();assertThat(Integer.parseInt(flyway.info().current().getVersion().toString())).isEqualTo(44);}
+    @Test void flywayValidatesCurrentSchema() {flyway.validate();assertThat(Integer.parseInt(flyway.info().current().getVersion().toString())).isEqualTo(45);}
 }

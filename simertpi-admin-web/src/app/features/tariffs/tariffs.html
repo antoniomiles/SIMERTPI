@@ -52,12 +52,14 @@
       <section class="config-section card" aria-labelledby="tariff-form-title">
         <header class="section-heading">
           <div>
-            <p class="eyebrow">{{ revisionOf() ? 'NUEVA VERSIÓN' : 'NUEVA CONFIGURACIÓN' }}</p>
-            <h2 id="tariff-form-title">{{ revisionOf() ? 'Modificar mediante una nueva versión' : 'Crear configuración de tarifa' }}</h2>
+            <p class="eyebrow">{{ editingScheduled() ? 'PROGRAMACIÓN' : revisionOf() ? 'NUEVA VERSIÓN' : 'NUEVA CONFIGURACIÓN' }}</p>
+            <h2 id="tariff-form-title">{{ editingScheduled() ? 'Editar tarifa programada' : revisionOf() ? 'Crear nueva versión de tarifa vigente' : 'Crear configuración de tarifa' }}</h2>
           </div>
           <button class="button secondary" type="button" (click)="cancelForms()">Cancelar</button>
         </header>
-        @if (revisionOf()) {
+        @if (editingScheduled()) {
+          <p class="notice" role="note">Se actualizará la misma programación. Esta opción solo está disponible antes de su inicio de vigencia.</p>
+        } @else if (revisionOf()) {
           <p class="notice" role="note">No se sobrescribe el historial. Al guardar, la versión seleccionada finalizará cuando inicie la nueva; el cambio se registra con una nueva referencia normativa y código único.</p>
         } @else {
           <p class="section-note">La tarifa debe tener respaldo normativo y fecha futura. No se generan valores automáticamente.</p>
@@ -65,9 +67,9 @@
         <form class="admin-form" [formGroup]="form" (ngSubmit)="submit($event)" novalidate>
           <label class="field"><span>Código</span><input formControlName="code" maxlength="50" placeholder="Ej.: TAR-GEN-2027-V2" autocomplete="off" /><small>Cada versión requiere un código que no esté registrado.</small></label>
           <label class="field"><span>Nombre</span><input formControlName="name" maxlength="150" placeholder="Ej.: Tarifa general de estacionamiento" /></label>
-          @if (revisionOf()) { <p class="field"><span>Aplicación conservada</span><strong>{{ revisionOf()!.zoneId ? displayZone(revisionOf()!.zoneCode, revisionOf()!.zoneName) : 'General para todas las zonas' }}</strong></p> }
+          @if (editingScheduled() || revisionOf()) { <p class="field"><span>Aplicación conservada</span><strong>{{ (editingScheduled() ?? revisionOf())!.zoneId ? displayZone((editingScheduled() ?? revisionOf())!.zoneCode, (editingScheduled() ?? revisionOf())!.zoneName) : 'General para todas las zonas' }}</strong></p> }
           @else { <label class="field"><span>Aplicación</span><select formControlName="scope"><option value="GENERAL">General para todas las zonas</option><option value="ZONE">Excepción para una zona</option></select></label> }
-          @if (!revisionOf() && form.controls.scope.value === 'ZONE') {
+          @if (!revisionOf() && !editingScheduled() && form.controls.scope.value === 'ZONE') {
             <label class="field"><span>Zona</span><select formControlName="zoneId"><option value="">Seleccione una zona</option>@for (zone of zones(); track zone.id) { <option [value]="zone.id">{{ zone.code }} · {{ zone.name }}</option> }</select></label>
           }
           <label class="field"><span>Importe</span><input formControlName="amount" inputmode="decimal" placeholder="Ej.: 0,25" /><small>Use hasta dos decimales. El importe se transmite como decimal exacto.</small></label>
@@ -80,7 +82,19 @@
           <label class="field"><span>Vigente desde</span><input formControlName="validFrom" type="datetime-local" /><small>Seleccione fecha y hora futuras. Ejemplo: 01/01/2027, 00:00.</small></label>
           <label class="field"><span>Vigente hasta (opcional)</span><input formControlName="validTo" type="datetime-local" /><small>Déjelo vacío si no se ha definido una fecha final.</small></label>
           <label class="field wide"><span>Referencia normativa</span><input formControlName="normativeReference" maxlength="255" placeholder="Ej.: Ordenanza municipal N.º 001-2027, artículo 5" /></label>
-          <div class="form-actions wide"><button class="button primary" type="submit" [disabled]="saving()">{{ saving() ? 'Guardando…' : revisionOf() ? 'Guardar nueva versión' : 'Registrar tarifa' }}</button><button class="button secondary" type="button" (click)="cancelForms()">Cancelar</button></div>
+          <div class="form-actions wide"><button class="button primary" type="submit" [disabled]="saving()">{{ saving() ? 'Guardando…' : editingScheduled() ? 'Guardar cambios' : revisionOf() ? 'Guardar nueva versión' : 'Registrar tarifa' }}</button><button class="button secondary" type="button" (click)="cancelForms()">Cancelar</button></div>
+        </form>
+      </section>
+    }
+
+    @if (cancellingTariff(); as cancelling) {
+      <section class="config-section card" aria-labelledby="cancel-scheduled-title">
+        <header class="section-heading"><div><p class="eyebrow">CONFIRMACIÓN REQUERIDA</p><h2 id="cancel-scheduled-title">Cancelar programación {{ cancelling.code }}</h2></div></header>
+        <p class="notice" role="alert">{{ cancelling.name }} · {{ formatAmount(cancelling.amount, cancelling.currency) }} · Inicio: {{ formatDateTime(cancelling.validFrom) }}. La tarifa no entrará en vigencia.</p>
+        <form class="inline-form" [formGroup]="cancellationForm" (ngSubmit)="submitCancel($event)" novalidate>
+          <label class="field"><span>Motivo de cancelación</span><textarea formControlName="reason" maxlength="500" placeholder="Ej.: Se seleccionó un importe incorrecto"></textarea><small>El motivo, la fecha y el usuario quedarán registrados.</small></label>
+          <button class="button primary" type="submit" [disabled]="saving()">{{ saving() ? 'Cancelando…' : 'Confirmar cancelación' }}</button>
+          <button class="button secondary" type="button" (click)="cancelForms()">Volver</button>
         </form>
       </section>
     }
@@ -112,15 +126,16 @@
       <header class="section-heading"><div><p class="eyebrow">VERSIONES Y VIGENCIAS</p><h2 id="tariff-versions-title">Configuraciones registradas</h2></div><a class="text-link" routerLink="/admin/tariffs/history">Consultar historial</a></header>
       <div class="filters tariff-filters">
         <label class="field"><span>Buscar por código, nombre, zona o referencia</span><input type="search" [value]="query()" (input)="query.set($any($event.target).value)" placeholder="Ej.: TAR-GEN o Centro" autocomplete="off" /></label>
-        <label class="field"><span>Filtrar versiones</span><select [value]="statusFilter()" (change)="statusFilter.set($any($event.target).value)"><option value="all">Todas</option><option value="vigentes">Vigentes</option><option value="programadas">Programadas</option><option value="finalizadas">Finalizadas</option></select></label>
+        <label class="field"><span>Filtrar versiones</span><select [value]="statusFilter()" (change)="statusFilter.set($any($event.target).value)"><option value="all">Todas</option><option value="vigentes">Vigentes</option><option value="programadas">Programadas</option><option value="finalizadas">Finalizadas</option><option value="canceladas">Canceladas</option></select></label>
       </div>
       @if (!visibleTariffs().length) { <p class="list-empty">No hay tarifas que coincidan con los filtros.</p> } @else {
         <div class="table-scroll"><table><thead><tr><th>Tarifa</th><th>Aplicación</th><th>Importe y duración</th><th>Vigencia</th><th>Referencia normativa</th><th>Acciones</th></tr></thead><tbody>
           @for (row of visibleTariffs(); track row.id) {
-            <tr><td><strong>{{ row.code }} · {{ row.name }}</strong><small>{{ row.active ? 'Habilitada' : 'Deshabilitada' }}</small></td><td>{{ displayZone(row.zoneCode, row.zoneName) }}</td><td>{{ formatAmount(row.amount, row.currency ?? 'USD') }}<small>Por {{ row.durationMinutes }} minutos</small></td><td>{{ formatDateTime(row.validFrom) }}<small>Hasta: {{ row.validTo ? formatDateTime(row.validTo) : 'Sin fecha final' }}</small></td><td>{{ row.normativeReference || 'No registrada' }}</td><td class="row-actions">
-              @if (canModify(row)) { <button class="button secondary" type="button" (click)="openRevision(row)">Modificar</button><button class="button secondary" type="button" (click)="openEnd(row)">Finalizar</button> }
-              @else if (row.active) { <span class="tag">Programada</span> }
-              @else { <span class="tag inactive">Finalizada</span> }
+            <tr><td><strong>{{ row.code }} · {{ row.name }}</strong><small class="tag">{{ statusLabel(row) }}</small></td><td>{{ displayZone(row.zoneCode, row.zoneName) }}</td><td>{{ formatAmount(row.amount, row.currency ?? 'USD') }}<small>Por {{ row.durationMinutes }} minutos</small></td><td>{{ formatDateTime(row.validFrom) }}<small>Hasta: {{ row.validTo ? formatDateTime(row.validTo) : 'Sin fecha final' }}</small>@if (row.cancelledAt) { <small>Cancelada el {{ formatDateTime(row.cancelledAt) }}</small> }</td><td>{{ row.normativeReference || 'No registrada' }}</td><td class="row-actions">
+              <details><summary>Ver</summary><dl><dt>Aplicación</dt><dd>{{ displayZone(row.zoneCode, row.zoneName) }}</dd><dt>Vigencia desde</dt><dd>{{ formatDateTime(row.validFrom) }}</dd><dt>Vigencia hasta</dt><dd>{{ row.validTo ? formatDateTime(row.validTo) : 'Sin fecha final' }}</dd><dt>Referencia normativa</dt><dd>{{ row.normativeReference || 'No registrada' }}</dd>@if (row.cancelledAt) { <dt>Cancelada por</dt><dd>{{ row.cancelledByUsername || 'Cuenta administrativa registrada' }}</dd><dt>Motivo</dt><dd>{{ row.cancellationReason }}</dd> }</dl></details>
+              @if (isScheduled(row)) { <button class="button secondary" type="button" (click)="openEditScheduled(row)">Editar</button><button class="button secondary" type="button" (click)="openCancel(row)">Cancelar programación</button> }
+              @else if (canModify(row)) { <button class="button secondary" type="button" (click)="openRevision(row)">Crear nueva versión</button><button class="button secondary" type="button" (click)="openEnd(row)">Finalizar</button> }
+              @else { <span class="tag inactive">{{ statusLabel(row) }}</span> }
             </td></tr>
           }
         </tbody></table></div>

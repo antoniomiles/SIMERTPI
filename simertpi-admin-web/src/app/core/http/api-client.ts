@@ -12,6 +12,9 @@ export class ApiClient {
   post<T>(path: string, body: unknown) {
     return this.http.post<T>(this.url(path), body);
   }
+  put<T>(path: string, body: unknown) {
+    return this.http.put<T>(this.url(path), body);
+  }
   private url(path: string): string {
     if (!/^admin(?:\/[a-zA-Z0-9_-]+)*$/.test(path))
       throw new Error('Invalid administrative API path');

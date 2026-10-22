@@ -6,12 +6,14 @@ import { PortalError } from '../../core/http/portal-error';
 import { ParkingZone, ZonesApi } from '../zones/zones-api';
 import { ConfiguredTariff, EffectiveConfiguration, TariffsApi } from './tariffs-api';
 import { Tariffs } from './tariffs';
+import { isoToGuayaquilDateTimeLocal } from './tariffs-format';
 
 const tariff: ConfiguredTariff = {
   id: 'tariff-1', code: 'GEN-01', name: 'Tarifa aprobada', zoneId: null, zoneCode: null, zoneName: null,
   currency: 'USD', amount: 0.25, durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240,
   gracePeriodMinutes: 0, roundingMode: 'HALF_UP', active: true, normativeReference: 'Ordenanza vigente',
   validFrom: '2026-01-01T05:00:00Z', validTo: null, createdAt: '2026-01-01T05:00:00Z', updatedAt: '2026-01-01T05:00:00Z',
+  cancelledAt: null, cancelledByUserId: null, cancellationReason: null, cancelledByUsername: null,
 };
 const zone: ParkingZone = {
   id: 'zone-1', code: 'Z-01', name: 'Centro', description: null, active: true,
@@ -37,7 +39,8 @@ type TariffsApiMock = {
   listTariffs: ReturnType<typeof vi.fn>; listSchedules: ReturnType<typeof vi.fn>;
   listCalendarExceptions: ReturnType<typeof vi.fn>; listBillingCalendars: ReturnType<typeof vi.fn>;
   effective: ReturnType<typeof vi.fn>; createTariff: ReturnType<typeof vi.fn>;
-  endTariff: ReturnType<typeof vi.fn>; createBillingCalendar: ReturnType<typeof vi.fn>;
+  endTariff: ReturnType<typeof vi.fn>; updateScheduledTariff: ReturnType<typeof vi.fn>;
+  cancelScheduledTariff: ReturnType<typeof vi.fn>; createBillingCalendar: ReturnType<typeof vi.fn>;
   endBillingCalendar: ReturnType<typeof vi.fn>;
 };
 
@@ -50,7 +53,8 @@ describe('Tariff configuration screen', () => {
       listTariffs: vi.fn().mockReturnValue(of([tariff])), listSchedules: vi.fn().mockReturnValue(of([])),
       listCalendarExceptions: vi.fn().mockReturnValue(of([])), listBillingCalendars: vi.fn().mockReturnValue(of([])),
       effective: vi.fn().mockReturnValue(of(effective)), createTariff: vi.fn().mockReturnValue(of(tariff)),
-      endTariff: vi.fn().mockReturnValue(of(tariff)), createBillingCalendar: vi.fn().mockReturnValue(of('calendar-1')),
+      endTariff: vi.fn().mockReturnValue(of(tariff)), updateScheduledTariff: vi.fn().mockReturnValue(of(tariff)),
+      cancelScheduledTariff: vi.fn().mockReturnValue(of(tariff)), createBillingCalendar: vi.fn().mockReturnValue(of('calendar-1')),
       endBillingCalendar: vi.fn().mockReturnValue(of('calendar-1')),
     };
     zonesApi = { listZones: vi.fn().mockReturnValue(of([zone])) };
@@ -96,6 +100,77 @@ describe('Tariff configuration screen', () => {
     expect(api.endTariff).not.toHaveBeenCalled();
   });
 
+  it('edits the existing future tariff id, including value and validity, without creating another row', () => {
+    const scheduled: ConfiguredTariff = { ...tariff, validFrom: new Date(Date.now() + 86400000 * 3).toISOString() };
+    const fixture = TestBed.createComponent(Tariffs);
+    fixture.detectChanges();
+    const page = fixture.componentInstance;
+    page.openEditScheduled(scheduled);
+    const future = new Date(Date.now() + 86400000 * 4);
+    const local = isoToGuayaquilDateTimeLocal(future.toISOString());
+    page.form.patchValue({ code: scheduled.code, name: scheduled.name, amount: '0,75', validFrom: local, validTo: '' });
+    page.submit(new Event('submit'));
+    expect(api.updateScheduledTariff).toHaveBeenCalledOnce();
+    expect(api.updateScheduledTariff).toHaveBeenCalledWith(scheduled.id, expect.objectContaining({ amount: '0.75' }));
+    expect(api.createTariff).not.toHaveBeenCalled();
+  });
+
+  it('cancels a future tariff only after a reason is entered and refreshes the list', () => {
+    const scheduled: ConfiguredTariff = { ...tariff, validFrom: new Date(Date.now() + 86400000).toISOString() };
+    const fixture = TestBed.createComponent(Tariffs);
+    fixture.detectChanges();
+    const page = fixture.componentInstance;
+    page.openCancel(scheduled);
+    page.cancellationForm.controls.reason.setValue('Se ingresó un importe equivocado');
+    page.submitCancel(new Event('submit'));
+    expect(api.cancelScheduledTariff).toHaveBeenCalledWith(scheduled.id, 'Se ingresó un importe equivocado');
+    expect(api.listTariffs).toHaveBeenCalledTimes(2);
+    expect(page.actionMessage()).toContain('no entrará en vigencia');
+  });
+
+  it('does not call an update when the scheduled tariff has already started', () => {
+    const scheduled: ConfiguredTariff = { ...tariff, validFrom: '2026-01-01T05:00:00Z' };
+    const fixture = TestBed.createComponent(Tariffs);
+    fixture.detectChanges();
+    const page = fixture.componentInstance;
+    page.openEditScheduled(scheduled);
+    expect(page.editingScheduled()).toBeNull();
+    expect(api.updateScheduledTariff).not.toHaveBeenCalled();
+  });
+
+  it('shows a Spanish date error for an impossible calendar selection and sends no request', () => {
+    const fixture = TestBed.createComponent(Tariffs);
+    fixture.detectChanges();
+    const page = fixture.componentInstance;
+    page.openCreate();
+    page.form.setValue({ code: 'GEN-2027', name: 'Tarifa general', scope: 'GENERAL', zoneId: '', currency: 'USD', amount: '0,25', durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240, gracePeriodMinutes: 0, roundingMode: 'HALF_UP', validFrom: '2027-02-29T00:00', validTo: '', normativeReference: 'Ordenanza 001-2027' });
+    page.submit(new Event('submit'));
+    expect(page.actionError()).toContain('fechas y horas válidas');
+    expect(api.createTariff).not.toHaveBeenCalled();
+  });
+
+  it('distinguishes a valid but past Guayaquil start date from an invalid date and sends no request', () => {
+    const fixture = TestBed.createComponent(Tariffs);
+    fixture.detectChanges();
+    const page = fixture.componentInstance;
+    page.openCreate();
+    page.form.setValue({ code: 'GEN-2027', name: 'Tarifa general', scope: 'GENERAL', zoneId: '', currency: 'USD', amount: '0,25', durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240, gracePeriodMinutes: 0, roundingMode: 'HALF_UP', validFrom: isoToGuayaquilDateTimeLocal(new Date(Date.now() - 86400000).toISOString()), validTo: '', normativeReference: 'Ordenanza 001-2027' });
+    page.submit(new Event('submit'));
+    expect(page.actionError()).toContain('debe ser futura');
+    expect(page.actionError()).toContain('America/Guayaquil');
+    expect(api.createTariff).not.toHaveBeenCalled();
+  });
+
+  it('shows edit and cancel actions only for future scheduled tariffs', () => {
+    const scheduled: ConfiguredTariff = { ...tariff, validFrom: new Date(Date.now() + 86400000).toISOString() };
+    const fixture = TestBed.createComponent(Tariffs);
+    fixture.componentInstance.tariffs.set([scheduled]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Editar');
+    expect(fixture.nativeElement.textContent).toContain('Cancelar programación');
+    expect(fixture.nativeElement.textContent).toContain('Programada');
+  });
+
   it('revises an existing version by ending it at the new start and creating a new version', () => {
     const calls: string[] = [];
     api.endTariff.mockImplementation(() => { calls.push('end'); return of(tariff); });
@@ -107,7 +182,7 @@ describe('Tariff configuration screen', () => {
     page.form.setValue({ code: 'GEN-02', name: 'Tarifa revisada', scope: 'GENERAL', zoneId: '', currency: 'USD', amount: '0,30', durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240, gracePeriodMinutes: 0, roundingMode: 'HALF_UP', validFrom: '2027-02-01T00:00', validTo: '', normativeReference: 'Nueva ordenanza' });
     page.submit(new Event('submit'));
     expect(calls).toEqual(['end', 'create']);
-    expect(api.endTariff).toHaveBeenCalledWith(tariff.id, new Date('2027-02-01T00:00').toISOString());
+    expect(api.endTariff).toHaveBeenCalledWith(tariff.id, '2027-02-01T05:00:00.000Z');
   });
 
   it('shows a clear warning if the old version was scheduled to end but creation of its replacement fails', () => {

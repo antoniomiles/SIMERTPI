@@ -10,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -26,20 +27,32 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/v1/admin/parking")
 public class AdminParkingTariffScheduleController {
     private final ParkingConfigurationCatalogService catalog;
+    private final JdbcTemplate jdbc;
 
-    public AdminParkingTariffScheduleController(ParkingConfigurationCatalogService catalog) {
+    public AdminParkingTariffScheduleController(ParkingConfigurationCatalogService catalog, JdbcTemplate jdbc) {
         this.catalog = catalog;
+        this.jdbc = jdbc;
     }
 
     @GetMapping("/tariffs")
     public ResponseEntity<List<TariffView>> tariffs() {
         Map<UUID, Zone> zones = zoneIndex();
+        Map<UUID, String> cancellationActors = jdbc.query("""
+                SELECT t.id,u.username FROM parking.tariffs t
+                JOIN identity.users u ON u.id=t.cancelled_by_user_id
+                WHERE t.cancelled_by_user_id IS NOT NULL
+                """, rs -> {
+            Map<UUID, String> result = new java.util.HashMap<>();
+            while (rs.next()) result.put(rs.getObject("id", UUID.class), rs.getString("username"));
+            return result;
+        });
         var rows = catalog.findTariffs().stream()
                 .sorted(Comparator.comparing(Tariff::getCode, String.CASE_INSENSITIVE_ORDER))
                 .map(t -> new TariffView(t.getId(), t.getCode(), t.getName(), t.getZoneId(), zoneCode(zones, t.getZoneId()),
                         zoneName(zones, t.getZoneId()), t.getCurrency(), t.getAmount(), t.getDurationMinutes(),
                         t.getMinMinutes(), t.getMaxContinuousMinutes(), t.getGracePeriodMinutes(), t.getRoundingMode(),
-                        t.getNormativeReference(), t.isActive(), t.getValidFrom(), t.getValidTo(), t.getCreatedAt(), t.getUpdatedAt()))
+                        t.getNormativeReference(), t.isActive(), t.getValidFrom(), t.getValidTo(), t.getCreatedAt(), t.getUpdatedAt(),
+                        t.getCancelledAt(), t.getCancelledByUserId(), t.getCancellationReason(), cancellationActors.get(t.getId())))
                 .toList();
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(rows);
     }
@@ -85,7 +98,8 @@ public class AdminParkingTariffScheduleController {
     public record TariffView(UUID id, String code, String name, UUID zoneId, String zoneCode, String zoneName,
             String currency, BigDecimal amount, Integer durationMinutes, Integer minMinutes,
             Integer maxContinuousMinutes, Integer gracePeriodMinutes, String roundingMode, String normativeReference, boolean active,
-            OffsetDateTime validFrom, OffsetDateTime validTo, OffsetDateTime createdAt, OffsetDateTime updatedAt) { }
+            OffsetDateTime validFrom, OffsetDateTime validTo, OffsetDateTime createdAt, OffsetDateTime updatedAt,
+            OffsetDateTime cancelledAt, UUID cancelledByUserId, String cancellationReason, String cancelledByUsername) { }
 
     public record ScheduleView(UUID id, UUID zoneId, String zoneCode, String zoneName, Short dayOfWeek,
             LocalTime startTime, LocalTime endTime, boolean active, LocalDate validFrom, LocalDate validTo,

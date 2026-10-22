@@ -102,6 +102,18 @@ public class AdminParkingConfigurationController {
         return noStore(AdminTariffView.of(service.endTariff(id, request.effectiveAt())));
     }
 
+    @PutMapping("/tariffs/{id}")
+    public ResponseEntity<AdminTariffView> updateScheduledTariff(@PathVariable UUID id,
+            @Valid @RequestBody AdminTariffWriteRequest request) {
+        return noStore(AdminTariffView.of(service.updateScheduledTariff(id, request)));
+    }
+
+    @PostMapping("/tariffs/{id}/cancel")
+    public ResponseEntity<AdminTariffView> cancelScheduledTariff(@PathVariable UUID id,
+            @Valid @RequestBody CancelTariffRequest request) {
+        return noStore(AdminTariffView.of(service.cancelScheduledTariff(id, request.reason())));
+    }
+
     @PostMapping("/billing-day-calendars")
     public ResponseEntity<UUID> createBillingCalendar(@Valid @RequestBody AdminBillingDaysWriteRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore())
@@ -126,13 +138,16 @@ public class AdminParkingConfigurationController {
             space.isActive(), space.getCreatedAt(), space.getUpdatedAt()); }
 
     public record EndTariffRequest(@jakarta.validation.constraints.NotNull OffsetDateTime effectiveAt) { }
+    public record CancelTariffRequest(@jakarta.validation.constraints.NotBlank @jakarta.validation.constraints.Size(max = 500) String reason) { }
     public record EndBillingDaysRequest(@jakarta.validation.constraints.NotNull LocalDate effectiveFrom) { }
     public record AdminTariffView(UUID id, String code, String name, UUID zoneId, String currency,
             java.math.BigDecimal amount, Integer durationMinutes, Integer minMinutes, Integer maxContinuousMinutes,
             Integer gracePeriodMinutes, String roundingMode, String normativeReference, boolean active,
-            OffsetDateTime validFrom, OffsetDateTime validTo) {
+            OffsetDateTime validFrom, OffsetDateTime validTo, OffsetDateTime cancelledAt,
+            UUID cancelledByUserId, String cancellationReason) {
         static AdminTariffView of(Tariff t) { return new AdminTariffView(t.getId(),t.getCode(),t.getName(),t.getZoneId(),
                 t.getCurrency(),t.getAmount(),t.getDurationMinutes(),t.getMinMinutes(),t.getMaxContinuousMinutes(),
-                t.getGracePeriodMinutes(),t.getRoundingMode(),t.getNormativeReference(),t.isActive(),t.getValidFrom(),t.getValidTo()); }
+                t.getGracePeriodMinutes(),t.getRoundingMode(),t.getNormativeReference(),t.isActive(),t.getValidFrom(),t.getValidTo(),
+                t.getCancelledAt(),t.getCancelledByUserId(),t.getCancellationReason()); }
     }
 }

@@ -61,8 +61,10 @@ public class AdminSecurityConfiguration {
     .requestMatchers(HttpMethod.POST,
      "/api/v1/admin/parking/tariffs",
      "/api/v1/admin/parking/tariffs/*/end",
+     "/api/v1/admin/parking/tariffs/*/cancel",
      "/api/v1/admin/parking/billing-day-calendars",
      "/api/v1/admin/parking/billing-day-calendars/*/end").hasAuthority("SIMERTPI_ADMIN")
+    .requestMatchers(HttpMethod.PUT,"/api/v1/admin/parking/tariffs/*").hasAuthority("SIMERTPI_ADMIN")
     .requestMatchers(HttpMethod.POST,"/api/v1/admin/inspectors","/api/v1/admin/inspectors/*/activation").hasAuthority("SIMERTPI_ADMIN")
     .requestMatchers(HttpMethod.PUT,"/api/v1/admin/parking/reentry-configuration").hasAuthority("SIMERTPI_ADMIN")
     .requestMatchers(HttpMethod.POST,"/api/v1/admin/reconciliation/payments","/api/v1/admin/reconciliation/evidence","/api/v1/admin/reconciliation/outbox").hasAuthority("SIMERTPI_ADMIN")
