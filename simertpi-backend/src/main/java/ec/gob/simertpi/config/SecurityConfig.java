@@ -114,8 +114,10 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/api/v1/vehicles/user/**")
                     .hasAnyAuthority(VEHICLE_READERS)
                 .requestMatchers(HttpMethod.POST, "/api/v1/zones", "/api/v1/streets",
-                        "/api/v1/parking-spaces", "/api/v1/tariffs")
+                        "/api/v1/parking-spaces")
                     .hasAuthority("SIMERTPI_ADMIN")
+                .requestMatchers(HttpMethod.POST, "/api/v1/tariffs")
+                    .denyAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/parking-sessions/*/extensions/mobile").hasAuthority("CITIZEN")
                 .requestMatchers(HttpMethod.POST, "/api/v1/parking-sessions/*/extensions").hasAuthority("CITIZEN")
                 .requestMatchers(HttpMethod.GET, "/api/v1/parking-sessions/*/extensions/quote", "/api/v1/parking-sessions/*/extensions/options").hasAuthority("CITIZEN")

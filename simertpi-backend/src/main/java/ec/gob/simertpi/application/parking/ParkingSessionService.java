@@ -50,6 +50,7 @@ public class ParkingSessionService {
     private final ec.gob.simertpi.application.parking.rules.ParkingRulesService rules;
     private final ZoneRepository zoneRepository;
     private final ec.gob.simertpi.domain.parking.extension.repository.SessionExtensionRepository extensions;
+    private final TariffScopeLockService tariffScopeLocks;
 
     public ParkingSessionService(
             ParkingSessionRepository parkingSessionRepository,
@@ -60,7 +61,8 @@ public class ParkingSessionService {
             ec.gob.simertpi.application.parking.rules.ParkingRulesService rules,
             ZoneRepository zoneRepository,
             ec.gob.simertpi.domain.parking.extension.repository.SessionExtensionRepository extensions,
-            ParkingReentryConfigurationService reentry
+            ParkingReentryConfigurationService reentry,
+            TariffScopeLockService tariffScopeLocks
     ) {
         this.parkingSessionRepository = parkingSessionRepository;
         this.userRepository = userRepository;
@@ -71,6 +73,7 @@ public class ParkingSessionService {
         this.zoneRepository = zoneRepository;
         this.extensions = extensions;
         this.reentry = reentry;
+        this.tariffScopeLocks = tariffScopeLocks;
     }
 
     @Transactional(readOnly = true)
@@ -256,8 +259,12 @@ public class ParkingSessionService {
             throw new IllegalArgumentException("Parking zone is inactive");
         }
 
+        // The quote and session start must observe one tariff configuration snapshot.
+        // Immediate tariff changes take the same scope locks before changing effective validity.
+        tariffScopeLocks.lockScopes(zone.getId(), null);
+
         if (durationMinutes == null) throw new IllegalArgumentException("INVALID_DURATION");
-        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime now = tariffScopeLocks.databaseNow();
         var quote = rules.evaluateForZone(zone.getId(), parkingSpaceId, now.toInstant(), durationMinutes);
         if (!quote.operational()) throw new IllegalArgumentException(quote.reasonCode());
         if (!java.util.Objects.equals(tariffId, quote.tariffId())) throw new IllegalArgumentException("TARIFF_NOT_APPLICABLE");

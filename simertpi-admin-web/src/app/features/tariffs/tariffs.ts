@@ -3,7 +3,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { NgTemplateOutlet } from '@angular/common';
-import { forkJoin, finalize, switchMap, tap } from 'rxjs';
+import { forkJoin, finalize } from 'rxjs';
 import { normalizeError } from '../../core/http/portal-error';
 import { DataState } from '../../shared/ui/data-state';
 import { PageHeading } from '../../shared/ui/page-heading';
@@ -62,9 +62,12 @@ export class Tariffs {
   readonly viewingTariff = signal<ConfiguredTariff | null>(null);
   readonly detailDialog = viewChild<ElementRef<HTMLDialogElement>>('detailDialog');
   readonly editDialog = viewChild<ElementRef<HTMLDialogElement>>('editDialog');
+  readonly endDialog = viewChild<ElementRef<HTMLDialogElement>>('endDialog');
   readonly confirmEditDiscard = signal(false);
   readonly revisionOf = signal<ConfiguredTariff | null>(null);
+  readonly revisionTiming = signal<'now' | 'scheduled'>('scheduled');
   readonly endingTariff = signal<ConfiguredTariff | null>(null);
+  readonly endTiming = signal<'now' | 'scheduled'>('scheduled');
   readonly query = signal('');
   readonly statusFilter = signal<'all' | 'vigentes' | 'programadas' | 'finalizadas' | 'canceladas'>('all');
   readonly formatDate = formatConfigurationDate;
@@ -86,8 +89,10 @@ export class Tariffs {
     validFrom: ['', Validators.required],
     validTo: [''],
     normativeReference: ['', [Validators.required, Validators.maxLength(255)]],
+    reason: [''],
+    expectedVersion: [null as number | null],
   });
-  readonly endForm = this.builder.nonNullable.group({ validTo: ['', Validators.required] });
+  readonly endForm = this.builder.nonNullable.group({ validTo: ['', Validators.required], reason: ['', [Validators.required, Validators.maxLength(500)]] });
   readonly cancellationForm = this.builder.nonNullable.group({ reason: ['', [Validators.required, Validators.maxLength(500)]] });
   readonly editingScheduled = signal<ConfiguredTariff | null>(null);
   readonly cancellingTariff = signal<ConfiguredTariff | null>(null);
@@ -117,8 +122,14 @@ export class Tariffs {
 
       const editing = this.editingScheduled();
       const editor = this.editDialog()?.nativeElement;
-      if (editor && editing && !editor.open) editor.showModal();
-      else if (editor && !editing && editor.open) editor.close();
+      const revision = this.revisionOf();
+      if (editor && (editing || revision) && !editor.open) editor.showModal();
+      else if (editor && !editing && !revision && editor.open) editor.close();
+
+      const ending = this.endingTariff();
+      const endDialog = this.endDialog()?.nativeElement;
+      if (endDialog && ending && !endDialog.open) endDialog.showModal();
+      else if (endDialog && !ending && endDialog.open) endDialog.close();
     });
     if (!this.preview) this.load();
   }
@@ -148,19 +159,34 @@ export class Tariffs {
     this.cancellingTariff.set(null);
     this.actionError.set('');
     this.actionMessage.set('');
-    this.form.reset({ code: '', name: '', scope: 'GENERAL', zoneId: '', currency: '', amount: '', durationMinutes: null, minMinutes: null, maxContinuousMinutes: null, gracePeriodMinutes: 0, roundingMode: 'HALF_UP', validFrom: '', validTo: '', normativeReference: '' });
+    this.form.controls.reason.clearValidators();
+    this.form.reset({ code: '', name: '', scope: 'GENERAL', zoneId: '', currency: '', amount: '', durationMinutes: null, minMinutes: null, maxContinuousMinutes: null, gracePeriodMinutes: 0, roundingMode: 'HALF_UP', validFrom: '', validTo: '', normativeReference: '', reason: '' });
     this.showForm.set(true);
   }
 
   openRevision(row: ConfiguredTariff) {
+    if (!this.canModify(row)) return;
     this.actionError.set('');
     this.actionMessage.set('');
     this.endingTariff.set(null);
     this.editingScheduled.set(null);
     this.cancellingTariff.set(null);
     this.revisionOf.set(row);
-    this.form.reset({ code: '', name: row.name, scope: row.zoneId ? 'ZONE' : 'GENERAL', zoneId: row.zoneId ?? '', currency: row.currency ?? '', amount: String(row.amount).replace('.', ','), durationMinutes: row.durationMinutes, minMinutes: row.minMinutes, maxContinuousMinutes: row.maxContinuousMinutes, gracePeriodMinutes: row.gracePeriodMinutes ?? 0, roundingMode: row.roundingMode ?? 'HALF_UP', validFrom: '', validTo: '', normativeReference: row.normativeReference ?? '' });
-    this.showForm.set(true);
+    this.revisionTiming.set('scheduled');
+    this.showForm.set(false);
+    this.confirmEditDiscard.set(false);
+    this.form.controls.reason.setValidators([Validators.required, Validators.maxLength(500)]);
+    this.form.reset({ code: row.code, name: row.name, scope: row.zoneId ? 'ZONE' : 'GENERAL', zoneId: row.zoneId ?? '', currency: row.currency ?? '', amount: String(row.amount).replace('.', ','), durationMinutes: row.durationMinutes, minMinutes: row.minMinutes, maxContinuousMinutes: row.maxContinuousMinutes, gracePeriodMinutes: row.gracePeriodMinutes ?? 0, roundingMode: row.roundingMode ?? 'HALF_UP', validFrom: '', validTo: '', normativeReference: row.normativeReference ?? '', reason: '', expectedVersion: row.rowVersion });
+    this.form.updateValueAndValidity();
+    this.setRevisionTiming('scheduled');
+  }
+
+  setRevisionTiming(timing: 'now' | 'scheduled') {
+    this.revisionTiming.set(timing);
+    const control = this.form.controls.validFrom;
+    control.setValidators(timing === 'scheduled' ? [Validators.required] : []);
+    if (timing === 'now') control.setValue('');
+    control.updateValueAndValidity();
   }
 
   openEditScheduled(row: ConfiguredTariff) {
@@ -170,11 +196,14 @@ export class Tariffs {
     this.viewingTariff.set(null);
     this.confirmEditDiscard.set(false);
     this.editingScheduled.set(row);
+    this.form.controls.reason.setValidators([Validators.required, Validators.maxLength(500)]);
     this.form.reset({ code: row.code, name: row.name, scope: row.zoneId ? 'ZONE' : 'GENERAL', zoneId: row.zoneId ?? '',
       currency: row.currency ?? '', amount: String(row.amount).replace('.', ','), durationMinutes: row.durationMinutes,
       minMinutes: row.minMinutes, maxContinuousMinutes: row.maxContinuousMinutes, gracePeriodMinutes: row.gracePeriodMinutes ?? 0,
       roundingMode: row.roundingMode ?? 'HALF_UP', validFrom: isoToGuayaquilDateTimeLocal(row.validFrom),
-      validTo: isoToGuayaquilDateTimeLocal(row.validTo), normativeReference: row.normativeReference ?? '' });
+      validTo: isoToGuayaquilDateTimeLocal(row.validTo), normativeReference: row.normativeReference ?? '',
+      reason: '', expectedVersion: row.rowVersion });
+    this.form.updateValueAndValidity();
   }
 
   openView(row: ConfiguredTariff) {
@@ -199,7 +228,10 @@ export class Tariffs {
   closeScheduledEditor() {
     this.confirmEditDiscard.set(false);
     this.editingScheduled.set(null);
+    this.revisionOf.set(null);
     this.actionError.set('');
+    this.form.controls.reason.clearValidators();
+    this.form.controls.reason.updateValueAndValidity();
   }
 
   submit(event: Event) {
@@ -212,66 +244,102 @@ export class Tariffs {
       this.form.controls.zoneId.setErrors({ required: true });
       return;
     }
-    const start = localDateTimeToIso(value.validFrom);
+    const revision = this.revisionOf();
+    const immediateRevision = !!revision && this.revisionTiming() === 'now';
+    const start = immediateRevision ? null : localDateTimeToIso(value.validFrom);
     const end = value.validTo ? localDateTimeToIso(value.validTo) : null;
-    if (!start || value.validTo && !end) {
+    if (!immediateRevision && (!start || value.validTo && !end)) {
       this.actionError.set('Seleccione fechas y horas válidas.');
       return;
     }
-    const revision = this.revisionOf();
     const scheduled = this.editingScheduled();
     const body = {
-      code: value.code.trim(), name: value.name.trim(), zoneId: scheduled?.zoneId ?? revision?.zoneId ?? (value.scope === 'ZONE' ? value.zoneId : null),
+      code: value.code.trim(), name: value.name.trim(), zoneId: revision ? revision.zoneId : value.scope === 'ZONE' ? value.zoneId : null,
       currency: value.currency, amount: value.amount.trim().replace(',', '.'),
       durationMinutes: Number(value.durationMinutes), minMinutes: Number(value.minMinutes),
       maxContinuousMinutes: Number(value.maxContinuousMinutes), gracePeriodMinutes: Number(value.gracePeriodMinutes),
-      roundingMode: value.roundingMode, validFrom: start, validTo: end, normativeReference: value.normativeReference.trim(),
+      roundingMode: value.roundingMode, validFrom: start ?? '', validTo: end, normativeReference: value.normativeReference.trim(),
+      ...(scheduled || revision ? { reason: value.reason.trim(), expectedVersion: (scheduled ?? revision)!.rowVersion } : {}),
     };
     this.saving.set(true);
     this.actionError.set('');
     this.actionMessage.set('');
-    if (Date.parse(start) <= Date.now()) {
+    if (!immediateRevision && Date.parse(start!) <= Date.now()) {
       this.saving.set(false);
       this.actionError.set('La fecha y hora de inicio debe ser futura en la hora de Ecuador (America/Guayaquil).');
       return;
     }
-    if (end && Date.parse(end) <= Date.parse(start)) {
+    if (!immediateRevision && end && Date.parse(end) <= Date.parse(start!)) {
       this.saving.set(false);
       this.actionError.set('La fecha y hora final debe ser posterior a la fecha y hora de inicio.');
       return;
     }
-    let previousVersionEnded = false;
     const save = scheduled
       ? this.api.updateScheduledTariff(scheduled.id, body)
       : revision
-      ? this.api.endTariff(revision.id, start).pipe(
-          tap(() => previousVersionEnded = true),
-          switchMap(() => this.api.createTariff(body)),
-        )
+      ? immediateRevision
+        ? this.api.reviseTariffNow(revision.id, {
+          code: body.code, name: body.name, currency: body.currency, amount: body.amount,
+          durationMinutes: body.durationMinutes, minMinutes: body.minMinutes,
+          maxContinuousMinutes: body.maxContinuousMinutes, gracePeriodMinutes: body.gracePeriodMinutes,
+          roundingMode: body.roundingMode, normativeReference: body.normativeReference,
+          reason: value.reason.trim(), expectedVersion: revision.rowVersion,
+        })
+        : this.api.reviseTariff(revision.id, body)
       : this.api.createTariff(body);
     save.pipe(finalize(() => this.saving.set(false))).subscribe({
-      next: () => {
+      next: (saved) => {
         this.showForm.set(false);
         this.revisionOf.set(null);
         this.editingScheduled.set(null);
-        this.actionMessage.set('La nueva versión tarifaria quedó registrada con su vigencia y referencia normativa.');
+        this.actionMessage.set(revision
+          ? 'La tarifa vigente se conservará para las operaciones anteriores y la nueva versión entrará en vigor en la fecha indicada.'
+          : 'La nueva versión tarifaria quedó registrada con su vigencia y referencia normativa.');
         if (scheduled) this.actionMessage.set('La tarifa programada se actualizó correctamente.');
+        if (revision && immediateRevision) this.actionMessage.set(`La nueva versión rige desde ${this.formatDateTime(saved.validFrom)}. Las sesiones ya iniciadas conservan su tarifa anterior.`);
         this.load();
       },
       error: (error: unknown) => {
-        this.actionError.set(previousVersionEnded
-          ? 'La versión anterior quedó programada para finalizar, pero la nueva versión no se confirmó. Revise la configuración antes de continuar.'
-          : normalizeTariffWriteError(error).message);
-        if (previousVersionEnded) this.load();
+        this.actionError.set(normalizeTariffWriteError(error).message);
       },
     });
   }
 
   openEnd(row: ConfiguredTariff) {
+    if (!this.canModify(row)) return;
     this.showForm.set(false);
     this.actionError.set('');
     this.endingTariff.set(row);
-    this.endForm.reset({ validTo: '' });
+    this.setEndTiming('scheduled');
+    this.endForm.reset({ validTo: '', reason: '' });
+  }
+
+  setEndTiming(timing: 'now' | 'scheduled') {
+    this.endTiming.set(timing);
+    const control = this.endForm.controls.validTo;
+    control.setValidators(timing === 'scheduled' ? [Validators.required] : []);
+    if (timing === 'now') control.setValue('');
+    control.updateValueAndValidity();
+  }
+
+  zonesWithoutTariffAfterEnd(row: ConfiguredTariff): string[] {
+    const at = this.endTiming() === 'now' ? Date.now() : Date.parse(localDateTimeToIso(this.endForm.controls.validTo.value) ?? '');
+    if (!Number.isFinite(at)) return [];
+    return (this.effective()?.zones ?? []).filter((zone) => {
+      const candidates = this.tariffs().filter((candidate) => candidate.id !== row.id && candidate.active
+        && !candidate.cancelledAt && Date.parse(candidate.validFrom) <= at
+        && (!candidate.validTo || Date.parse(candidate.validTo) >= at)
+        && (candidate.zoneId === zone.zoneId || candidate.zoneId === null));
+      candidates.sort((left, right) => Number(right.zoneId === zone.zoneId) - Number(left.zoneId === zone.zoneId)
+        || Date.parse(right.validFrom) - Date.parse(left.validFrom));
+      return candidates.length === 0;
+    }).map((zone) => `${zone.zoneCode} · ${zone.zoneName}`);
+  }
+
+  closeEnd(event?: Event) {
+    event?.preventDefault();
+    this.endingTariff.set(null);
+    this.actionError.set('');
   }
 
   openCancel(row: ConfiguredTariff) {
@@ -296,11 +364,16 @@ export class Tariffs {
     event.preventDefault();
     const row = this.endingTariff();
     if (!row || this.endForm.invalid || this.saving()) { this.endForm.markAllAsTouched(); return; }
-    const value = localDateTimeToIso(this.endForm.getRawValue().validTo);
-    if (!value) { this.actionError.set('Seleccione una fecha y hora válidas.'); return; }
+    const immediate = this.endTiming() === 'now';
+    const value = immediate ? null : localDateTimeToIso(this.endForm.getRawValue().validTo);
+    if (!immediate && !value) { this.actionError.set('Seleccione una fecha y hora válidas.'); return; }
+    if (!immediate && Date.parse(value!) <= Date.now()) { this.actionError.set('La fecha y hora debe ser futura en la hora de Ecuador (America/Guayaquil).'); return; }
     this.saving.set(true);
-    this.api.endTariff(row.id, value).pipe(finalize(() => this.saving.set(false))).subscribe({
-      next: () => { this.endingTariff.set(null); this.actionMessage.set('La finalización futura quedó registrada.'); this.load(); },
+    const request = immediate
+      ? this.api.endTariffNow(row.id, this.endForm.controls.reason.value.trim(), row.rowVersion)
+      : this.api.endTariff(row.id, value!, this.endForm.controls.reason.value.trim(), row.rowVersion);
+    request.pipe(finalize(() => this.saving.set(false))).subscribe({
+      next: () => { this.endingTariff.set(null); this.actionMessage.set(immediate ? 'La tarifa dejó de aplicarse desde el momento de confirmación.' : 'La finalización futura quedó registrada.'); this.load(); },
       error: (error: unknown) => this.actionError.set(normalizeTariffWriteError(error).message),
     });
   }
@@ -308,7 +381,8 @@ export class Tariffs {
   cancelForms() { this.showForm.set(false); this.revisionOf.set(null); this.closeScheduledEditor(); this.endingTariff.set(null); this.cancellingTariff.set(null); this.actionError.set(''); }
   displayZone(code: string | null, name: string | null) { return code && name ? `${code} · ${name}` : code ?? name ?? 'Todas las zonas'; }
   tariffSource(source: string) { return source === 'ZONE' ? 'Excepción de zona' : source === 'GENERAL' ? 'Regla general heredada' : 'Sin tarifa vigente'; }
-  canModify(row: ConfiguredTariff) { return row.active && !row.validTo && Date.parse(row.validFrom) < Date.now(); }
+  canModify(row: ConfiguredTariff) { return this.isCurrent(row); }
+  isCurrent(row: ConfiguredTariff) { const now = Date.now(); return row.active && !row.cancelledAt && Date.parse(row.validFrom) <= now && (!row.validTo || Date.parse(row.validTo) >= now); }
   isScheduled(row: ConfiguredTariff) { return row.active && !row.cancelledAt && Date.parse(row.validFrom) > Date.now(); }
   statusLabel(row: ConfiguredTariff) { return row.cancelledAt ? 'Cancelada' : this.isScheduled(row) ? 'Programada' : row.active && (!row.validTo || Date.parse(row.validTo) >= Date.now()) ? 'Vigente' : 'Finalizada'; }
 }

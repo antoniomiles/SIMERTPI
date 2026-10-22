@@ -11,6 +11,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -35,6 +37,7 @@ class AdminGeneralParkingConfigurationPostgresIntegrationTest extends AbstractPo
     private static final String PASSWORD = "isolated-general-config-password";
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
+    @Autowired PlatformTransactionManager transactionManager;
     @Autowired PasswordEncoder encoder;
     @Autowired BillingDayCalendarService billingDays;
     @Autowired ObjectMapper objectMapper;
@@ -64,9 +67,17 @@ class AdminGeneralParkingConfigurationPostgresIntegrationTest extends AbstractPo
 
     @AfterEach
     void cleanTestConfiguration() {
-        jdbc.update("DELETE FROM parking.tariffs WHERE normative_reference=?", reference);
-        jdbc.update("DELETE FROM parking.billing_day_calendars WHERE normative_reference=?", reference);
-        if (testZoneId != null) jdbc.update("DELETE FROM parking.zones WHERE id=?", testZoneId);
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            jdbc.execute("ALTER TABLE parking.tariff_change_history DISABLE TRIGGER trg_tariff_history_append_only");
+            try {
+                jdbc.update("DELETE FROM parking.tariff_change_history WHERE tariff_id IN (SELECT id FROM parking.tariffs WHERE normative_reference=?)", reference);
+                jdbc.update("DELETE FROM parking.tariffs WHERE normative_reference=?", reference);
+                jdbc.update("DELETE FROM parking.billing_day_calendars WHERE normative_reference=?", reference);
+                if (testZoneId != null) jdbc.update("DELETE FROM parking.zones WHERE id=?", testZoneId);
+            } finally {
+                jdbc.execute("ALTER TABLE parking.tariff_change_history ENABLE TRIGGER trg_tariff_history_append_only");
+            }
+        });
     }
 
     @Test
@@ -152,7 +163,13 @@ class AdminGeneralParkingConfigurationPostgresIntegrationTest extends AbstractPo
         String generalCode = "QA-GEN-" + suffix;
         String zoneCode = "QA-ZONE-" + suffix;
         postTariff(null, generalCode, starts).andExpect(status().isCreated());
-        postTariff(zoneId, zoneCode, starts).andExpect(status().isCreated());
+        OffsetDateTime zoneStart = OffsetDateTime.now(ZoneOffset.UTC).minusDays(2).withNano(0);
+        UUID zoneTariffId = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO parking.tariffs(id,code,name,zone_id,currency,rounding_mode,grace_period_minutes,amount,
+                    duration_minutes,min_minutes,max_continuous_minutes,active,valid_from,valid_to,normative_reference)
+                VALUES (?,?,?,?,'USD','HALF_UP',0,0.75,60,15,240,TRUE,?,NULL,?)
+                """, zoneTariffId, zoneCode, "Tarifa zonal vigente QA", zoneId, zoneStart, reference);
 
         var effective = mvc.perform(get("/api/v1/admin/parking/configuration/effective")
                         .param("at", starts.plusHours(1).toString()).secure(true).cookie(session))
@@ -164,11 +181,11 @@ class AdminGeneralParkingConfigurationPostgresIntegrationTest extends AbstractPo
         assertThat(snapshot.path("generalTariff").path("code").asText()).isEqualTo(generalCode);
         assertThat(row.path("tariffSource").asText()).isEqualTo("ZONE");
         assertThat(row.path("tariff").path("code").asText()).isEqualTo(zoneCode);
-        UUID zoneTariffId = jdbc.queryForObject("SELECT id FROM parking.tariffs WHERE code=?", UUID.class, zoneCode);
+        Long expectedVersion = jdbc.queryForObject("SELECT row_version FROM parking.tariffs WHERE id=?", Long.class, zoneTariffId);
         OffsetDateTime ends = starts.plusDays(4);
         mvc.perform(post("/api/v1/admin/parking/tariffs/" + zoneTariffId + "/end").secure(true)
                         .cookie(session, csrf).header("X-XSRF-TOKEN", csrf.getValue()).contentType("application/json")
-                        .content("{\"effectiveAt\":\"" + ends + "\"}"))
+                        .content("{\"effectiveAt\":\"" + ends + "\",\"reason\":\"Fin de prueba QA\",\"expectedVersion\":" + expectedVersion + "}"))
                 .andExpect(status().isOk());
         var afterEndResponse = mvc.perform(get("/api/v1/admin/parking/configuration/effective")
                         .param("at", ends.plusHours(1).toString()).secure(true).cookie(session))
@@ -179,7 +196,7 @@ class AdminGeneralParkingConfigurationPostgresIntegrationTest extends AbstractPo
         assertThat(inherited.path("tariffSource").asText()).isEqualTo("GENERAL");
         assertThat(inherited.path("tariff").path("code").asText()).isEqualTo(generalCode);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.tariffs WHERE code IN (?,?) AND zone_id IS NULL", Integer.class, generalCode, zoneCode)).isEqualTo(1);
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM audit.functional_audit_log WHERE actor_id=? AND action IN ('CONFIGURATION_TARIFF_CREATED','CONFIGURATION_TARIFF_ENDED') AND result='SUCCESS'", Integer.class, adminId)).isEqualTo(3);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM audit.functional_audit_log WHERE actor_id=? AND action IN ('CONFIGURATION_TARIFF_CREATED','CONFIGURATION_TARIFF_ENDED') AND result='SUCCESS'", Integer.class, adminId)).isEqualTo(2);
     }
 
     @Test

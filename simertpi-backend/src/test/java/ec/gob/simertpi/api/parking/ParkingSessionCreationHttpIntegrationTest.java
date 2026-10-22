@@ -43,6 +43,42 @@ import static org.assertj.core.api.Assertions.assertThat;
         properties = {"simertpi.payments.provider=SANDBOX_STUB", "simertpi.payments.sandbox.enabled=true"})
 @AutoConfigureMockMvc
 class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupport.AbstractPostgresIntegrationTest {
+    private boolean preserveFixtureForAppendOnlyTariffHistory;
+    @Test
+    void newSessionUsesImmediateTariffVersionWhileExistingSessionRetainsItsAssignedVersion() throws Exception {
+        preserveFixtureForAppendOnlyTariffHistory = true;
+        String owner = "citizen-a-" + fixture.tag;
+        var first = post(owner, "TARIFF-VERSION-BEFORE", fixture.spaceA, fixture.vehicleA);
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        UUID oldSessionId = UUID.fromString(objectMapper.readTree(first.getBody()).get("id").asText());
+        assertThat(sessionRepository.findById(oldSessionId).orElseThrow().getTariffId()).isEqualTo(fixture.tariff);
+
+        jdbc.update("INSERT INTO identity.user_roles(user_id,role_id) SELECT ?,id FROM identity.roles WHERE code='SIMERTPI_ADMIN'", fixture.userA);
+        var admin = AdminSessionTestSupport.login(mockMvc, owner, "integration-password");
+        long version = jdbc.queryForObject("SELECT row_version FROM parking.tariffs WHERE id=?", Long.class, fixture.tariff);
+        String tariffCode = jdbc.queryForObject("SELECT code FROM parking.tariffs WHERE id=?", String.class, fixture.tariff);
+        var revision = Map.ofEntries(Map.entry("code", tariffCode), Map.entry("name", "Integration tariff corrected"),
+                Map.entry("currency", "USD"), Map.entry("amount", "1.25"), Map.entry("durationMinutes", 60),
+                Map.entry("minMinutes", 30), Map.entry("maxContinuousMinutes", 240), Map.entry("gracePeriodMinutes", 10),
+                Map.entry("roundingMode", "HALF_UP"), Map.entry("normativeReference", "QA reference"),
+                Map.entry("reason", "Immediate correction test"), Map.entry("expectedVersion", version));
+        var response = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/v1/admin/parking/tariffs/" + fixture.tariff + "/revise-now").secure(true)
+                        .cookie(AdminSessionTestSupport.sessionCookie(admin), AdminSessionTestSupport.csrfCookie(admin))
+                        .header("X-XSRF-TOKEN", admin.csrfToken()).contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(revision)))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk()).andReturn();
+        UUID newTariffId = UUID.fromString(objectMapper.readTree(response.getResponse().getContentAsString()).get("id").asText());
+        assertThat(newTariffId).isNotEqualTo(fixture.tariff);
+        assertThat(sessionRepository.findById(oldSessionId).orElseThrow().getTariffId()).isEqualTo(fixture.tariff);
+
+        var second = post(owner, "TARIFF-VERSION-AFTER", fixture.spaceB, fixture.vehicleA2, 60, newTariffId);
+        assertThat(second.getStatusCode()).as("new session response: %s", second.getBody()).isEqualTo(HttpStatus.CREATED);
+        UUID newSessionId = UUID.fromString(objectMapper.readTree(second.getBody()).get("id").asText());
+        assertThat(sessionRepository.findById(newSessionId).orElseThrow().getTariffId()).isEqualTo(newTariffId);
+        assertThat(sessionRepository.findById(newSessionId).orElseThrow().getStartedAt())
+                .isAfterOrEqualTo(java.time.OffsetDateTime.parse(objectMapper.readTree(response.getResponse().getContentAsString()).get("validFrom").asText()));
+    }
     @Test void citizenCanAbandonCheckoutWithoutPaymentAndImmediatelyReuseVehicleAndSpace() throws Exception {
         String owner = "citizen-a-" + fixture.tag;
         var created = post(owner, "ABANDON-UNPAID", fixture.spaceA, fixture.vehicleA);
@@ -552,6 +588,7 @@ class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupp
 
     @BeforeEach
     void setUp() {
+        preserveFixtureForAppendOnlyTariffHistory = false;
         jdbc.update("UPDATE configuration.parking_reentry_settings SET cooldown_minutes=5,updated_at=CURRENT_TIMESTAMP,updated_by=NULL WHERE id=1");
         fixture = new Fixture();
         OffsetDateTime now = OffsetDateTime.now().truncatedTo(ChronoUnit.MICROS);
@@ -690,7 +727,7 @@ class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupp
 
     @AfterEach
     void cleanUp() {
-        if (fixture == null) return;
+        if (fixture == null || preserveFixtureForAppendOnlyTariffHistory) return;
         jdbc.update("UPDATE configuration.parking_reentry_settings SET cooldown_minutes=5,updated_by=NULL,updated_at=CURRENT_TIMESTAMP WHERE updated_by IN (?,?)",fixture.userA,fixture.userB);
         jdbc.update("DELETE FROM enforcement.verbal_warnings WHERE parking_session_id IN (SELECT id FROM parking.parking_sessions WHERE user_id IN (?, ?))", fixture.userA, fixture.userB);
         jdbc.update("DELETE FROM audit.idempotency_keys WHERE user_id IN (?, ?)", fixture.userA, fixture.userB);
@@ -954,13 +991,16 @@ class ParkingSessionCreationHttpIntegrationTest extends ec.gob.simertpi.testsupp
         return post(username, key, spaceId, vehicleId, 60);
     }
     private ResponseEntity<String> post(String username, String key, UUID spaceId, UUID vehicleId, int duration) {
+        return post(username, key, spaceId, vehicleId, duration, fixture.tariff);
+    }
+    private ResponseEntity<String> post(String username, String key, UUID spaceId, UUID vehicleId, int duration, UUID tariffId) {
         String password = "integration-password";
         HttpHeaders headers = new HttpHeaders();
         headers.setBasicAuth(username, password);
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("Idempotency-Key", key);
         Map<String, Object> body = Map.of("parkingSpaceQrCode", "QR-" + fixture.tag + "-" + spaceSuffix(spaceId),
-                "vehicleId", vehicleId, "tariffId", fixture.tariff, "durationMinutes", duration);
+                "vehicleId", vehicleId, "tariffId", tariffId, "durationMinutes", duration);
         return restTemplate.exchange("http://localhost:" + port + "/api/v1/parking/sessions",
                 HttpMethod.POST, new HttpEntity<>(body, headers), String.class);
     }

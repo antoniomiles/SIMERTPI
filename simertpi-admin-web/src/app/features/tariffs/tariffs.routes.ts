@@ -19,6 +19,8 @@ export const TARIFF_ROUTES: Routes = [
     path,
     title: `${title} | SIMERTPI`,
     data: { pendingTitle: title },
-    loadComponent: () => import('./tariffs-pending').then((module) => module.TariffsPending),
+    loadComponent: path === 'history'
+      ? () => import('./tariff-history').then((module) => module.TariffHistory)
+      : () => import('./tariffs-pending').then((module) => module.TariffsPending),
   })),
 ];

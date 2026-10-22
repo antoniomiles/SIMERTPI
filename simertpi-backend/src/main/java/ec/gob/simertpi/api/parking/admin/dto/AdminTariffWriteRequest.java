@@ -17,4 +17,6 @@ public record AdminTariffWriteRequest(
         @NotBlank @Pattern(regexp = "^(UP|DOWN|CEILING|FLOOR|HALF_UP|HALF_DOWN|HALF_EVEN)$") String roundingMode,
         @NotNull OffsetDateTime validFrom,
         OffsetDateTime validTo,
-        @NotBlank @Size(max = 255) String normativeReference) { }
+        @NotBlank @Size(max = 255) String normativeReference,
+        @Size(max = 500) String reason,
+        @jakarta.validation.constraints.Min(0) Long expectedVersion) { }

@@ -8,12 +8,19 @@ import { ConfiguredTariff, EffectiveConfiguration, TariffsApi } from './tariffs-
 import { Tariffs } from './tariffs';
 import { isoToGuayaquilDateTimeLocal } from './tariffs-format';
 
+function formValue(overrides: Record<string, unknown>) {
+  return { code: '', name: '', scope: 'GENERAL', zoneId: '', currency: 'USD', amount: '', durationMinutes: null,
+    minMinutes: null, maxContinuousMinutes: null, gracePeriodMinutes: 0, roundingMode: 'HALF_UP', validFrom: '',
+    validTo: '', normativeReference: '', reason: '', expectedVersion: null, ...overrides };
+}
+
 const tariff: ConfiguredTariff = {
   id: 'tariff-1', code: 'GEN-01', name: 'Tarifa aprobada', zoneId: null, zoneCode: null, zoneName: null,
   currency: 'USD', amount: 0.25, durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240,
   gracePeriodMinutes: 0, roundingMode: 'HALF_UP', active: true, normativeReference: 'Ordenanza vigente',
   validFrom: '2026-01-01T05:00:00Z', validTo: null, createdAt: '2026-01-01T05:00:00Z', updatedAt: '2026-01-01T05:00:00Z',
   cancelledAt: null, cancelledByUserId: null, cancellationReason: null, cancelledByUsername: null,
+  rowVersion: 0, versionGroupId: 'tariff-series-1', previousVersionId: null,
 };
 const zone: ParkingZone = {
   id: 'zone-1', code: 'Z-01', name: 'Centro', description: null, active: true,
@@ -40,7 +47,8 @@ type TariffsApiMock = {
   listCalendarExceptions: ReturnType<typeof vi.fn>; listBillingCalendars: ReturnType<typeof vi.fn>;
   effective: ReturnType<typeof vi.fn>; createTariff: ReturnType<typeof vi.fn>;
   endTariff: ReturnType<typeof vi.fn>; updateScheduledTariff: ReturnType<typeof vi.fn>;
-  cancelScheduledTariff: ReturnType<typeof vi.fn>; createBillingCalendar: ReturnType<typeof vi.fn>;
+  endTariffNow: ReturnType<typeof vi.fn>; reviseTariffNow: ReturnType<typeof vi.fn>;
+  cancelScheduledTariff: ReturnType<typeof vi.fn>; reviseTariff: ReturnType<typeof vi.fn>; tariffHistory: ReturnType<typeof vi.fn>; createBillingCalendar: ReturnType<typeof vi.fn>;
   endBillingCalendar: ReturnType<typeof vi.fn>;
 };
 
@@ -64,6 +72,10 @@ describe('Tariff configuration screen', () => {
       listCalendarExceptions: vi.fn().mockReturnValue(of([])), listBillingCalendars: vi.fn().mockReturnValue(of([])),
       effective: vi.fn().mockReturnValue(of(effective)), createTariff: vi.fn().mockReturnValue(of(tariff)),
       endTariff: vi.fn().mockReturnValue(of(tariff)), updateScheduledTariff: vi.fn().mockReturnValue(of(tariff)),
+      endTariffNow: vi.fn().mockReturnValue(of({ ...tariff, validTo: new Date().toISOString() })),
+      reviseTariff: vi.fn().mockReturnValue(of({ ...tariff, id: 'tariff-version-2', previousVersionId: tariff.id })),
+      reviseTariffNow: vi.fn().mockReturnValue(of({ ...tariff, id: 'tariff-version-now', validFrom: new Date().toISOString(), previousVersionId: tariff.id })),
+      tariffHistory: vi.fn().mockReturnValue(of({ items: [], page: 0, size: 25, total: 0 })),
       cancelScheduledTariff: vi.fn().mockReturnValue(of(tariff)), createBillingCalendar: vi.fn().mockReturnValue(of('calendar-1')),
       endBillingCalendar: vi.fn().mockReturnValue(of('calendar-1')),
     };
@@ -104,7 +116,7 @@ describe('Tariff configuration screen', () => {
     fixture.detectChanges();
     const page = fixture.componentInstance;
     page.openCreate();
-    page.form.setValue({ code: 'GEN-2027', name: 'Tarifa general', scope: 'GENERAL', zoneId: '', currency: 'USD', amount: '0,25', durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240, gracePeriodMinutes: 0, roundingMode: 'HALF_UP', validFrom: '2027-01-01T00:00', validTo: '', normativeReference: 'Ordenanza artículo 5' });
+    page.form.setValue(formValue({ code: 'GEN-2027', name: 'Tarifa general', scope: 'GENERAL', zoneId: '', currency: 'USD', amount: '0,25', durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240, gracePeriodMinutes: 0, roundingMode: 'HALF_UP', validFrom: '2027-01-01T00:00', validTo: '', normativeReference: 'Ordenanza artículo 5' }));
     page.submit(new Event('submit'));
     expect(api.createTariff).toHaveBeenCalledWith(expect.objectContaining({ amount: '0.25', zoneId: null, currency: 'USD' }));
     expect(api.endTariff).not.toHaveBeenCalled();
@@ -118,7 +130,7 @@ describe('Tariff configuration screen', () => {
     page.openEditScheduled(scheduled);
     const future = new Date(Date.now() + 86400000 * 4);
     const local = isoToGuayaquilDateTimeLocal(future.toISOString());
-    page.form.patchValue({ code: scheduled.code, name: scheduled.name, amount: '0,75', validFrom: local, validTo: '' });
+    page.form.patchValue({ code: scheduled.code, name: scheduled.name, amount: '0,75', validFrom: local, validTo: '', reason: 'Corrección de programación QA' });
     page.submit(new Event('submit'));
     expect(api.updateScheduledTariff).toHaveBeenCalledOnce();
     expect(api.updateScheduledTariff).toHaveBeenCalledWith(scheduled.id, expect.objectContaining({ amount: '0.75' }));
@@ -153,7 +165,7 @@ describe('Tariff configuration screen', () => {
     fixture.detectChanges();
     const page = fixture.componentInstance;
     page.openCreate();
-    page.form.setValue({ code: 'GEN-2027', name: 'Tarifa general', scope: 'GENERAL', zoneId: '', currency: 'USD', amount: '0,25', durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240, gracePeriodMinutes: 0, roundingMode: 'HALF_UP', validFrom: '2027-02-29T00:00', validTo: '', normativeReference: 'Ordenanza 001-2027' });
+    page.form.setValue(formValue({ code: 'GEN-2027', name: 'Tarifa general', scope: 'GENERAL', zoneId: '', currency: 'USD', amount: '0,25', durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240, gracePeriodMinutes: 0, roundingMode: 'HALF_UP', validFrom: '2027-02-29T00:00', validTo: '', normativeReference: 'Ordenanza 001-2027' }));
     page.submit(new Event('submit'));
     expect(page.actionError()).toContain('fechas y horas válidas');
     expect(api.createTariff).not.toHaveBeenCalled();
@@ -164,7 +176,7 @@ describe('Tariff configuration screen', () => {
     fixture.detectChanges();
     const page = fixture.componentInstance;
     page.openCreate();
-    page.form.setValue({ code: 'GEN-2027', name: 'Tarifa general', scope: 'GENERAL', zoneId: '', currency: 'USD', amount: '0,25', durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240, gracePeriodMinutes: 0, roundingMode: 'HALF_UP', validFrom: isoToGuayaquilDateTimeLocal(new Date(Date.now() - 86400000).toISOString()), validTo: '', normativeReference: 'Ordenanza 001-2027' });
+    page.form.setValue(formValue({ code: 'GEN-2027', name: 'Tarifa general', scope: 'GENERAL', zoneId: '', currency: 'USD', amount: '0,25', durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240, gracePeriodMinutes: 0, roundingMode: 'HALF_UP', validFrom: isoToGuayaquilDateTimeLocal(new Date(Date.now() - 86400000).toISOString()), validTo: '', normativeReference: 'Ordenanza 001-2027' }));
     page.submit(new Event('submit'));
     expect(page.actionError()).toContain('debe ser futura');
     expect(page.actionError()).toContain('America/Guayaquil');
@@ -248,30 +260,96 @@ describe('Tariff configuration screen', () => {
     expect(fixture.nativeElement.querySelector('.tariff-edit-dialog')).toBeNull();
   });
 
-  it('revises an existing version by ending it at the new start and creating a new version', () => {
+  it('revises a current tariff with one atomic version request and mandatory reason', () => {
     const calls: string[] = [];
-    api.endTariff.mockImplementation(() => { calls.push('end'); return of(tariff); });
-    api.createTariff.mockImplementation(() => { calls.push('create'); return of(tariff); });
+    api.reviseTariff.mockImplementation(() => { calls.push('revise'); return of({ ...tariff, id: 'tariff-version-2' }); });
     const fixture = TestBed.createComponent(Tariffs);
     fixture.detectChanges();
     const page = fixture.componentInstance;
     page.openRevision(tariff);
-    page.form.setValue({ code: 'GEN-02', name: 'Tarifa revisada', scope: 'GENERAL', zoneId: '', currency: 'USD', amount: '0,30', durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240, gracePeriodMinutes: 0, roundingMode: 'HALF_UP', validFrom: '2027-02-01T00:00', validTo: '', normativeReference: 'Nueva ordenanza' });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.tariff-edit-dialog')).not.toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('Editar tarifa vigente');
+    page.form.setValue(formValue({ code: 'GEN-01', name: 'Tarifa revisada', scope: 'GENERAL', zoneId: '', currency: 'USD', amount: '0,30', durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240, gracePeriodMinutes: 0, roundingMode: 'HALF_UP', validFrom: '2027-02-01T00:00', validTo: '', normativeReference: 'Nueva ordenanza', reason: 'Corrección respaldada por norma', expectedVersion: 0 }));
     page.submit(new Event('submit'));
-    expect(calls).toEqual(['end', 'create']);
-    expect(api.endTariff).toHaveBeenCalledWith(tariff.id, '2027-02-01T05:00:00.000Z');
+    expect(calls).toEqual(['revise']);
+    expect(api.reviseTariff).toHaveBeenCalledWith(tariff.id, expect.objectContaining({
+      code: 'GEN-01', amount: '0.30', reason: 'Corrección respaldada por norma', expectedVersion: tariff.rowVersion,
+      validFrom: '2027-02-01T05:00:00.000Z',
+    }));
+    expect(api.endTariff).not.toHaveBeenCalled();
+    expect(api.createTariff).not.toHaveBeenCalled();
   });
 
-  it('shows a clear warning if the old version was scheduled to end but creation of its replacement fails', () => {
-    api.endTariff.mockReturnValue(of(tariff));
-    api.createTariff.mockReturnValue(throwError(() => new PortalError('conflict', 'Código duplicado.')));
+  it('does not issue a second request or end the current tariff if revision fails', () => {
+    api.reviseTariff.mockReturnValue(throwError(() => new PortalError('conflict', 'Código duplicado.')));
     const fixture = TestBed.createComponent(Tariffs);
     fixture.detectChanges();
     const page = fixture.componentInstance;
     page.openRevision(tariff);
-    page.form.setValue({ code: 'GEN-02', name: 'Tarifa revisada', scope: 'GENERAL', zoneId: '', currency: 'USD', amount: '0,30', durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240, gracePeriodMinutes: 0, roundingMode: 'HALF_UP', validFrom: '2027-02-01T00:00', validTo: '', normativeReference: 'Nueva ordenanza' });
+    page.form.setValue(formValue({ code: 'GEN-02', name: 'Tarifa revisada', scope: 'GENERAL', zoneId: '', currency: 'USD', amount: '0,30', durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240, gracePeriodMinutes: 0, roundingMode: 'HALF_UP', validFrom: '2027-02-01T00:00', validTo: '', normativeReference: 'Nueva ordenanza', reason: 'Motivo QA', expectedVersion: tariff.rowVersion }));
     page.submit(new Event('submit'));
-    expect(page.actionError()).toContain('la nueva versión no se confirmó');
+    expect(page.actionError()).toContain('Código duplicado.');
+    expect(api.endTariff).not.toHaveBeenCalled();
+    expect(api.createTariff).not.toHaveBeenCalled();
+  });
+
+  it('applies a current tariff revision at server time without sending a browser timestamp', () => {
+    const fixture = TestBed.createComponent(Tariffs);
+    fixture.detectChanges();
+    const page = fixture.componentInstance;
+    page.openRevision(tariff);
+    page.setRevisionTiming('now');
+    page.form.setValue(formValue({ code: 'GEN-01-NOW', name: 'Tarifa corregida', scope: 'GENERAL', zoneId: '', currency: 'USD', amount: '0,30', durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240, gracePeriodMinutes: 0, roundingMode: 'HALF_UP', validFrom: '', validTo: '', normativeReference: 'Ordenanza vigente', reason: 'Corrección inmediata autorizada', expectedVersion: tariff.rowVersion }));
+    page.submit(new Event('submit'));
+    expect(api.reviseTariffNow).toHaveBeenCalledOnce();
+    expect(api.reviseTariffNow).toHaveBeenCalledWith(tariff.id, expect.objectContaining({
+      amount: '0.30', expectedVersion: tariff.rowVersion, reason: 'Corrección inmediata autorizada',
+    }));
+    expect(api.reviseTariffNow.mock.calls[0][1]).not.toHaveProperty('validFrom');
+    expect(api.reviseTariff).not.toHaveBeenCalled();
+    expect(page.actionMessage()).toContain('Las sesiones ya iniciadas conservan su tarifa anterior.');
+  });
+
+  it('finalizes a current tariff immediately with a reason and warns about zones losing effective coverage', () => {
+    const fixture = TestBed.createComponent(Tariffs);
+    fixture.detectChanges();
+    const page = fixture.componentInstance;
+    page.openEnd(tariff);
+    page.setEndTiming('now');
+    expect(page.zonesWithoutTariffAfterEnd(tariff)).toContain('Z-01 · Centro');
+    page.endForm.controls.reason.setValue('Cese inmediato respaldado');
+    page.submitEnd(new Event('submit'));
+    expect(api.endTariffNow).toHaveBeenCalledWith(tariff.id, 'Cese inmediato respaldado', tariff.rowVersion);
+    expect(api.endTariff).not.toHaveBeenCalled();
+  });
+
+  it('does not finalize immediately without a reason', () => {
+    const fixture = TestBed.createComponent(Tariffs);
+    fixture.detectChanges();
+    const page = fixture.componentInstance;
+    page.openEnd(tariff);
+    page.setEndTiming('now');
+    page.submitEnd(new Event('submit'));
+    expect(api.endTariffNow).not.toHaveBeenCalled();
+  });
+
+  it('requires a reason and opens a confirmation dialog before ending a current tariff', () => {
+    const fixture = TestBed.createComponent(Tariffs);
+    fixture.detectChanges();
+    const page = fixture.componentInstance;
+    page.openEnd(tariff);
+    fixture.detectChanges();
+    const dialog = fixture.nativeElement.querySelector('.tariff-edit-dialog') as HTMLDialogElement;
+    expect(dialog).not.toBeNull();
+    expect(dialog.textContent).toContain('Finalizar vigencia de GEN-01');
+    expect(dialog.textContent).toContain('Si no existe una versión de reemplazo');
+    page.endForm.controls.validTo.setValue(isoToGuayaquilDateTimeLocal(new Date(Date.now() + 86400000).toISOString()));
+    page.submitEnd(new Event('submit'));
+    expect(api.endTariff).not.toHaveBeenCalled();
+    page.endForm.controls.reason.setValue('Reemplazo aprobado en QA');
+    page.submitEnd(new Event('submit'));
+    expect(api.endTariff).toHaveBeenCalledWith(tariff.id, expect.any(String), 'Reemplazo aprobado en QA', tariff.rowVersion);
   });
 
   it('explains tariff validity conflicts instead of reporting a user permission or duplicate-account error', () => {
@@ -283,7 +361,7 @@ describe('Tariff configuration screen', () => {
     fixture.detectChanges();
     const page = fixture.componentInstance;
     page.openCreate();
-    page.form.setValue({ code: 'GEN-2027', name: 'Tarifa general', scope: 'GENERAL', zoneId: '', currency: 'USD', amount: '0,25', durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240, gracePeriodMinutes: 0, roundingMode: 'HALF_UP', validFrom: '2027-01-01T00:00', validTo: '', normativeReference: 'Ordenanza artículo 5' });
+    page.form.setValue(formValue({ code: 'GEN-2027', name: 'Tarifa general', scope: 'GENERAL', zoneId: '', currency: 'USD', amount: '0,25', durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240, gracePeriodMinutes: 0, roundingMode: 'HALF_UP', validFrom: '2027-01-01T00:00', validTo: '', normativeReference: 'Ordenanza artículo 5' }));
     page.submit(new Event('submit'));
     expect(page.actionError()).toContain('vigencia que se cruza');
     expect(page.actionError()).not.toContain('permiso');

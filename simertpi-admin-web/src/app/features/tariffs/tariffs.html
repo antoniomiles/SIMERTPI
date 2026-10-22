@@ -52,7 +52,7 @@
         <header class="section-heading">
           <div>
             <p class="eyebrow">{{ editingScheduled() ? 'PROGRAMACIÓN' : revisionOf() ? 'NUEVA VERSIÓN' : 'NUEVA CONFIGURACIÓN' }}</p>
-            <h2 id="tariff-form-title">{{ editingScheduled() ? 'Editar tarifa programada' : revisionOf() ? 'Crear nueva versión de tarifa vigente' : 'Crear configuración de tarifa' }}</h2>
+            <h2 id="tariff-form-title">{{ editingScheduled() ? 'Editar tarifa programada' : revisionOf() ? 'Editar tarifa vigente · crear versión' : 'Crear configuración de tarifa' }}</h2>
           </div>
           <button class="button secondary" type="button" (click)="editingScheduled() ? requestEditClose() : cancelForms()">Cancelar</button>
         </header>
@@ -65,11 +65,18 @@
           <p class="section-note">La tarifa debe tener respaldo normativo y fecha futura. No se generan valores automáticamente.</p>
         }
         <form class="admin-form" [formGroup]="form" (ngSubmit)="submit($event)" novalidate>
-          <label class="field"><span>Código</span><input formControlName="code" maxlength="50" placeholder="Ej.: TAR-GEN-2027-V2" autocomplete="off" /><small>Cada versión requiere un código que no esté registrado.</small></label>
+          @if (revisionOf()) {
+            <fieldset class="timing-options wide"><legend>Cuándo aplicar el cambio</legend>
+              <label><input type="radio" name="revisionTiming" [checked]="revisionTiming() === 'now'" (change)="setRevisionTiming('now')" /> Aplicar ahora</label>
+              <label><input type="radio" name="revisionTiming" [checked]="revisionTiming() === 'scheduled'" (change)="setRevisionTiming('scheduled')" /> Programar cambio</label>
+            </fieldset>
+            @if (revisionTiming() === 'now') { <p class="notice wide" role="note">La nueva versión iniciará en el instante registrado por el servidor al confirmar. No se modifican sesiones ya iniciadas; las nuevas sesiones usarán la tarifa efectiva al comenzar.</p> }
+          }
+          <label class="field"><span>Código</span><input formControlName="code" maxlength="50" placeholder="Ej.: TAR-GEN-2027-V2" autocomplete="off" /><small>El código identifica esta versión y debe pertenecer a la misma serie tarifaria.</small></label>
           <label class="field"><span>Nombre</span><input formControlName="name" maxlength="150" placeholder="Ej.: Tarifa general de estacionamiento" /></label>
-          @if (editingScheduled() || revisionOf()) { <p class="field"><span>Aplicación conservada</span><strong>{{ (editingScheduled() ?? revisionOf())!.zoneId ? displayZone((editingScheduled() ?? revisionOf())!.zoneCode, (editingScheduled() ?? revisionOf())!.zoneName) : 'General para todas las zonas' }}</strong></p> }
+          @if (revisionOf() || editingScheduled()?.previousVersionId) { <p class="field"><span>Aplicación conservada</span><strong>{{ (editingScheduled() ?? revisionOf())!.zoneId ? displayZone((editingScheduled() ?? revisionOf())!.zoneCode, (editingScheduled() ?? revisionOf())!.zoneName) : 'General para todas las zonas' }}</strong></p> }
           @else { <label class="field"><span>Aplicación</span><select formControlName="scope"><option value="GENERAL">General para todas las zonas</option><option value="ZONE">Excepción para una zona</option></select></label> }
-          @if (!revisionOf() && !editingScheduled() && form.controls.scope.value === 'ZONE') {
+          @if (!revisionOf() && form.controls.scope.value === 'ZONE') {
             <label class="field"><span>Zona</span><select formControlName="zoneId"><option value="">Seleccione una zona</option>@for (zone of zones(); track zone.id) { <option [value]="zone.id">{{ zone.code }} · {{ zone.name }}</option> }</select></label>
           }
           <label class="field"><span>Importe</span><input formControlName="amount" inputmode="decimal" placeholder="Ej.: 0,25" /><small>Use hasta dos decimales. El importe se transmite como decimal exacto.</small></label>
@@ -79,27 +86,35 @@
           <label class="field"><span>Máximo continuo (minutos)</span><input formControlName="maxContinuousMinutes" type="number" min="1" placeholder="Ej.: 240" /></label>
           <label class="field"><span>Tolerancia (minutos)</span><input formControlName="gracePeriodMinutes" type="number" min="0" placeholder="Ej.: 0" /></label>
           <label class="field"><span>Regla de redondeo</span><select formControlName="roundingMode"><option value="HALF_UP">Redondeo convencional</option><option value="HALF_EVEN">Redondeo al par</option><option value="DOWN">Hacia abajo</option><option value="UP">Hacia arriba</option><option value="CEILING">Techo</option><option value="FLOOR">Piso</option><option value="HALF_DOWN">Mitad hacia abajo</option></select></label>
-          <label class="field"><span>Vigente desde</span><input formControlName="validFrom" type="datetime-local" /><small>Seleccione fecha y hora futuras. Ejemplo: 01/01/2027, 00:00.</small></label>
+          @if (!revisionOf() || revisionTiming() === 'scheduled') {
+            <label class="field"><span>Vigente desde</span><input formControlName="validFrom" type="datetime-local" /><small>Seleccione fecha y hora futuras. Ejemplo: 01/01/2027, 00:00.</small></label>
+          } @else {
+            <p class="field"><span>Vigente desde</span><strong>Al confirmar, según la hora del servidor</strong><small>Se conserva la vigencia final existente de la tarifa.</small></p>
+          }
           <label class="field"><span>Vigente hasta (opcional)</span><input formControlName="validTo" type="datetime-local" /><small>Déjelo vacío si no se ha definido una fecha final.</small></label>
           <label class="field wide"><span>Referencia normativa</span><input formControlName="normativeReference" maxlength="255" placeholder="Ej.: Ordenanza municipal N.º 001-2027, artículo 5" /></label>
+          @if (editingScheduled() || revisionOf()) {
+            <label class="field wide"><span>Motivo del cambio</span><textarea formControlName="reason" maxlength="500" placeholder="Ej.: Corrección aprobada mediante resolución municipal"></textarea><small>El motivo, la cuenta responsable y la fecha quedarán en el historial.</small></label>
+          }
           <div class="form-actions wide"><button class="button primary" type="submit" [disabled]="saving()">{{ saving() ? 'Guardando…' : editingScheduled() ? 'Guardar cambios' : revisionOf() ? 'Guardar nueva versión' : 'Registrar tarifa' }}</button><button class="button secondary" type="button" (click)="editingScheduled() ? requestEditClose() : cancelForms()">Cancelar</button></div>
         </form>
     </ng-template>
 
-    @if (showForm() && !editingScheduled()) {
+    @if (showForm() && !editingScheduled() && !revisionOf()) {
       <section class="config-section card" aria-labelledby="tariff-form-title">
         <ng-container [ngTemplateOutlet]="tariffFormTemplate"></ng-container>
       </section>
     }
 
-    @if (editingScheduled(); as scheduled) {
+    @if (editingScheduled() || revisionOf()) {
+      @let editTarget = editingScheduled() ?? revisionOf();
       <dialog #editDialog class="tariff-dialog tariff-edit-dialog" aria-labelledby="tariff-form-title" (cancel)="requestEditClose($event)">
         <section class="config-section card dialog-shell" aria-labelledby="tariff-form-title">
           <ng-container [ngTemplateOutlet]="tariffFormTemplate"></ng-container>
           @if (confirmEditDiscard()) {
             <div class="discard-confirmation" role="alertdialog" aria-labelledby="discard-title" aria-describedby="discard-description">
               <h3 id="discard-title">¿Descartar los cambios?</h3>
-              <p id="discard-description">Hay cambios sin guardar en {{ scheduled.code }}. Si cierra el formulario, se perderán.</p>
+              <p id="discard-description">Hay cambios sin guardar en {{ editTarget?.code }}. Si cierra el formulario, se perderán.</p>
               <div class="form-actions"><button class="button secondary" type="button" (click)="confirmEditDiscard.set(false)">Seguir editando</button><button class="button subtle-danger" type="button" (click)="closeScheduledEditor()">Descartar cambios</button></div>
             </div>
           }
@@ -120,15 +135,29 @@
     }
 
     @if (endingTariff(); as ending) {
-      <section class="config-section card" aria-labelledby="end-tariff-title">
-        <h2 id="end-tariff-title">Programar finalización de {{ ending.code }}</h2>
-        <p class="section-note">La versión seguirá vigente hasta el instante seleccionado. Las sesiones existentes conservan su referencia tarifaria.</p>
+      <dialog #endDialog class="tariff-dialog tariff-edit-dialog" aria-labelledby="end-tariff-title" (cancel)="closeEnd($event)" (close)="closeEnd()">
+      <section class="config-section card dialog-shell" aria-labelledby="end-tariff-title">
+        <h2 id="end-tariff-title">Finalizar vigencia de {{ ending.code }}</h2>
+        <p class="section-note">La tarifa dejará de aplicarse desde la fecha indicada. Las sesiones ya iniciadas conservan su referencia tarifaria. Si no existe una versión de reemplazo, el sistema quedará sin tarifa aplicable a partir de ese momento.</p>
         <form class="inline-form" [formGroup]="endForm" (ngSubmit)="submitEnd($event)" novalidate>
-          <label class="field"><span>Vigente hasta</span><input formControlName="validTo" type="datetime-local" /><small>Ejemplo: 31/12/2027, 23:59.</small></label>
-          <button class="button primary" type="submit" [disabled]="saving()">Confirmar fecha futura</button>
-          <button class="button secondary" type="button" (click)="cancelForms()">Cancelar</button>
+          <fieldset class="timing-options"><legend>Cuándo finalizar</legend>
+            <label><input type="radio" name="endTiming" [checked]="endTiming() === 'now'" (change)="setEndTiming('now')" /> Finalizar ahora</label>
+            <label><input type="radio" name="endTiming" [checked]="endTiming() === 'scheduled'" (change)="setEndTiming('scheduled')" /> Programar finalización</label>
+          </fieldset>
+          @if (endTiming() === 'scheduled') {
+            <label class="field"><span>Dejará de aplicarse desde</span><input formControlName="validTo" type="datetime-local" /><small>Seleccione una fecha y hora futuras. Ejemplo: 31/12/2027, 23:59.</small></label>
+          } @else {
+            <p class="notice" role="note">La tarifa dejará de aplicarse al confirmar. Las sesiones iniciadas conservan su tarifa asignada.</p>
+          }
+          @if (zonesWithoutTariffAfterEnd(ending).length) {
+            <p class="notice warning-note" role="alert">Según las configuraciones consultadas, estas zonas quedarían sin tarifa aplicable: {{ zonesWithoutTariffAfterEnd(ending).join(', ') }}.</p>
+          }
+          <label class="field"><span>Motivo de finalización</span><textarea formControlName="reason" maxlength="500" placeholder="Ej.: La configuración fue reemplazada mediante resolución municipal"></textarea><small>El motivo, la cuenta responsable y la fecha quedarán en el historial.</small></label>
+          <div class="form-actions wide"><button class="button primary" type="submit" [disabled]="saving()">{{ saving() ? 'Guardando…' : endTiming() === 'now' ? 'Finalizar ahora' : 'Programar finalización' }}</button>
+          <button class="button secondary" type="button" (click)="closeEnd()">Cancelar</button></div>
         </form>
       </section>
+      </dialog>
     }
 
     <section class="config-section card" aria-labelledby="effective-tariffs-title">
@@ -153,8 +182,9 @@
           @for (row of visibleTariffs(); track row.id) {
             <tr><td><strong>{{ row.code }} · {{ row.name }}</strong><small class="tag">{{ statusLabel(row) }}</small></td><td>{{ displayZone(row.zoneCode, row.zoneName) }}</td><td>{{ formatAmount(row.amount, row.currency ?? 'USD') }}<small>Por {{ row.durationMinutes }} minutos</small></td><td>{{ formatDateTime(row.validFrom) }}<small>Hasta: {{ row.validTo ? formatDateTime(row.validTo) : 'Sin fecha final' }}</small>@if (row.cancelledAt) { <small>Cancelada el {{ formatDateTime(row.cancelledAt) }}</small> }</td><td>{{ row.normativeReference || 'No registrada' }}</td><td class="row-actions">
               <button class="button secondary" type="button" (click)="openView(row)" aria-haspopup="dialog">Ver</button>
+              <a class="text-link" routerLink="/admin/tariffs/history" [queryParams]="{ tariffId: row.id }">Historial</a>
               @if (isScheduled(row)) { <button class="button secondary" type="button" (click)="openEditScheduled(row)">Editar</button><button class="button subtle-danger" type="button" (click)="openCancel(row)">Cancelar programación</button> }
-              @else if (canModify(row)) { <button class="button secondary" type="button" (click)="openRevision(row)">Crear nueva versión</button><button class="button secondary" type="button" (click)="openEnd(row)">Finalizar</button> }
+              @else if (canModify(row)) { <button class="button secondary" type="button" (click)="openRevision(row)" aria-haspopup="dialog">Editar</button><button class="button secondary" type="button" (click)="openEnd(row)" aria-haspopup="dialog">Finalizar vigencia</button> }
               @else if (!isScheduled(row)) { <span class="tag inactive">{{ statusLabel(row) }}</span> }
             </td></tr>
           }

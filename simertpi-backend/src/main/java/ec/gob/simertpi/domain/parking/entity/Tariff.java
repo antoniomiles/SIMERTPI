@@ -4,6 +4,8 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
+import jakarta.persistence.PrePersist;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -23,7 +25,17 @@ public class Tariff {
     @Column(name = "id", nullable = false)
     private UUID id;
 
-    @Column(name = "code", nullable = false, unique = true, length = 50)
+    @Column(name = "version_group_id", nullable = false, updatable = false)
+    private UUID versionGroupId;
+
+    @Column(name = "previous_version_id")
+    private UUID previousVersionId;
+
+    @Version
+    @Column(name = "row_version", nullable = false)
+    private Long rowVersion;
+
+    @Column(name = "code", nullable = false, length = 50)
     private String code;
 
     @Column(name = "name", nullable = false, length = 150)
@@ -79,4 +91,11 @@ public class Tariff {
 
     @Column(name = "cancellation_reason", length = 500)
     private String cancellationReason;
+
+    @PrePersist
+    void initializeVersionMetadata() {
+        if (id == null) id = UUID.randomUUID();
+        if (versionGroupId == null) versionGroupId = id;
+        if (rowVersion == null) rowVersion = 0L;
+    }
 }

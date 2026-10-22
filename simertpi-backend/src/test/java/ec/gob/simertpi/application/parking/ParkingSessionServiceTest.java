@@ -36,6 +36,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 
@@ -70,6 +71,9 @@ class ParkingSessionServiceTest {
 
     @Mock
     private ParkingReentryConfigurationService reentry;
+
+    @Mock
+    private TariffScopeLockService tariffScopeLocks;
 
     @InjectMocks
     private ParkingSessionService parkingSessionService;
@@ -138,6 +142,8 @@ class ParkingSessionServiceTest {
         tariff.setActive(true);
         tariff.setValidFrom(now.minusDays(1));
         tariff.setValidTo(now.plusDays(30));
+
+        lenient().when(tariffScopeLocks.databaseNow()).thenReturn(now);
     }
 
     @Test

@@ -26,6 +26,9 @@ export interface ConfiguredTariff {
   cancelledByUserId: string | null;
   cancellationReason: string | null;
   cancelledByUsername: string | null;
+  rowVersion: number;
+  versionGroupId: string;
+  previousVersionId: string | null;
 }
 
 export interface BillingCalendar {
@@ -67,6 +70,16 @@ export interface CreateTariff {
   code: string; name: string; zoneId: string | null; currency: string; amount: string;
   durationMinutes: number; minMinutes: number; maxContinuousMinutes: number; gracePeriodMinutes: number;
   roundingMode: string; validFrom: string; validTo: string | null; normativeReference: string;
+  reason?: string; expectedVersion?: number;
+}
+export type ImmediateTariffRevision = Omit<CreateTariff, 'zoneId' | 'validFrom' | 'validTo'>;
+export interface TariffHistoryItem {
+  id: string; tariffId: string; previousTariffId: string | null; action: string;
+  actorId: string | null; actorName: string | null; occurredAt: string; effectiveAt: string | null;
+  reason: string; beforeState: Record<string, unknown> | null; afterState: Record<string, unknown>;
+}
+export interface TariffHistoryPage {
+  items: TariffHistoryItem[]; page: number; size: number; total: number;
 }
 export interface CreateBillingCalendar {
   zoneId: string | null; validFrom: string; validTo: string | null;
@@ -142,8 +155,26 @@ export class TariffsApi {
     return this.api.post<ConfiguredTariff>(`admin/parking/tariffs/${encodeURIComponent(id)}/cancel`, { reason });
   }
 
-  endTariff(id: string, effectiveAt: string) {
-    return this.api.post<ConfiguredTariff>(`admin/parking/tariffs/${encodeURIComponent(id)}/end`, { effectiveAt });
+  reviseTariff(id: string, body: CreateTariff) {
+    return this.api.post<ConfiguredTariff>(`admin/parking/tariffs/${encodeURIComponent(id)}/revise`, body);
+  }
+
+  reviseTariffNow(id: string, body: ImmediateTariffRevision) {
+    return this.api.post<ConfiguredTariff>(`admin/parking/tariffs/${encodeURIComponent(id)}/revise-now`, body);
+  }
+
+  endTariff(id: string, effectiveAt: string, reason: string, expectedVersion: number) {
+    return this.api.post<ConfiguredTariff>(`admin/parking/tariffs/${encodeURIComponent(id)}/end`, { effectiveAt, reason, expectedVersion });
+  }
+
+  endTariffNow(id: string, reason: string, expectedVersion: number) {
+    return this.api.post<ConfiguredTariff>(`admin/parking/tariffs/${encodeURIComponent(id)}/end-now`, { reason, expectedVersion });
+  }
+
+  tariffHistory(page = 0, size = 25, tariffId?: string) {
+    let params = new HttpParams().set('page', page).set('size', size);
+    if (tariffId) params = params.set('tariffId', tariffId);
+    return this.api.get<TariffHistoryPage>('admin/parking/tariffs/history', { params });
   }
 
   createBillingCalendar(body: CreateBillingCalendar) {

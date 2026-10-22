@@ -13,7 +13,7 @@ class TariffScheduleMigrationIntegrationTest extends AbstractPostgresIntegration
     @Test
     void upgradeFromV44PreservesExistingTariffsAndAddsNullableCancellationMetadata() throws Exception {
         var postgres = postgresContainer();
-        String database = "qa_tariff_v45_" + UUID.randomUUID().toString().replace("-", "");
+        String database = "qa_tariff_v46_" + UUID.randomUUID().toString().replace("-", "");
         try (var connection = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
              var statement = connection.createStatement()) {
             statement.execute("CREATE DATABASE " + database);
@@ -39,13 +39,13 @@ class TariffScheduleMigrationIntegrationTest extends AbstractPostgresIntegration
 
         Flyway after = Flyway.configure().dataSource(url, postgres.getUsername(), postgres.getPassword())
                 .outOfOrder(false).cleanDisabled(true).load();
-        assertThat(after.migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(after.migrate().migrationsExecuted).isEqualTo(2);
         after.validate();
-        assertThat(after.info().current().getVersion().toString()).isEqualTo("45");
+        assertThat(after.info().current().getVersion().toString()).isEqualTo("46");
         try (var connection = after.getConfiguration().getDataSource().getConnection();
              var statement = connection.prepareStatement("""
                      SELECT code,name,amount,currency,valid_from,valid_to,active,normative_reference,
-                            cancelled_at,cancelled_by_user_id,cancellation_reason
+                            cancelled_at,cancelled_by_user_id,cancellation_reason,version_group_id,previous_version_id,row_version
                      FROM parking.tariffs WHERE id=?
                      """)) {
             statement.setObject(1, tariffId);
@@ -62,7 +62,18 @@ class TariffScheduleMigrationIntegrationTest extends AbstractPostgresIntegration
                 assertThat(rows.getObject("cancelled_at")).isNull();
                 assertThat(rows.getObject("cancelled_by_user_id")).isNull();
                 assertThat(rows.getString("cancellation_reason")).isNull();
+                assertThat(rows.getObject("version_group_id")).isEqualTo(tariffId);
+                assertThat(rows.getObject("previous_version_id")).isNull();
+                assertThat(rows.getLong("row_version")).isZero();
                 assertThat(rows.next()).isFalse();
+            }
+        }
+        try (var connection = after.getConfiguration().getDataSource().getConnection();
+             var statement = connection.prepareStatement("SELECT count(*) FROM parking.tariff_change_history WHERE tariff_id=? AND action='BASELINE'")) {
+            statement.setObject(1, tariffId);
+            try (var rows = statement.executeQuery()) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getInt(1)).isEqualTo(1);
             }
         }
     }

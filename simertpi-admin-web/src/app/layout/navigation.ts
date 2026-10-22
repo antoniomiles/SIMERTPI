@@ -49,7 +49,7 @@ export const NAVIGATION: readonly NavigationGroup[] = [
           { label: 'Días de cobro', description: 'Calendario semanal general y por zona.', path: 'tariffs/billing-days' },
           { label: 'Días especiales y feriados', description: 'Fechas especiales y excepciones.', path: 'tariffs/holidays', pending: true },
           { label: 'Horarios de cobro', description: 'Horarios generales y excepciones.', path: 'tariffs/hours', pending: true },
-          { label: 'Historial de cambios', description: 'Versiones, vigencias y responsables.', path: 'tariffs/history', pending: true },
+          { label: 'Historial de cambios', description: 'Versiones, vigencias y responsables.', path: 'tariffs/history' },
         ],
       },
       { label: 'Configuración municipal', icon: 'settings' },

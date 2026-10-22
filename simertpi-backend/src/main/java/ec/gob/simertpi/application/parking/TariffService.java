@@ -29,7 +29,12 @@ public class TariffService {
 
     @Transactional(readOnly = true)
     public Tariff findByCode(String code) {
-        return tariffRepository.findByCode(code)
+        OffsetDateTime now = OffsetDateTime.now(java.time.ZoneOffset.UTC);
+        return tariffRepository.findAllByCodeOrderByValidFromDesc(code).stream()
+                .filter(Tariff::isActive)
+                .filter(t -> t.getCancelledAt() == null)
+                .filter(t -> !t.getValidFrom().isAfter(now) && (t.getValidTo() == null || !t.getValidTo().isBefore(now)))
+                .findFirst()
                 .orElseThrow(() -> new ResourceNotFoundException("Tariff not found"));
     }
 

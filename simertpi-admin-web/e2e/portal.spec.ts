@@ -214,7 +214,7 @@ test('tariffs preview stays local and never calls configuration APIs', async ({ 
   expect(requests).toEqual([]);
 });
 
-test('tariffs navigation has the five exact Spanish options, descriptions, active state and pending views', async ({ page }) => {
+test('tariffs navigation has the five exact Spanish options, descriptions, active state, pending views and history', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto('/preview/tariffs');
   const menu = page.getByRole('button', { name: 'Tarifas y horarios' });
@@ -240,6 +240,16 @@ test('tariffs navigation has the five exact Spanish options, descriptions, activ
   await expect(page.locator('.card > .tag')).toHaveText('Pendiente');
   await expect(page.getByRole('heading', { name: 'Funcionalidad pendiente' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Tarifas y horarios' })).toHaveAttribute('aria-expanded', 'true');
+});
+
+test('tariff history preview stays empty and does not call administrative history APIs', async ({ page }) => {
+  const requests: string[] = [];
+  page.on('request', (request) => { if (['fetch', 'xhr'].includes(request.resourceType())) requests.push(request.url()); });
+  await page.goto('/preview/tariffs/history');
+  await expect(page.getByRole('heading', { name: 'Historial de cambios de tarifas' })).toBeVisible();
+  await expect(page.locator('.preview-note')).toContainText('no consulta ni modifica datos');
+  await expect(page.getByRole('heading', { name: 'No hay cambios registrados' })).toHaveCount(0);
+  expect(requests).toEqual([]);
 });
 
 test('billing calendar preview states that unselected days are free and does not call the API', async ({ page }) => {
@@ -336,6 +346,7 @@ test('scheduled tariff actions are aligned and view/edit use accessible responsi
     currency: 'USD', amount: 0.25, durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240,
     gracePeriodMinutes: 5, roundingMode: 'HALF_UP', normativeReference: 'Ordenanza local de prueba', active: true,
     validFrom: new Date(Date.now() + 86400000).toISOString(), validTo: null,
+    rowVersion: 0, versionGroupId: 'scheduled-visual-series', previousVersionId: null,
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), cancelledAt: null,
     cancelledByUserId: null, cancellationReason: null, cancelledByUsername: null,
   };
@@ -410,11 +421,160 @@ test('scheduled tariff actions are aligned and view/edit use accessible responsi
   await expect(editor.getByRole('alertdialog')).toContainText('Hay cambios sin guardar');
   await editor.getByRole('button', { name: 'Seguir editando' }).click();
   await editor.locator('[formControlName="amount"]').fill('0,75');
+  await editor.locator('[formControlName="reason"]').fill('Corrección de prueba local');
   await editor.getByRole('button', { name: 'Guardar cambios' }).click();
   await expect.poll(() => updateCount).toBe(1);
   expect(updatedBody).toMatchObject({ amount: '0.75' });
   await expect(editor).toBeHidden();
   await expect(page.getByRole('status')).toContainText('La tarifa programada se actualizó correctamente.');
+});
+
+test('current tariff edits create one future version and early finalization requires an audited reason', async ({ page }) => {
+  const identity = {
+    userId: 'local-test-admin', username: 'admin.fixture', roles: ['SIMERTPI_ADMIN'], enabled: true,
+    sessionExpiresAt: new Date(Date.now() + 600000).toISOString(), absoluteExpiresAt: new Date(Date.now() + 3600000).toISOString(),
+  };
+  const current = {
+    id: 'current-visual-1', code: 'GEN-CURRENT-01', name: 'Tarifa general vigente', zoneId: null, zoneCode: null, zoneName: null,
+    currency: 'USD', amount: 0.25, durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240,
+    gracePeriodMinutes: 5, roundingMode: 'HALF_UP', normativeReference: 'Ordenanza local de prueba', active: true,
+    validFrom: new Date(Date.now() - 86400000).toISOString(), validTo: null, rowVersion: 4,
+    versionGroupId: 'current-series', previousVersionId: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+  };
+  let rows: Record<string, unknown>[] = [current];
+  let revisionBody: Record<string, unknown> | null = null;
+  let endBody: Record<string, unknown> | null = null;
+  let revisionCount = 0;
+  let endCount = 0;
+  await page.addInitScript(() => {
+    const nativeCookie = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie');
+    Object.defineProperty(document, 'cookie', {
+      configurable: true,
+      get: () => `${nativeCookie?.get?.call(document) ?? ''}; __Host-SIMERTPI_ADMIN_XSRF=current-csrf-fixture`,
+      set: (value: string) => nativeCookie?.set?.call(document, value),
+    });
+  });
+  await page.route('**/api/v1/admin/auth/me', (route) => route.fulfill({ json: identity }));
+  await page.route('**/api/v1/admin/auth/csrf', (route) => route.fulfill({ status: 204 }));
+  await page.route('**/api/v1/admin/parking/tariffs', (route) => route.fulfill({ json: rows }));
+  await page.route('**/api/v1/admin/parking/tariffs/current-visual-1/revise', async (route) => {
+    revisionCount++;
+    revisionBody = route.request().postDataJSON();
+    const body = revisionBody as Record<string, unknown>;
+    const replacement = { ...current, id: 'current-visual-2', code: 'GEN-CURRENT-02', amount: 0.30, rowVersion: 0,
+      previousVersionId: current.id, validFrom: body['validFrom'] as string };
+    rows = [{ ...current, rowVersion: 5, validTo: new Date(Date.parse(replacement.validFrom) - 1000).toISOString() }, replacement];
+    return route.fulfill({ status: 200, json: replacement });
+  });
+  await page.route('**/api/v1/admin/parking/tariffs/current-visual-1/end', async (route) => {
+    endCount++;
+    endBody = route.request().postDataJSON();
+    return route.fulfill({ status: 200, json: { ...current, validTo: (endBody as Record<string, unknown>)['effectiveAt'] } });
+  });
+  await page.route('**/api/v1/admin/parking/zones', (route) => route.fulfill({ json: [] }));
+  await page.route('**/api/v1/admin/parking/configuration/effective*', (route) => route.fulfill({ json: {
+    at: new Date().toISOString(), generalTariff: current, generalBillingCalendarId: null, generalChargeable: true,
+    generalBillingDaysConfigured: false, generalBillingNormativeReference: null, zones: [],
+  } }));
+
+  await page.goto('http://127.0.0.1:4301/admin/tariffs');
+  const row = page.getByRole('row').filter({ hasText: 'GEN-CURRENT-01' });
+  await expect(row.getByText('Vigente', { exact: true })).toBeVisible();
+  await row.getByRole('button', { name: 'Editar' }).click();
+  const editor = page.getByRole('dialog', { name: 'Editar tarifa vigente · crear versión' });
+  await expect(editor).toBeVisible();
+  await expect(editor.getByText(/No se sobrescribe el historial/)).toBeVisible();
+  await editor.locator('[formControlName="amount"]').fill('0,30');
+  await editor.locator('[formControlName="validFrom"]').fill(new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 16));
+  await editor.locator('[formControlName="reason"]').fill('Corrección respaldada en prueba local');
+  await editor.getByRole('button', { name: 'Guardar nueva versión' }).click();
+  await expect.poll(() => revisionCount).toBe(1);
+  expect(revisionBody).toMatchObject({ amount: '0.30', expectedVersion: 4, reason: 'Corrección respaldada en prueba local' });
+  await expect(page.getByRole('status')).toContainText('La tarifa vigente se conservará para las operaciones anteriores');
+
+  await row.getByRole('button', { name: 'Finalizar vigencia' }).click();
+  const endDialog = page.getByRole('dialog', { name: 'Finalizar vigencia de GEN-CURRENT-01' });
+  await expect(endDialog).toBeVisible();
+  await expect(endDialog).toContainText('Si no existe una versión de reemplazo');
+  await endDialog.locator('[formControlName="validTo"]').fill(new Date(Date.now() + 24 * 3600000).toISOString().slice(0, 16));
+  await endDialog.locator('[formControlName="reason"]').fill('Finalización anticipada de prueba local');
+  await endDialog.getByRole('button', { name: 'Programar finalización' }).click();
+  await expect.poll(() => endCount).toBe(1);
+  expect(endBody).toMatchObject({ reason: 'Finalización anticipada de prueba local', expectedVersion: 5 });
+  expect(revisionCount).toBe(1);
+});
+
+test('current tariff supports immediate revision and immediate ending with an uncovered-zone warning', async ({ page }) => {
+  const identity = {
+    userId: 'local-test-admin', username: 'admin.fixture', roles: ['SIMERTPI_ADMIN'], enabled: true,
+    sessionExpiresAt: new Date(Date.now() + 600000).toISOString(), absoluteExpiresAt: new Date(Date.now() + 3600000).toISOString(),
+  };
+  const current = {
+    id: 'current-now-1', code: 'GEN-NOW-01', name: 'Tarifa general vigente', zoneId: null, zoneCode: null, zoneName: null,
+    currency: 'USD', amount: 0.25, durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240,
+    gracePeriodMinutes: 5, roundingMode: 'HALF_UP', normativeReference: 'Referencia local', active: true,
+    validFrom: new Date(Date.now() - 86400000).toISOString(), validTo: null, rowVersion: 3,
+    versionGroupId: 'current-now-series', previousVersionId: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+  };
+  let rows: Record<string, unknown>[] = [current];
+  let revisionBody: Record<string, unknown> | null = null;
+  let endBody: Record<string, unknown> | null = null;
+  let currentForEffective = current;
+  await page.addInitScript(() => {
+    const nativeCookie = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie');
+    Object.defineProperty(document, 'cookie', {
+      configurable: true,
+      get: () => `${nativeCookie?.get?.call(document) ?? ''}; __Host-SIMERTPI_ADMIN_XSRF=current-csrf-fixture`,
+      set: (value: string) => nativeCookie?.set?.call(document, value),
+    });
+  });
+  await page.route('**/api/v1/admin/auth/me', (route) => route.fulfill({ json: identity }));
+  await page.route('**/api/v1/admin/auth/csrf', (route) => route.fulfill({ status: 204 }));
+  await page.route('**/api/v1/admin/parking/tariffs', (route) => route.fulfill({ json: rows }));
+  await page.route('**/api/v1/admin/parking/tariffs/current-now-1/revise-now', async (route) => {
+    revisionBody = route.request().postDataJSON();
+    const now = new Date().toISOString();
+    const replacement = { ...current, id: 'current-now-2', code: 'GEN-NOW-02', amount: 0.30, rowVersion: 0,
+      previousVersionId: current.id, validFrom: now };
+    currentForEffective = replacement;
+    rows = [{ ...current, validTo: new Date(Date.parse(now) - 1).toISOString(), rowVersion: 4 }, replacement];
+    return route.fulfill({ status: 200, json: replacement });
+  });
+  await page.route('**/api/v1/admin/parking/tariffs/current-now-2/end-now', async (route) => {
+    endBody = route.request().postDataJSON();
+    const ended = { ...currentForEffective, validTo: new Date().toISOString() };
+    rows = [...rows.filter((row) => row['id'] !== 'current-now-2'), ended];
+    return route.fulfill({ status: 200, json: ended });
+  });
+  await page.route('**/api/v1/admin/parking/zones', (route) => route.fulfill({ json: [] }));
+  await page.route('**/api/v1/admin/parking/configuration/effective*', (route) => route.fulfill({ json: {
+    at: new Date().toISOString(), generalTariff: currentForEffective, generalBillingCalendarId: null, generalChargeable: true,
+    generalBillingDaysConfigured: false, generalBillingNormativeReference: null,
+    zones: [{ zoneId: 'zone-real-id-1', zoneCode: 'Z-01', zoneName: 'Centro', tariff: currentForEffective,
+      tariffSource: 'GENERAL', billingCalendarId: null, chargeable: true, billingDaysConfigured: false,
+      billingDaysSource: 'LEGACY_UNCONFIGURED', billingDaysNormativeReference: null }],
+  } }));
+
+  await page.goto('http://127.0.0.1:4301/admin/tariffs');
+  const row = page.getByRole('row').filter({ hasText: 'GEN-NOW-01' });
+  await row.getByRole('button', { name: 'Editar' }).click();
+  const editor = page.getByRole('dialog', { name: 'Editar tarifa vigente · crear versión' });
+  await editor.getByLabel('Aplicar ahora').check();
+  await editor.locator('[formControlName="amount"]').fill('0,30');
+  await editor.locator('[formControlName="reason"]').fill('Corrección inmediata respaldada');
+  await editor.getByRole('button', { name: 'Guardar nueva versión' }).click();
+  await expect(page.getByRole('status')).toContainText('Las sesiones ya iniciadas conservan su tarifa anterior.');
+  expect(revisionBody).not.toHaveProperty('validFrom');
+  expect(revisionBody).toMatchObject({ amount: '0.30', expectedVersion: 3, reason: 'Corrección inmediata respaldada' });
+
+  const replacementRow = page.getByRole('row').filter({ hasText: 'GEN-NOW-02' });
+  await replacementRow.getByRole('button', { name: 'Finalizar vigencia' }).click();
+  const endDialog = page.getByRole('dialog', { name: 'Finalizar vigencia de GEN-NOW-02' });
+  await endDialog.getByLabel('Finalizar ahora').check();
+  await expect(endDialog).toContainText('estas zonas quedarían sin tarifa aplicable: Z-01 · Centro');
+  await endDialog.locator('[formControlName="reason"]').fill('Cese inmediato respaldado');
+  await endDialog.getByRole('button', { name: 'Finalizar ahora' }).click();
+  expect(endBody).toEqual({ reason: 'Cese inmediato respaldado', expectedVersion: 0 });
 });
 
 test('tariff write uses the CSRF cookie issued by its preflight, not the token read before rotation', async ({ page }) => {

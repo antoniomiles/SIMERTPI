@@ -3,6 +3,7 @@ package ec.gob.simertpi.application.parking;
 import ec.gob.simertpi.api.ResourceNotFoundException;
 import ec.gob.simertpi.api.parking.admin.dto.AdminBillingDaysWriteRequest;
 import ec.gob.simertpi.api.parking.admin.dto.AdminTariffWriteRequest;
+import ec.gob.simertpi.api.parking.admin.dto.ImmediateTariffRevisionRequest;
 import ec.gob.simertpi.application.audit.Audited;
 import ec.gob.simertpi.domain.parking.entity.Tariff;
 import ec.gob.simertpi.domain.parking.entity.Zone;
@@ -13,6 +14,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 
 import java.math.BigDecimal;
 import java.time.*;
@@ -23,9 +26,14 @@ public class AdminParkingConfigurationService {
     private final TariffRepository tariffs;
     private final ZoneRepository zones;
     private final JdbcTemplate jdbc;
+    private final TariffChangeHistoryService tariffHistory;
+    private final TariffScopeLockService tariffScopeLocks;
+    private final EntityManager entityManager;
 
-    public AdminParkingConfigurationService(TariffRepository tariffs, ZoneRepository zones, JdbcTemplate jdbc) {
-        this.tariffs = tariffs; this.zones = zones; this.jdbc = jdbc;
+    public AdminParkingConfigurationService(TariffRepository tariffs, ZoneRepository zones, JdbcTemplate jdbc,
+            TariffChangeHistoryService tariffHistory, TariffScopeLockService tariffScopeLocks, EntityManager entityManager) {
+        this.tariffs = tariffs; this.zones = zones; this.jdbc = jdbc; this.tariffHistory = tariffHistory;
+        this.tariffScopeLocks = tariffScopeLocks; this.entityManager = entityManager;
     }
 
     @Transactional(readOnly = true)
@@ -79,7 +87,7 @@ public class AdminParkingConfigurationService {
             throw new IllegalArgumentException("INVALID_TARIFF_DURATION_RANGE");
         try { java.util.Currency.getInstance(request.currency()); }
         catch (IllegalArgumentException invalid) { throw new IllegalArgumentException("INVALID_TARIFF_CURRENCY"); }
-        lockScope("tariff", request.zoneId());
+        lockTariffWrite(request.zoneId(), request.code());
         if (tariffs.existsByCode(request.code().trim())) throw new IllegalArgumentException("TARIFF_CODE_ALREADY_EXISTS");
         boolean overlap = tariffs.findAll().stream().filter(Tariff::isActive)
                 .filter(t -> Objects.equals(t.getZoneId(), request.zoneId()))
@@ -94,52 +102,186 @@ public class AdminParkingConfigurationService {
         tariff.setRoundingMode(request.roundingMode()); tariff.setNormativeReference(request.normativeReference().trim());
         tariff.setActive(true); tariff.setValidFrom(request.validFrom()); tariff.setValidTo(request.validTo());
         tariff.setCreatedAt(now); tariff.setUpdatedAt(now);
-        return tariffs.saveAndFlush(tariff);
+        tariff.setVersionGroupId(tariff.getId());
+        Tariff saved = tariffs.saveAndFlush(tariff);
+        tariffHistory.record("CREATED", saved, null, saved.getValidFrom(),
+                nonBlankOr(request.reason(), "Creación respaldada por: " + saved.getNormativeReference()), null);
+        return saved;
     }
 
     @Transactional
     @Audited(action = "CONFIGURATION_TARIFF_ENDED", resourceType = "CONFIGURATION", resourceIdArgument = 0)
-    public Tariff endTariff(UUID id, OffsetDateTime effectiveAt) {
-        Tariff tariff = tariffs.findById(id).orElseThrow(() -> new ResourceNotFoundException("Tariff not found"));
-        lockScope("tariff", tariff.getZoneId());
-        tariff = tariffs.findById(id).orElseThrow(() -> new ResourceNotFoundException("Tariff not found"));
-        if (!tariff.isActive() || effectiveAt == null || !effectiveAt.isAfter(OffsetDateTime.now(ZoneOffset.UTC))
+    public Tariff endTariff(UUID id, OffsetDateTime effectiveAt, String reason, Long expectedVersion) {
+        Tariff beforeLock = tariffs.findById(id).orElseThrow(() -> new ResourceNotFoundException("Tariff not found"));
+        lockTariffWrite(beforeLock.getZoneId(), beforeLock.getCode());
+        Tariff tariff = tariffs.findByIdForUpdate(id).orElseThrow(() -> new ResourceNotFoundException("Tariff not found"));
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        if (!tariff.isActive() || tariff.getCancelledAt() != null || tariff.getValidFrom().isAfter(now)
+                || tariff.getValidTo() != null && tariff.getValidTo().isBefore(now)
+                || effectiveAt == null || !effectiveAt.isAfter(now)
                 || !effectiveAt.isAfter(tariff.getValidFrom()))
             throw new IllegalArgumentException("INVALID_TARIFF_END");
+        requireExpectedVersion(tariff, expectedVersion);
+        requireReason(reason);
         OffsetDateTime end = effectiveAt.minusNanos(1_000);
         if (tariff.getValidTo() != null && end.isAfter(tariff.getValidTo()))
             throw new IllegalArgumentException("TARIFF_END_AFTER_CURRENT_END");
+        ensureNoTariffOverlap(tariff.getZoneId(), tariff.getId(), tariff.getValidFrom(), end);
+        Tariff before = copyTariff(tariff);
         tariff.setValidTo(end); tariff.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
-        return tariffs.saveAndFlush(tariff);
+        Tariff saved = tariffs.saveAndFlush(tariff);
+        tariffHistory.record("ENDED", saved, null, effectiveAt, reason, before);
+        return saved;
+    }
+
+    @Transactional
+    @Audited(action = "CONFIGURATION_TARIFF_ENDED_IMMEDIATELY", resourceType = "CONFIGURATION", resourceIdArgument = 0)
+    public Tariff endTariffImmediately(UUID id, String reason, Long expectedVersion) {
+        Tariff beforeLock = tariffs.findById(id).orElseThrow(() -> new ResourceNotFoundException("Tariff not found"));
+        lockTariffWrite(beforeLock.getZoneId(), beforeLock.getCode());
+        entityManager.refresh(beforeLock, LockModeType.PESSIMISTIC_WRITE);
+        Tariff tariff = beforeLock;
+        OffsetDateTime effectiveAt = tariffScopeLocks.databaseNow();
+        if (!tariff.isActive() || tariff.getCancelledAt() != null || !tariff.getValidFrom().isBefore(effectiveAt)
+                || tariff.getValidTo() != null && tariff.getValidTo().isBefore(effectiveAt))
+            throw new IllegalArgumentException("TARIFF_NOT_CURRENTLY_EFFECTIVE");
+        requireExpectedVersion(tariff, expectedVersion);
+        requireReason(reason);
+        OffsetDateTime previousEnd = effectiveAt.minusNanos(1_000);
+        if (previousEnd.isBefore(tariff.getValidFrom()))
+            throw new IllegalArgumentException("TARIFF_IMMEDIATE_END_BEFORE_VALIDITY");
+        ensureNoTariffOverlap(tariff.getZoneId(), tariff.getId(), tariff.getValidFrom(), previousEnd);
+        Tariff before = copyTariff(tariff);
+        tariff.setValidTo(previousEnd);
+        tariff.setUpdatedAt(effectiveAt);
+        Tariff saved = tariffs.saveAndFlush(tariff);
+        tariffHistory.record("ENDED_IMMEDIATELY", saved, null, effectiveAt, reason, before);
+        return saved;
     }
 
     @Transactional
     @Audited(action = "CONFIGURATION_SCHEDULED_TARIFF_UPDATED", resourceType = "CONFIGURATION", resourceIdArgument = 0)
     public Tariff updateScheduledTariff(UUID id, AdminTariffWriteRequest request) {
         Tariff beforeLock = tariffs.findById(id).orElseThrow(() -> new ResourceNotFoundException("Tariff not found"));
-        lockScope("tariff", beforeLock.getZoneId());
+        lockTariffWrite(Arrays.asList(beforeLock.getZoneId(), request.zoneId()), beforeLock.getCode(), request.code());
         Tariff tariff = tariffs.findByIdForUpdate(id).orElseThrow(() -> new ResourceNotFoundException("Tariff not found"));
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         if (!tariff.isActive() || tariff.getCancelledAt() != null || !tariff.getValidFrom().isAfter(now))
             throw new IllegalArgumentException("TARIFF_SCHEDULE_NO_LONGER_EDITABLE");
-        if (!Objects.equals(tariff.getZoneId(), request.zoneId()))
+        requireExpectedVersion(tariff, request.expectedVersion());
+        requireReason(request.reason());
+        if (!Objects.equals(tariff.getZoneId(), request.zoneId()) && tariff.getPreviousVersionId() != null)
             throw new IllegalArgumentException("TARIFF_SCOPE_CANNOT_CHANGE");
         validateTariffRequest(request);
-        if (tariffs.existsByCodeAndIdNot(request.code().trim(), id))
+        if (request.zoneId() != null) requireZone(request.zoneId());
+        if (tariffs.existsByCodeAndVersionGroupIdNot(request.code().trim(), tariff.getVersionGroupId()))
             throw new IllegalArgumentException("TARIFF_CODE_ALREADY_EXISTS");
         boolean overlap = tariffs.findAll().stream().filter(Tariff::isActive).filter(other -> !other.getId().equals(id))
-                .filter(other -> Objects.equals(other.getZoneId(), tariff.getZoneId()))
+                .filter(other -> Objects.equals(other.getZoneId(), request.zoneId()))
                 .anyMatch(other -> overlaps(other.getValidFrom().toInstant(), end(other.getValidTo()),
                         request.validFrom().toInstant(), end(request.validTo())));
         if (overlap) throw new IllegalArgumentException("TARIFF_VALIDITY_OVERLAP");
+        Tariff before = copyTariff(tariff);
         BigDecimal amount = new BigDecimal(request.amount());
         tariff.setCode(request.code().trim()); tariff.setName(request.name().trim());
+        tariff.setZoneId(request.zoneId());
         tariff.setCurrency(request.currency()); tariff.setAmount(amount);
         tariff.setDurationMinutes(request.durationMinutes()); tariff.setMinMinutes(request.minMinutes());
         tariff.setMaxContinuousMinutes(request.maxContinuousMinutes()); tariff.setGracePeriodMinutes(request.gracePeriodMinutes());
         tariff.setRoundingMode(request.roundingMode()); tariff.setNormativeReference(request.normativeReference().trim());
         tariff.setValidFrom(request.validFrom()); tariff.setValidTo(request.validTo()); tariff.setUpdatedAt(now);
-        return tariffs.saveAndFlush(tariff);
+        Tariff saved = tariffs.saveAndFlush(tariff);
+        tariffHistory.record("SCHEDULED_UPDATED", saved, null, saved.getValidFrom(), request.reason(), before);
+        return saved;
+    }
+
+    @Transactional
+    @Audited(action = "CONFIGURATION_TARIFF_REVISED", resourceType = "CONFIGURATION", resourceIdArgument = 0)
+    public Tariff reviseCurrentTariff(UUID id, AdminTariffWriteRequest request) {
+        Tariff beforeLock = tariffs.findById(id).orElseThrow(() -> new ResourceNotFoundException("Tariff not found"));
+        lockTariffWrite(beforeLock.getZoneId(), beforeLock.getCode(), request.code());
+        Tariff current = tariffs.findByIdForUpdate(id).orElseThrow(() -> new ResourceNotFoundException("Tariff not found"));
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        if (!current.isActive() || current.getCancelledAt() != null || current.getValidFrom().isAfter(now)
+                || current.getValidTo() != null && current.getValidTo().isBefore(now))
+            throw new IllegalArgumentException("TARIFF_NOT_CURRENTLY_EFFECTIVE");
+        requireExpectedVersion(current, request.expectedVersion());
+        requireReason(request.reason());
+        if (!Objects.equals(current.getZoneId(), request.zoneId()))
+            throw new IllegalArgumentException("TARIFF_SCOPE_CANNOT_CHANGE");
+        validateTariffRequest(request);
+        if (request.validFrom().isAfter(now) && current.getValidTo() != null && request.validFrom().isAfter(current.getValidTo()))
+            throw new IllegalArgumentException("TARIFF_REVISION_OUTSIDE_CURRENT_VALIDITY");
+        if (tariffs.existsByCodeAndVersionGroupIdNot(request.code().trim(), current.getVersionGroupId()))
+            throw new IllegalArgumentException("TARIFF_CODE_ALREADY_EXISTS");
+        ensureNoTariffOverlap(current.getZoneId(), current.getId(), request.validFrom(), request.validTo());
+
+        Tariff before = copyTariff(current);
+        OffsetDateTime effectiveAt = request.validFrom();
+        OffsetDateTime previousEnd = effectiveAt.minusNanos(1_000);
+        if (current.getValidTo() != null && current.getValidTo().isBefore(previousEnd)) previousEnd = current.getValidTo();
+        current.setValidTo(previousEnd);
+        current.setUpdatedAt(now);
+        Tariff ended = tariffs.saveAndFlush(current);
+
+        Tariff next = new Tariff();
+        next.setId(UUID.randomUUID()); next.setVersionGroupId(current.getVersionGroupId()); next.setPreviousVersionId(current.getId());
+        next.setCode(request.code().trim()); next.setName(request.name().trim()); next.setZoneId(current.getZoneId());
+        next.setCurrency(request.currency()); next.setAmount(new BigDecimal(request.amount()));
+        next.setDurationMinutes(request.durationMinutes()); next.setMinMinutes(request.minMinutes());
+        next.setMaxContinuousMinutes(request.maxContinuousMinutes()); next.setGracePeriodMinutes(request.gracePeriodMinutes());
+        next.setRoundingMode(request.roundingMode()); next.setNormativeReference(request.normativeReference().trim());
+        next.setActive(true); next.setValidFrom(effectiveAt); next.setValidTo(request.validTo());
+        next.setCreatedAt(now); next.setUpdatedAt(now);
+        Tariff saved = tariffs.saveAndFlush(next);
+        tariffHistory.record("REVISED", saved, ended.getId(), effectiveAt, request.reason(), before);
+        return saved;
+    }
+
+    @Transactional
+    @Audited(action = "CONFIGURATION_TARIFF_REVISED_IMMEDIATELY", resourceType = "CONFIGURATION", resourceIdArgument = 0)
+    public Tariff reviseCurrentTariffImmediately(UUID id, ImmediateTariffRevisionRequest request) {
+        Tariff beforeLock = tariffs.findById(id).orElseThrow(() -> new ResourceNotFoundException("Tariff not found"));
+        lockTariffWrite(beforeLock.getZoneId(), beforeLock.getCode(), request.code());
+        entityManager.refresh(beforeLock, LockModeType.PESSIMISTIC_WRITE);
+        Tariff current = beforeLock;
+        OffsetDateTime effectiveAt = tariffScopeLocks.databaseNow();
+        if (!current.isActive() || current.getCancelledAt() != null || !current.getValidFrom().isBefore(effectiveAt)
+                || current.getValidTo() != null && current.getValidTo().isBefore(effectiveAt))
+            throw new IllegalArgumentException("TARIFF_NOT_CURRENTLY_EFFECTIVE");
+        requireExpectedVersion(current, request.expectedVersion());
+        requireReason(request.reason());
+        validateTariffEconomics(request.amount(), request.durationMinutes(), request.minMinutes(),
+                request.maxContinuousMinutes(), request.currency());
+        if (tariffs.existsByCodeAndVersionGroupIdNot(request.code().trim(), current.getVersionGroupId()))
+            throw new IllegalArgumentException("TARIFF_CODE_ALREADY_EXISTS");
+
+        OffsetDateTime originalValidTo = current.getValidTo();
+        OffsetDateTime previousEnd = effectiveAt.minusNanos(1_000);
+        if (previousEnd.isBefore(current.getValidFrom()))
+            throw new IllegalArgumentException("TARIFF_IMMEDIATE_REVISION_BEFORE_VALIDITY");
+        if (current.getValidTo() != null && previousEnd.isAfter(current.getValidTo()))
+            throw new IllegalArgumentException("TARIFF_REVISION_OUTSIDE_CURRENT_VALIDITY");
+        ensureNoTariffOverlap(current.getZoneId(), current.getId(), effectiveAt, current.getValidTo());
+
+        Tariff before = copyTariff(current);
+        current.setValidTo(previousEnd);
+        current.setUpdatedAt(effectiveAt);
+        Tariff ended = tariffs.saveAndFlush(current);
+
+        Tariff next = new Tariff();
+        next.setId(UUID.randomUUID()); next.setVersionGroupId(current.getVersionGroupId());
+        next.setPreviousVersionId(current.getId()); next.setCode(request.code().trim());
+        next.setName(request.name().trim()); next.setZoneId(current.getZoneId());
+        next.setCurrency(request.currency()); next.setAmount(new BigDecimal(request.amount()));
+        next.setDurationMinutes(request.durationMinutes()); next.setMinMinutes(request.minMinutes());
+        next.setMaxContinuousMinutes(request.maxContinuousMinutes()); next.setGracePeriodMinutes(request.gracePeriodMinutes());
+        next.setRoundingMode(request.roundingMode()); next.setNormativeReference(request.normativeReference().trim());
+        next.setActive(true); next.setValidFrom(effectiveAt); next.setValidTo(originalValidTo);
+        next.setCreatedAt(effectiveAt); next.setUpdatedAt(effectiveAt);
+        Tariff saved = tariffs.saveAndFlush(next);
+        tariffHistory.record("REVISED_IMMEDIATELY", saved, ended.getId(), effectiveAt, request.reason(), before);
+        return saved;
     }
 
     @Transactional
@@ -148,7 +290,7 @@ public class AdminParkingConfigurationService {
         if (reason == null || reason.isBlank() || reason.trim().length() > 500)
             throw new IllegalArgumentException("TARIFF_CANCELLATION_REASON_REQUIRED");
         Tariff beforeLock = tariffs.findById(id).orElseThrow(() -> new ResourceNotFoundException("Tariff not found"));
-        lockScope("tariff", beforeLock.getZoneId());
+        lockTariffWrite(beforeLock.getZoneId(), beforeLock.getCode());
         Tariff tariff = tariffs.findByIdForUpdate(id).orElseThrow(() -> new ResourceNotFoundException("Tariff not found"));
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         if (!tariff.isActive() || tariff.getCancelledAt() != null || !tariff.getValidFrom().isAfter(now))
@@ -159,21 +301,40 @@ public class AdminParkingConfigurationService {
         UUID actorId = jdbc.query("SELECT id FROM identity.users WHERE username=?", rs ->
                 rs.next() ? rs.getObject(1, UUID.class) : null, authentication.getName());
         if (actorId == null) throw new IllegalStateException("ADMIN_ACTOR_NOT_FOUND_FOR_TARIFF_CANCELLATION");
+        Tariff before = copyTariff(tariff);
         tariff.setActive(false); tariff.setCancelledAt(now); tariff.setCancelledByUserId(actorId);
         tariff.setCancellationReason(reason.trim()); tariff.setUpdatedAt(now);
-        return tariffs.saveAndFlush(tariff);
+        Tariff saved = tariffs.saveAndFlush(tariff);
+        tariffHistory.record("SCHEDULED_CANCELLED", saved, null, saved.getValidFrom(), reason, before);
+        return saved;
+    }
+
+    @Transactional(readOnly = true)
+    public List<TariffChangeHistoryService.TariffHistoryItem> tariffHistory(UUID id) {
+        return tariffHistory.history(id);
+    }
+
+    @Transactional(readOnly = true)
+    public TariffChangeHistoryService.TariffHistoryPage tariffHistoryPage(UUID tariffId, int page, int size) {
+        return tariffHistory.historyPage(tariffId, page, size);
     }
 
     private void validateTariffRequest(AdminTariffWriteRequest request) {
         validateRange(request.validFrom(), request.validTo());
         if (!request.validFrom().isAfter(OffsetDateTime.now(ZoneOffset.UTC)))
             throw new IllegalArgumentException("TARIFF_START_MUST_BE_FUTURE");
-        BigDecimal amount = new BigDecimal(request.amount());
+        validateTariffEconomics(request.amount(), request.durationMinutes(), request.minMinutes(),
+                request.maxContinuousMinutes(), request.currency());
+    }
+
+    private void validateTariffEconomics(String rawAmount, Integer durationMinutes, Integer minMinutes,
+            Integer maxContinuousMinutes, String currency) {
+        BigDecimal amount = new BigDecimal(rawAmount);
         if (amount.signum() <= 0 || amount.precision() > 12 || amount.scale() > 2)
             throw new IllegalArgumentException("INVALID_TARIFF_AMOUNT");
-        if (request.minMinutes() > request.durationMinutes() || request.maxContinuousMinutes() < request.minMinutes())
+        if (minMinutes > durationMinutes || maxContinuousMinutes < minMinutes)
             throw new IllegalArgumentException("INVALID_TARIFF_DURATION_RANGE");
-        try { java.util.Currency.getInstance(request.currency()); }
+        try { java.util.Currency.getInstance(currency); }
         catch (IllegalArgumentException invalid) { throw new IllegalArgumentException("INVALID_TARIFF_CURRENCY"); }
     }
 
@@ -269,6 +430,39 @@ public class AdminParkingConfigurationService {
     }
 
     private void requireZone(UUID zoneId) { if (!zones.existsById(zoneId)) throw new ResourceNotFoundException("Zone not found"); }
+    private void requireExpectedVersion(Tariff tariff, Long expectedVersion) {
+        if (expectedVersion == null || !Objects.equals(tariff.getRowVersion(), expectedVersion))
+            throw new IllegalArgumentException("TARIFF_VERSION_CHANGED_REFRESH_REQUIRED");
+    }
+    private void requireReason(String reason) {
+        if (reason == null || reason.isBlank() || reason.trim().length() > 500)
+            throw new IllegalArgumentException("TARIFF_CHANGE_REASON_REQUIRED");
+    }
+    private String nonBlankOr(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value.trim();
+    }
+    private void ensureNoTariffOverlap(UUID zoneId, UUID excludedId, OffsetDateTime from, OffsetDateTime to) {
+        if (tariffs.findAll().stream().filter(Tariff::isActive).filter(other -> other.getCancelledAt() == null)
+                .filter(other -> !other.getId().equals(excludedId)).filter(other -> Objects.equals(other.getZoneId(), zoneId))
+                .anyMatch(other -> overlaps(other.getValidFrom().toInstant(), end(other.getValidTo()),
+                        from.toInstant(), end(to))))
+            throw new IllegalArgumentException("TARIFF_VALIDITY_OVERLAP");
+    }
+    private Tariff copyTariff(Tariff source) {
+        Tariff copy = new Tariff();
+        copy.setId(source.getId()); copy.setVersionGroupId(source.getVersionGroupId());
+        copy.setPreviousVersionId(source.getPreviousVersionId()); copy.setRowVersion(source.getRowVersion());
+        copy.setCode(source.getCode()); copy.setName(source.getName()); copy.setZoneId(source.getZoneId());
+        copy.setNormativeReference(source.getNormativeReference()); copy.setCurrency(source.getCurrency());
+        copy.setRoundingMode(source.getRoundingMode()); copy.setGracePeriodMinutes(source.getGracePeriodMinutes());
+        copy.setAmount(source.getAmount()); copy.setDurationMinutes(source.getDurationMinutes());
+        copy.setMinMinutes(source.getMinMinutes()); copy.setMaxContinuousMinutes(source.getMaxContinuousMinutes());
+        copy.setActive(source.isActive()); copy.setValidFrom(source.getValidFrom()); copy.setValidTo(source.getValidTo());
+        copy.setCreatedAt(source.getCreatedAt()); copy.setUpdatedAt(source.getUpdatedAt());
+        copy.setCancelledAt(source.getCancelledAt()); copy.setCancelledByUserId(source.getCancelledByUserId());
+        copy.setCancellationReason(source.getCancellationReason());
+        return copy;
+    }
     private void validateRange(OffsetDateTime from, OffsetDateTime to) {
         if (from == null || to != null && !to.isAfter(from)) throw new IllegalArgumentException("INVALID_CONFIGURATION_VALIDITY");
     }
@@ -286,6 +480,13 @@ public class AdminParkingConfigurationService {
                 statement.setString(1, key); statement.execute(); return null;
             }
         });
+    }
+    private void lockTariffWrite(UUID zoneId, String... codes) {
+        lockTariffWrite(Collections.singletonList(zoneId), codes);
+    }
+    private void lockTariffWrite(Collection<UUID> zoneIds, String... codes) {
+        tariffScopeLocks.lockScopes(zoneIds);
+        tariffScopeLocks.lockVersionCodes(codes);
     }
     public record BillingPolicy(UUID calendarId, UUID zoneId, String normativeReference, boolean chargeable, boolean configured) { }
     public record BillingCalendarCreated(UUID id) { public UUID getId() { return id; } }

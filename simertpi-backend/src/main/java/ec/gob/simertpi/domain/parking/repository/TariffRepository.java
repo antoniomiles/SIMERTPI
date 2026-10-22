@@ -14,11 +14,13 @@ import jakarta.persistence.LockModeType;
 
 public interface TariffRepository extends JpaRepository<Tariff, UUID> {
 
-    Optional<Tariff> findByCode(String code);
+    List<Tariff> findAllByCodeOrderByValidFromDesc(String code);
 
     boolean existsByCode(String code);
 
     boolean existsByCodeAndIdNot(String code, UUID id);
+
+    boolean existsByCodeAndVersionGroupIdNot(String code, UUID versionGroupId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT t FROM Tariff t WHERE t.id = :id")

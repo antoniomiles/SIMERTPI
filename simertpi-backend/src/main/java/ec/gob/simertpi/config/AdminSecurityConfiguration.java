@@ -49,6 +49,8 @@ public class AdminSecurityConfiguration {
      "/api/v1/admin/parking/zones/*/streets",
      "/api/v1/admin/parking/streets/*/spaces",
      "/api/v1/admin/parking/tariffs",
+     "/api/v1/admin/parking/tariffs/history",
+     "/api/v1/admin/parking/tariffs/*/history",
      "/api/v1/admin/parking/billing-day-calendars",
      "/api/v1/admin/parking/configuration/effective",
      "/api/v1/admin/parking/schedules",
@@ -61,6 +63,9 @@ public class AdminSecurityConfiguration {
     .requestMatchers(HttpMethod.POST,
      "/api/v1/admin/parking/tariffs",
      "/api/v1/admin/parking/tariffs/*/end",
+     "/api/v1/admin/parking/tariffs/*/end-now",
+     "/api/v1/admin/parking/tariffs/*/revise",
+     "/api/v1/admin/parking/tariffs/*/revise-now",
      "/api/v1/admin/parking/tariffs/*/cancel",
      "/api/v1/admin/parking/billing-day-calendars",
      "/api/v1/admin/parking/billing-day-calendars/*/end").hasAuthority("SIMERTPI_ADMIN")

@@ -2,8 +2,10 @@ package ec.gob.simertpi.api.parking;
 
 import ec.gob.simertpi.api.parking.admin.dto.AdminBillingDaysWriteRequest;
 import ec.gob.simertpi.api.parking.admin.dto.AdminTariffWriteRequest;
+import ec.gob.simertpi.api.parking.admin.dto.ImmediateTariffRevisionRequest;
 import ec.gob.simertpi.api.ResourceNotFoundException;
 import ec.gob.simertpi.application.parking.AdminParkingConfigurationService;
+import ec.gob.simertpi.application.parking.TariffChangeHistoryService;
 import ec.gob.simertpi.application.parking.ParkingSpaceService;
 import ec.gob.simertpi.application.parking.StreetService;
 import ec.gob.simertpi.application.parking.ZoneService;
@@ -85,6 +87,19 @@ public class AdminParkingConfigurationController {
         return noStore(service.billingCalendars());
     }
 
+    @GetMapping("/tariffs/{id}/history")
+    public ResponseEntity<List<TariffChangeHistoryService.TariffHistoryItem>> tariffHistory(@PathVariable UUID id) {
+        return noStore(service.tariffHistory(id));
+    }
+
+    @GetMapping("/tariffs/history")
+    public ResponseEntity<TariffChangeHistoryService.TariffHistoryPage> tariffHistoryPage(
+            @RequestParam(required = false) UUID tariffId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "25") int size) {
+        return noStore(service.tariffHistoryPage(tariffId, page, size));
+    }
+
     @GetMapping("/configuration/effective")
     public ResponseEntity<AdminParkingConfigurationService.EffectiveSnapshot> effective(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime at) {
@@ -99,7 +114,25 @@ public class AdminParkingConfigurationController {
 
     @PostMapping("/tariffs/{id}/end")
     public ResponseEntity<AdminTariffView> endTariff(@PathVariable UUID id, @Valid @RequestBody EndTariffRequest request) {
-        return noStore(AdminTariffView.of(service.endTariff(id, request.effectiveAt())));
+        return noStore(AdminTariffView.of(service.endTariff(id, request.effectiveAt(), request.reason(), request.expectedVersion())));
+    }
+
+    @PostMapping("/tariffs/{id}/end-now")
+    public ResponseEntity<AdminTariffView> endTariffImmediately(@PathVariable UUID id,
+            @Valid @RequestBody ImmediateTariffEndRequest request) {
+        return noStore(AdminTariffView.of(service.endTariffImmediately(id, request.reason(), request.expectedVersion())));
+    }
+
+    @PostMapping("/tariffs/{id}/revise")
+    public ResponseEntity<AdminTariffView> reviseTariff(@PathVariable UUID id,
+            @Valid @RequestBody AdminTariffWriteRequest request) {
+        return noStore(AdminTariffView.of(service.reviseCurrentTariff(id, request)));
+    }
+
+    @PostMapping("/tariffs/{id}/revise-now")
+    public ResponseEntity<AdminTariffView> reviseTariffImmediately(@PathVariable UUID id,
+            @Valid @RequestBody ImmediateTariffRevisionRequest request) {
+        return noStore(AdminTariffView.of(service.reviseCurrentTariffImmediately(id, request)));
     }
 
     @PutMapping("/tariffs/{id}")
@@ -137,17 +170,24 @@ public class AdminParkingConfigurationController {
             space.getCode(), space.getQrCode(), space.getSpaceNumber(), space.getLatitude(), space.getLongitude(), space.getSpaceType(),
             space.isActive(), space.getCreatedAt(), space.getUpdatedAt()); }
 
-    public record EndTariffRequest(@jakarta.validation.constraints.NotNull OffsetDateTime effectiveAt) { }
+    public record EndTariffRequest(@jakarta.validation.constraints.NotNull OffsetDateTime effectiveAt,
+            @jakarta.validation.constraints.NotBlank @jakarta.validation.constraints.Size(max = 500) String reason,
+            @jakarta.validation.constraints.NotNull @jakarta.validation.constraints.Min(0) Long expectedVersion) { }
+    public record ImmediateTariffEndRequest(
+            @jakarta.validation.constraints.NotBlank @jakarta.validation.constraints.Size(max = 500) String reason,
+            @jakarta.validation.constraints.NotNull @jakarta.validation.constraints.Min(0) Long expectedVersion) { }
     public record CancelTariffRequest(@jakarta.validation.constraints.NotBlank @jakarta.validation.constraints.Size(max = 500) String reason) { }
     public record EndBillingDaysRequest(@jakarta.validation.constraints.NotNull LocalDate effectiveFrom) { }
     public record AdminTariffView(UUID id, String code, String name, UUID zoneId, String currency,
             java.math.BigDecimal amount, Integer durationMinutes, Integer minMinutes, Integer maxContinuousMinutes,
             Integer gracePeriodMinutes, String roundingMode, String normativeReference, boolean active,
             OffsetDateTime validFrom, OffsetDateTime validTo, OffsetDateTime cancelledAt,
-            UUID cancelledByUserId, String cancellationReason) {
+            UUID cancelledByUserId, String cancellationReason, Long rowVersion, UUID versionGroupId,
+            UUID previousVersionId) {
         static AdminTariffView of(Tariff t) { return new AdminTariffView(t.getId(),t.getCode(),t.getName(),t.getZoneId(),
                 t.getCurrency(),t.getAmount(),t.getDurationMinutes(),t.getMinMinutes(),t.getMaxContinuousMinutes(),
                 t.getGracePeriodMinutes(),t.getRoundingMode(),t.getNormativeReference(),t.isActive(),t.getValidFrom(),t.getValidTo(),
-                t.getCancelledAt(),t.getCancelledByUserId(),t.getCancellationReason()); }
+                t.getCancelledAt(),t.getCancelledByUserId(),t.getCancellationReason(),t.getRowVersion(),
+                t.getVersionGroupId(),t.getPreviousVersionId()); }
     }
 }
