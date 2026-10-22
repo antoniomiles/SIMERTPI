@@ -76,7 +76,7 @@ export type ImmediateTariffRevision = Omit<CreateTariff, 'zoneId' | 'validFrom' 
 export interface TariffHistoryItem {
   id: string; tariffId: string; previousTariffId: string | null; action: string;
   actorId: string | null; actorName: string | null; occurredAt: string; effectiveAt: string | null;
-  reason: string; beforeState: Record<string, unknown> | null; afterState: Record<string, unknown>;
+  reason: string | null; beforeState: Record<string, unknown> | null; afterState: Record<string, unknown>;
 }
 export interface TariffHistoryPage {
   items: TariffHistoryItem[]; page: number; size: number; total: number;

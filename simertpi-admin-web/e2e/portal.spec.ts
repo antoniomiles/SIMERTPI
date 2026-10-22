@@ -252,6 +252,55 @@ test('tariff history preview stays empty and does not call administrative histor
   expect(requests).toEqual([]);
 });
 
+test('tariff history remains a separate responsive screen and opens complete change details accessibly', async ({ page }) => {
+  const identity = {
+    userId: 'local-test-admin', username: 'admin.fixture', roles: ['SIMERTPI_ADMIN'], enabled: true,
+    sessionExpiresAt: new Date(Date.now() + 600000).toISOString(), absoluteExpiresAt: new Date(Date.now() + 3600000).toISOString(),
+  };
+  const history = {
+    items: [{ id: 'history-event-1', tariffId: 'tariff-version-2', previousTariffId: 'tariff-version-1', action: 'REVISED',
+      actorId: 'admin-1', actorName: 'admin.fixture', occurredAt: '2026-10-22T15:00:00Z', effectiveAt: '2027-01-01T05:00:00Z',
+      reason: 'Corrección aprobada', beforeState: { id: 'tariff-version-1', versionGroupId: 'series-1', rowVersion: 0,
+        code: 'GEN-01', name: 'Tarifa general', zoneId: null, currency: 'USD', amount: 0.25, durationMinutes: 60,
+        minMinutes: 15, maxContinuousMinutes: 240, gracePeriodMinutes: 5, roundingMode: 'HALF_UP',
+        validFrom: '2026-01-01T05:00:00Z', validTo: null, normativeReference: 'Ordenanza anterior', active: true,
+        cancelledAt: null, cancelledByUserId: null, cancellationReason: null },
+      afterState: { id: 'tariff-version-2', versionGroupId: 'series-1', previousVersionId: 'tariff-version-1', rowVersion: 0,
+        code: 'GEN-01-V2', name: 'Tarifa general revisada', zoneId: null, currency: 'USD', amount: 0.3, durationMinutes: 45,
+        minMinutes: 15, maxContinuousMinutes: 240, gracePeriodMinutes: 5, roundingMode: 'HALF_UP',
+        validFrom: '2027-01-01T05:00:00Z', validTo: null, normativeReference: 'Ordenanza nueva', active: true,
+        cancelledAt: null, cancelledByUserId: null, cancellationReason: null } }], page: 0, size: 25, total: 1,
+  };
+  await page.route('**/api/v1/admin/auth/me', (route) => route.fulfill({ json: identity }));
+  await page.route('**/api/v1/admin/parking/tariffs/history**', (route) => route.fulfill({ json: history }));
+  await page.goto('http://127.0.0.1:4301/admin/tariffs/history?tariffId=tariff-version-1');
+  await expect(page.getByRole('heading', { name: 'Historial de cambios de tarifas' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Volver a tarifas' })).toBeVisible();
+  await expect(page.locator('.history-series')).toContainText('GEN-01-V2 · Tarifa general revisada');
+  await expect(page.locator('.history-table')).toContainText('admin.fixture');
+  await expect(page.locator('.history-table')).toContainText('Corrección aprobada');
+  await expect(page.locator('.history-table')).toContainText('Importe');
+  await expect(page.locator('.history-table')).toContainText('0,25 USD');
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const historyRegion = page.getByRole('region', { name: /Registros del historial/ });
+  await expect(historyRegion).toBeVisible();
+  expect(await historyRegion.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.getByRole('button', { name: 'Ver detalle' }).click();
+  const detail = page.getByRole('dialog', { name: 'Detalle del cambio' });
+  await expect(detail).toBeVisible();
+  await expect(detail).toContainText('Valores anteriores');
+  await expect(detail).toContainText('Valores registrados después del cambio');
+  await expect(detail).toContainText('Ordenanza anterior');
+  await expect(detail).toContainText('Ordenanza nueva');
+  await expect(detail).toContainText('1 de enero de 2027');
+  const a11y = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+  expect(a11y.violations.map((item) => item.id)).toEqual([]);
+  await page.keyboard.press('Escape');
+  await expect(detail).toBeHidden();
+});
+
 test('billing calendar preview states that unselected days are free and does not call the API', async ({ page }) => {
   const requests: string[] = [];
   page.on('request', (request) => { if (['fetch', 'xhr'].includes(request.resourceType())) requests.push(request.url()); });
@@ -379,7 +428,7 @@ test('scheduled tariff actions are aligned and view/edit use accessible responsi
   await expect(page.getByRole('heading', { name: 'Configuración de tarifas' })).toBeVisible();
 
   const actions = page.locator('.row-actions .button');
-  await expect(actions).toHaveText(['Ver', 'Editar', 'Cancelar programación']);
+  await expect(actions).toHaveText(['Ver', 'Editar', 'Cancelar programación', 'Historial']);
   const actionBoxes = await actions.evaluateAll((buttons) => buttons.map((button) => {
     const rect = button.getBoundingClientRect();
     return { width: rect.width, top: rect.top, height: rect.height };

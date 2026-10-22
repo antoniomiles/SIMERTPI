@@ -190,9 +190,28 @@ describe('Tariff configuration screen', () => {
     fixture.detectChanges();
     const actionButtons = fixture.nativeElement.querySelectorAll('.row-actions .button') as NodeListOf<HTMLButtonElement>;
     const actions = [...actionButtons].map((button) => button.textContent?.trim() ?? '');
-    expect(actions).toEqual(['Ver', 'Editar', 'Cancelar programación']);
+    expect(actions).toEqual(['Ver', 'Editar', 'Cancelar programación', 'Historial']);
     expect(fixture.nativeElement.querySelector('details')).toBeNull();
     expect(fixture.nativeElement.textContent).toContain('Programada');
+  });
+
+  it('uses distinct soft status badges and compact icon actions without changing available actions', () => {
+    const rows: ConfiguredTariff[] = [
+      { ...tariff, id: 'current', validFrom: new Date(Date.now() - 86400000).toISOString() },
+      { ...tariff, id: 'scheduled', validFrom: new Date(Date.now() + 86400000).toISOString() },
+      { ...tariff, id: 'cancelled', validFrom: new Date(Date.now() + 86400000).toISOString(), cancelledAt: new Date().toISOString() },
+      { ...tariff, id: 'ended', active: false },
+    ];
+    const fixture = TestBed.createComponent(Tariffs);
+    fixture.componentInstance.tariffs.set(rows);
+    fixture.detectChanges();
+    const statuses = [...fixture.nativeElement.querySelectorAll('.tariff-name-cell .tariff-status') as NodeListOf<HTMLElement>];
+    expect(statuses.map((item) => item.textContent?.trim())).toEqual(['Vigente', 'Programada', 'Cancelada', 'Finalizada']);
+    expect(statuses.map((item) => ['status-current', 'status-scheduled', 'status-cancelled', 'status-ended'].find((name) => item.classList.contains(name))))
+      .toEqual(['status-current', 'status-scheduled', 'status-cancelled', 'status-ended']);
+    const scheduledActions = fixture.nativeElement.querySelectorAll('tr:nth-child(2) .action-button') as NodeListOf<HTMLElement>;
+    expect([...scheduledActions].map((item) => item.textContent?.trim())).toEqual(['Ver', 'Editar', 'Cancelar programación', 'Historial']);
+    for (const action of scheduledActions) expect(action.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
   });
 
   it('opens a dedicated tariff detail dialog with Ecuador-local dates and cancellation history', () => {

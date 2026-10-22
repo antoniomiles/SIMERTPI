@@ -385,4 +385,9 @@ export class Tariffs {
   isCurrent(row: ConfiguredTariff) { const now = Date.now(); return row.active && !row.cancelledAt && Date.parse(row.validFrom) <= now && (!row.validTo || Date.parse(row.validTo) >= now); }
   isScheduled(row: ConfiguredTariff) { return row.active && !row.cancelledAt && Date.parse(row.validFrom) > Date.now(); }
   statusLabel(row: ConfiguredTariff) { return row.cancelledAt ? 'Cancelada' : this.isScheduled(row) ? 'Programada' : row.active && (!row.validTo || Date.parse(row.validTo) >= Date.now()) ? 'Vigente' : 'Finalizada'; }
+  statusClass(row: ConfiguredTariff): 'current' | 'scheduled' | 'cancelled' | 'ended' {
+    if (row.cancelledAt) return 'cancelled';
+    if (this.isScheduled(row)) return 'scheduled';
+    return this.isCurrent(row) ? 'current' : 'ended';
+  }
 }
