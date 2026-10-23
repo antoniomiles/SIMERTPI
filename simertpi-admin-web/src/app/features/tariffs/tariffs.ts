@@ -1,12 +1,13 @@
 import { Component, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { AbstractControl, FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { NgTemplateOutlet } from '@angular/common';
 import { forkJoin, finalize } from 'rxjs';
-import { normalizeError } from '../../core/http/portal-error';
+import { normalizeError, PortalError } from '../../core/http/portal-error';
 import { DataState } from '../../shared/ui/data-state';
 import { PageHeading } from '../../shared/ui/page-heading';
+import { OperationToast } from '../../shared/ui/operation-toast';
 import { ParkingZone, ZonesApi } from '../zones/zones-api';
 import { ConfiguredTariff, EffectiveConfiguration, TariffsApi } from './tariffs-api';
 import { formatConfigurationDate, formatConfigurationDateTime, formatConfigurationAmount, isoToGuayaquilDateTimeLocal, localDateTimeToIso } from './tariffs-format';
@@ -28,6 +29,9 @@ const TARIFF_CONFLICT_MESSAGES: Record<string, string> = {
 };
 
 function normalizeTariffWriteError(error: unknown) {
+  if (error instanceof PortalError && error.kind === 'conflict') {
+    return { message: TARIFF_CONFLICT_MESSAGES[error.code ?? ''] ?? error.message };
+  }
   if (error instanceof HttpErrorResponse && error.status === 409) {
     const code = typeof error.error?.message === 'string' ? error.error.message : '';
     return {
@@ -49,6 +53,7 @@ export class Tariffs {
   private readonly api = inject(TariffsApi);
   private readonly zonesApi = inject(ZonesApi);
   private readonly builder = inject(FormBuilder);
+  private readonly toast = inject(OperationToast);
   readonly preview = inject(ActivatedRoute).snapshot.pathFromRoot.some((route) => route.data['preview'] === true);
   readonly tariffs = signal<ConfiguredTariff[]>([]);
   readonly zones = signal<ParkingZone[]>([]);
@@ -179,7 +184,7 @@ export class Tariffs {
     this.showForm.set(false);
     this.confirmEditDiscard.set(false);
     this.form.controls.reason.setValidators([Validators.required, Validators.maxLength(500)]);
-    this.form.reset({ code: row.code, name: row.name, scope: row.zoneId ? 'ZONE' : 'GENERAL', zoneId: row.zoneId ?? '', currency: row.currency ?? '', amount: String(row.amount).replace('.', ','), durationMinutes: row.durationMinutes, minMinutes: row.minMinutes, maxContinuousMinutes: row.maxContinuousMinutes, gracePeriodMinutes: row.gracePeriodMinutes ?? 0, roundingMode: row.roundingMode ?? 'HALF_UP', validFrom: '', validTo: '', normativeReference: row.normativeReference ?? '', reason: '', expectedVersion: row.rowVersion });
+    this.form.reset({ code: row.code, name: row.name, scope: row.zoneId ? 'ZONE' : 'GENERAL', zoneId: row.zoneId ?? '', currency: row.currency ?? '', amount: String(row.amount).replace('.', ','), durationMinutes: row.durationMinutes, minMinutes: row.minMinutes, maxContinuousMinutes: row.maxContinuousMinutes, gracePeriodMinutes: row.gracePeriodMinutes ?? 0, roundingMode: row.roundingMode ?? 'HALF_UP', validFrom: '', validTo: isoToGuayaquilDateTimeLocal(row.validTo), normativeReference: row.normativeReference ?? '', reason: '', expectedVersion: row.rowVersion });
     this.form.updateValueAndValidity();
     this.setRevisionTiming('scheduled');
   }
@@ -241,18 +246,32 @@ export class Tariffs {
     event.preventDefault();
     if (this.preview || this.saving()) return;
     this.form.markAllAsTouched();
-    if (this.form.invalid) return;
+    if (this.form.invalid) {
+      this.formValidationFailed('Revise los campos marcados antes de guardar.');
+      return;
+    }
     const value = this.form.getRawValue();
     if (value.scope === 'ZONE' && !value.zoneId) {
       this.form.controls.zoneId.setErrors({ required: true });
+      this.form.controls.zoneId.markAsTouched();
+      this.formValidationFailed('Seleccione una zona para esta excepción tarifaria.');
       return;
     }
     const revision = this.revisionOf();
     const immediateRevision = !!revision && this.revisionTiming() === 'now';
     const start = immediateRevision ? null : localDateTimeToIso(value.validFrom);
     const end = value.validTo ? localDateTimeToIso(value.validTo) : null;
-    if (!immediateRevision && (!start || value.validTo && !end)) {
+    if (value.validTo && !end) {
+      this.form.controls.validTo.setErrors({ ...this.form.controls.validTo.errors, invalidDateTime: true });
+      this.form.controls.validTo.markAsTouched();
+      this.formValidationFailed('La fecha final no es válida. Use una fecha y hora de Ecuador.');
+      return;
+    }
+    if (!immediateRevision && !start) {
+      this.form.controls.validFrom.setErrors({ ...this.form.controls.validFrom.errors, invalidDateTime: true });
+      this.form.controls.validFrom.markAsTouched();
       this.actionError.set('Seleccione fechas y horas válidas.');
+      this.toast.error(this.actionError());
       return;
     }
     const scheduled = this.editingScheduled();
@@ -270,12 +289,17 @@ export class Tariffs {
     this.savedVersionId.set('');
     if (!immediateRevision && Date.parse(start!) <= Date.now()) {
       this.saving.set(false);
-      this.actionError.set('La fecha y hora de inicio debe ser futura en la hora de Ecuador (America/Guayaquil).');
+      this.form.controls.validFrom.setErrors({ ...this.form.controls.validFrom.errors, dateMustBeFuture: true });
+      this.form.controls.validFrom.markAsTouched();
+      this.formValidationFailed('La fecha y hora de inicio debe ser futura en la hora de Ecuador (America/Guayaquil).');
       return;
     }
-    if (!immediateRevision && end && Date.parse(end) <= Date.parse(start!)) {
+    const effectiveStart = immediateRevision ? Date.now() : Date.parse(start!);
+    if (end && Date.parse(end) <= effectiveStart) {
       this.saving.set(false);
-      this.actionError.set('La fecha y hora final debe ser posterior a la fecha y hora de inicio.');
+      this.form.controls.validTo.setErrors({ ...this.form.controls.validTo.errors, endNotAfterStart: true });
+      this.form.controls.validTo.markAsTouched();
+      this.formValidationFailed('La fecha y hora final debe ser posterior al inicio de la nueva versión.');
       return;
     }
     const save = scheduled
@@ -287,7 +311,7 @@ export class Tariffs {
           durationMinutes: body.durationMinutes, minMinutes: body.minMinutes,
           maxContinuousMinutes: body.maxContinuousMinutes, gracePeriodMinutes: body.gracePeriodMinutes,
           roundingMode: body.roundingMode, normativeReference: body.normativeReference,
-          reason: value.reason.trim(), expectedVersion: revision.rowVersion,
+          reason: value.reason.trim(), expectedVersion: revision.rowVersion, validTo: end,
         })
         : this.api.reviseTariff(revision.id, body)
       : this.api.createTariff(body);
@@ -301,13 +325,32 @@ export class Tariffs {
           ? 'Tarifa actualizada correctamente. Se creó una nueva versión y se conservó el historial.'
           : 'La nueva versión tarifaria quedó registrada con su vigencia y referencia normativa.');
         if (scheduled) this.actionMessage.set('La tarifa programada se actualizó correctamente.');
-        if (revision && immediateRevision) this.actionMessage.set(`Tarifa actualizada correctamente. Nueva versión ${saved.id}; las sesiones ya iniciadas conservan su tarifa anterior.`);
+        if (revision && immediateRevision) this.actionMessage.set(`Tarifa actualizada correctamente. Se creó una nueva versión y se conservaron los datos históricos. Identificador: ${saved.id}`);
+        this.toast.success(this.actionMessage());
         this.load();
       },
       error: (error: unknown) => {
         this.actionError.set(normalizeTariffWriteError(error).message);
+        this.toast.error(this.actionError());
       },
     });
+  }
+
+  controlError(control: AbstractControl, label: string): string {
+    if (!control.touched || !control.invalid) return '';
+    if (control.hasError('required')) return `Ingrese ${label}.`;
+    if (control.hasError('invalidDateTime')) return `Ingrese una fecha y hora válida para ${label}.`;
+    if (control.hasError('dateMustBeFuture')) return 'La fecha y hora debe ser futura en Ecuador.';
+    if (control.hasError('endNotAfterStart')) return 'Debe ser posterior al inicio de la nueva versión.';
+    if (control.hasError('pattern')) return `Revise el formato de ${label}.`;
+    if (control.hasError('min')) return `El valor de ${label} debe ser mayor o igual al mínimo permitido.`;
+    if (control.hasError('maxlength')) return `El valor de ${label} excede la longitud permitida.`;
+    return `Revise el valor de ${label}.`;
+  }
+
+  private formValidationFailed(message: string) {
+    this.actionError.set(message);
+    this.toast.error(message);
   }
 
   openEnd(row: ConfiguredTariff) {
@@ -356,30 +399,34 @@ export class Tariffs {
   submitCancel(event: Event) {
     event.preventDefault();
     const row = this.cancellingTariff();
-    if (!row || this.saving() || this.cancellationForm.invalid) { this.cancellationForm.markAllAsTouched(); return; }
+    if (!row || this.saving()) return;
+    this.cancellationForm.markAllAsTouched();
+    if (this.cancellationForm.invalid) { this.formValidationFailed('Escriba el motivo obligatorio para cancelar la programación.'); return; }
     this.saving.set(true);
     this.api.cancelScheduledTariff(row.id, this.cancellationForm.controls.reason.value.trim())
       .pipe(finalize(() => this.saving.set(false))).subscribe({
-        next: () => { this.cancellingTariff.set(null); this.actionMessage.set('La programación fue cancelada. Esta tarifa no entrará en vigencia.'); this.load(); },
-        error: (error: unknown) => this.actionError.set(normalizeTariffWriteError(error).message),
+        next: () => { this.cancellingTariff.set(null); this.actionMessage.set('La programación fue cancelada. Esta tarifa no entrará en vigencia.'); this.toast.success(this.actionMessage()); this.load(); },
+        error: (error: unknown) => { this.actionError.set(normalizeTariffWriteError(error).message); this.toast.error(this.actionError()); },
       });
   }
 
   submitEnd(event: Event) {
     event.preventDefault();
     const row = this.endingTariff();
-    if (!row || this.endForm.invalid || this.saving()) { this.endForm.markAllAsTouched(); return; }
+    if (!row || this.saving()) return;
+    this.endForm.markAllAsTouched();
+    if (this.endForm.invalid) { this.formValidationFailed('Seleccione una fecha válida y escriba el motivo obligatorio para finalizar.'); return; }
     const immediate = this.endTiming() === 'now';
     const value = immediate ? null : localDateTimeToIso(this.endForm.getRawValue().validTo);
-    if (!immediate && !value) { this.actionError.set('Seleccione una fecha y hora válidas.'); return; }
-    if (!immediate && Date.parse(value!) <= Date.now()) { this.actionError.set('La fecha y hora debe ser futura en la hora de Ecuador (America/Guayaquil).'); return; }
+    if (!immediate && !value) { this.formValidationFailed('Seleccione una fecha y hora válidas.'); return; }
+    if (!immediate && Date.parse(value!) <= Date.now()) { this.formValidationFailed('La fecha y hora debe ser futura en la hora de Ecuador (America/Guayaquil).'); return; }
     this.saving.set(true);
     const request = immediate
       ? this.api.endTariffNow(row.id, this.endForm.controls.reason.value.trim(), row.rowVersion)
       : this.api.endTariff(row.id, value!, this.endForm.controls.reason.value.trim(), row.rowVersion);
     request.pipe(finalize(() => this.saving.set(false))).subscribe({
-      next: () => { this.endingTariff.set(null); this.actionMessage.set(immediate ? 'La tarifa dejó de aplicarse desde el momento de confirmación.' : 'La finalización futura quedó registrada.'); this.load(); },
-      error: (error: unknown) => this.actionError.set(normalizeTariffWriteError(error).message),
+      next: () => { this.endingTariff.set(null); this.actionMessage.set(immediate ? 'La tarifa dejó de aplicarse desde el momento de confirmación.' : 'La finalización futura quedó registrada.'); this.toast.success(this.actionMessage()); this.load(); },
+      error: (error: unknown) => { this.actionError.set(normalizeTariffWriteError(error).message); this.toast.error(this.actionError()); },
     });
   }
 

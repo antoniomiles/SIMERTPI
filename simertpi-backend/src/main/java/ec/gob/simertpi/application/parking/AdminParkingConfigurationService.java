@@ -259,13 +259,15 @@ public class AdminParkingConfigurationService {
         if (tariffs.existsByCodeAndVersionGroupIdNot(request.code().trim(), current.getVersionGroupId()))
             throw new IllegalArgumentException("TARIFF_CODE_ALREADY_EXISTS");
 
-        OffsetDateTime originalValidTo = current.getValidTo();
         OffsetDateTime previousEnd = effectiveAt.minusNanos(1_000);
         if (previousEnd.isBefore(current.getValidFrom()))
             throw new IllegalArgumentException("TARIFF_IMMEDIATE_REVISION_BEFORE_VALIDITY");
         if (current.getValidTo() != null && previousEnd.isAfter(current.getValidTo()))
             throw new IllegalArgumentException("TARIFF_REVISION_OUTSIDE_CURRENT_VALIDITY");
-        ensureNoTariffOverlap(current.getZoneId(), current.getId(), effectiveAt, current.getValidTo());
+        OffsetDateTime revisedValidTo = request.validTo();
+        if (revisedValidTo != null && !revisedValidTo.isAfter(effectiveAt))
+            throw new IllegalArgumentException("INVALID_CONFIGURATION_VALIDITY");
+        ensureNoTariffOverlap(current.getZoneId(), current.getId(), effectiveAt, revisedValidTo);
 
         Tariff before = copyTariff(current);
         current.setValidTo(previousEnd);
@@ -280,7 +282,7 @@ public class AdminParkingConfigurationService {
         next.setDurationMinutes(request.durationMinutes()); next.setMinMinutes(request.minMinutes());
         next.setMaxContinuousMinutes(request.maxContinuousMinutes()); next.setGracePeriodMinutes(request.gracePeriodMinutes());
         next.setRoundingMode(request.roundingMode()); next.setNormativeReference(request.normativeReference().trim());
-        next.setActive(true); next.setValidFrom(effectiveAt); next.setValidTo(originalValidTo);
+        next.setActive(true); next.setValidFrom(effectiveAt); next.setValidTo(revisedValidTo);
         next.setCreatedAt(effectiveAt); next.setUpdatedAt(effectiveAt);
         Tariff saved = tariffs.saveAndFlush(next);
         tariffHistory.record("REVISED_IMMEDIATELY", saved, ended.getId(), effectiveAt, request.reason(), before);

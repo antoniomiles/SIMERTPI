@@ -368,11 +368,13 @@ class AdminParkingTariffSchedulePostgresIntegrationTest extends AbstractPostgres
         UUID zoneId = insertTestZone();
         String code = "QA-NOW-" + UUID.randomUUID().toString().substring(0, 8);
         java.time.OffsetDateTime prior = java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC).minusDays(2).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+        java.time.OffsetDateTime originalValidTo = java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC).plusYears(1).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+        java.time.OffsetDateTime correctedValidTo = java.time.OffsetDateTime.parse("2030-12-23T03:06:00Z");
         jdbc.update("""
                 INSERT INTO parking.tariffs(id,code,name,zone_id,currency,rounding_mode,grace_period_minutes,amount,
-                    duration_minutes,min_minutes,max_continuous_minutes,active,valid_from,created_at,updated_at)
-                VALUES (?,?,?,?,'USD','HALF_UP',0,0.50,60,15,240,TRUE,?,?,?)
-                """, tariffId, code, "Tarifa vigente QA", zoneId, prior, prior, prior);
+                    duration_minutes,min_minutes,max_continuous_minutes,active,valid_from,valid_to,created_at,updated_at)
+                VALUES (?,?,?,?,'USD','HALF_UP',0,0.50,60,15,240,TRUE,?,?,?,?)
+                """, tariffId, code, "Tarifa vigente QA", zoneId, prior, originalValidTo, prior, prior);
         UUID userId = jdbc.queryForObject("SELECT id FROM identity.users WHERE username=?", UUID.class, username);
         UUID sessionId = UUID.randomUUID();
         UUID paymentId = UUID.randomUUID();
@@ -398,10 +400,12 @@ class AdminParkingTariffSchedulePostgresIntegrationTest extends AbstractPostgres
         Cookie csrf = csrfCookie();
         MvcResult revised = mvc.perform(post("/api/v1/admin/parking/tariffs/" + tariffId + "/revise-now").secure(true)
                         .cookie(sessionCookie, csrf).header("X-XSRF-TOKEN", csrf.getValue()).contentType("application/json")
-                        .content(immediateTariffBody(code, "0.75", version, "Corrección inmediata respaldada por referencia QA")))
+                        .content(immediateTariffBody(code, "0.75", version, "Corrección inmediata respaldada por referencia QA", correctedValidTo)))
                 .andExpect(status().isOk()).andReturn();
         JsonNode next = json.readTree(revised.getResponse().getContentAsString());
         UUID nextId = UUID.fromString(next.path("id").asText());
+        org.assertj.core.api.Assertions.assertThat(java.time.OffsetDateTime.parse(next.path("validTo").asText()).toInstant())
+                .isEqualTo(correctedValidTo.toInstant());
         java.time.OffsetDateTime boundary = java.time.OffsetDateTime.parse(next.path("validFrom").asText());
         java.time.OffsetDateTime previousEnd = jdbc.queryForObject("SELECT valid_to FROM parking.tariffs WHERE id=?",
                 java.time.OffsetDateTime.class, tariffId);
@@ -413,12 +417,84 @@ class AdminParkingTariffSchedulePostgresIntegrationTest extends AbstractPostgres
                 .isEqualTo(tariffId);
         org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT amount FROM payments.payments WHERE id=?", java.math.BigDecimal.class, paymentId))
                 .isEqualByComparingTo("0.50");
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT tariff_id FROM parking.parking_sessions WHERE id=?", UUID.class, sessionId)).isEqualTo(tariffId);
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT status FROM parking.parking_sessions WHERE id=?", String.class, sessionId)).isEqualTo("PENDING_PAYMENT");
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT amount FROM payments.payments WHERE id=?", java.math.BigDecimal.class, paymentId)).isEqualByComparingTo("0.50");
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT status FROM payments.payments WHERE id=?", String.class, paymentId)).isEqualTo("PENDING");
+        JsonNode listedVersion = record(mvc.perform(get("/api/v1/admin/parking/tariffs").secure(true).cookie(sessionCookie))
+                .andExpect(status().isOk()).andReturn(), nextId);
+        org.assertj.core.api.Assertions.assertThat(java.time.OffsetDateTime.parse(listedVersion.path("validTo").asText()).toInstant())
+                .isEqualTo(correctedValidTo.toInstant());
+        JsonNode history = null;
+        for (JsonNode entry : json.readTree(mvc.perform(get("/api/v1/admin/parking/tariffs/" + nextId + "/history").secure(true).cookie(sessionCookie))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString())) {
+            if (nextId.toString().equals(entry.path("tariffId").asText())) {
+                history = entry;
+                break;
+            }
+        }
+        org.assertj.core.api.Assertions.assertThat(history).isNotNull();
+        org.assertj.core.api.Assertions.assertThat(java.time.OffsetDateTime.parse(history.path("beforeState").path("validTo").asText()).toInstant())
+                .isEqualTo(originalValidTo.toInstant());
+        org.assertj.core.api.Assertions.assertThat(java.time.OffsetDateTime.parse(history.path("afterState").path("validTo").asText()).toInstant())
+                .isEqualTo(correctedValidTo.toInstant());
         org.assertj.core.api.Assertions.assertThat(zoneTariff(effectiveAt(previousEnd), zoneId).path("id").asText()).isEqualTo(tariffId.toString());
         org.assertj.core.api.Assertions.assertThat(zoneTariff(effectiveAt(boundary), zoneId).path("id").asText()).isEqualTo(nextId.toString());
         org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("""
                 SELECT count(*) FROM parking.tariff_change_history WHERE tariff_id=? AND action='REVISED_IMMEDIATELY'
                   AND actor_id=(SELECT id FROM identity.users WHERE username=?) AND reason=? AND effective_at=?
                 """, Integer.class, nextId, username, "Corrección inmediata respaldada por referencia QA", boundary)).isEqualTo(1);
+    }
+
+    @Test
+    void immediateRevisionCanShortenValidityAndRejectsOverlapWithScheduledTariffAtomically() throws Exception {
+        UUID zoneId = insertTestZone();
+        String code = "QA-END-RANGE-" + UUID.randomUUID().toString().substring(0, 8);
+        java.time.OffsetDateTime now = java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+        UUID currentId = UUID.randomUUID();
+        java.time.OffsetDateTime originalEnd = now.plusYears(4);
+        java.time.OffsetDateTime shorterEnd = now.plusYears(2);
+        jdbc.update("""
+                INSERT INTO parking.tariffs(id,code,name,zone_id,currency,rounding_mode,grace_period_minutes,amount,
+                    duration_minutes,min_minutes,max_continuous_minutes,active,valid_from,valid_to,created_at,updated_at)
+                VALUES (?,?,?,?,'USD','HALF_UP',0,0.50,60,15,240,TRUE,?,?,?,?)
+                """, currentId, code, "Tarifa vigente QA", zoneId, now.minusDays(1), originalEnd, now, now);
+        long currentVersion = jdbc.queryForObject("SELECT row_version FROM parking.tariffs WHERE id=?", Long.class, currentId);
+        Cookie csrf = csrfCookie();
+        JsonNode shortened = json.readTree(mvc.perform(post("/api/v1/admin/parking/tariffs/" + currentId + "/revise-now").secure(true)
+                        .cookie(sessionCookie, csrf).header("X-XSRF-TOKEN", csrf.getValue()).contentType("application/json")
+                        .content(immediateTariffBody(code, "0.55", currentVersion, "Reducción válida QA", shorterEnd)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        org.assertj.core.api.Assertions.assertThat(java.time.OffsetDateTime.parse(shortened.path("validTo").asText()).toInstant())
+                .isEqualTo(shorterEnd.toInstant());
+
+        UUID conflictZoneId = insertTestZone();
+        UUID secondCurrentId = UUID.randomUUID();
+        String conflictCode = code + "-CONFLICT";
+        java.time.OffsetDateTime scheduledStart = now.plusYears(3);
+        jdbc.update("""
+                INSERT INTO parking.tariffs(id,code,name,zone_id,currency,rounding_mode,grace_period_minutes,amount,
+                    duration_minutes,min_minutes,max_continuous_minutes,active,valid_from,valid_to,created_at,updated_at)
+                VALUES (?,?,?,?,'USD','HALF_UP',0,0.50,60,15,240,TRUE,?,?,?,?)
+                """, secondCurrentId, conflictCode, "Tarifa vigente QA conflicto", conflictZoneId, now.minusDays(1), scheduledStart.minusNanos(1_000), now, now);
+        UUID scheduledId = UUID.randomUUID();
+        String scheduledCode = conflictCode + "-FUTURE";
+        jdbc.update("""
+                INSERT INTO parking.tariffs(id,code,name,zone_id,currency,rounding_mode,grace_period_minutes,amount,
+                    duration_minutes,min_minutes,max_continuous_minutes,active,valid_from,created_at,updated_at)
+                VALUES (?,?,?,?,'USD','HALF_UP',0,0.60,60,15,240,TRUE,?,?,?)
+                """, scheduledId, scheduledCode, "Tarifa programada QA", conflictZoneId, scheduledStart, now, now);
+        long conflictVersion = jdbc.queryForObject("SELECT row_version FROM parking.tariffs WHERE id=?", Long.class, secondCurrentId);
+        Cookie conflictCsrf = csrfCookie();
+        mvc.perform(post("/api/v1/admin/parking/tariffs/" + secondCurrentId + "/revise-now").secure(true)
+                        .cookie(sessionCookie, conflictCsrf).header("X-XSRF-TOKEN", conflictCsrf.getValue()).contentType("application/json")
+                        .content(immediateTariffBody(conflictCode, "0.70", conflictVersion, "Intento con solapamiento QA", now.plusYears(4))))
+                .andExpect(status().isConflict());
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT valid_to FROM parking.tariffs WHERE id=?", java.time.OffsetDateTime.class, secondCurrentId))
+                .isEqualTo(scheduledStart.minusNanos(1_000));
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.tariffs WHERE previous_version_id=?", Integer.class, secondCurrentId)).isZero();
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.tariff_change_history WHERE previous_tariff_id=?", Integer.class, secondCurrentId)).isZero();
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT id FROM parking.tariffs WHERE id=?", UUID.class, scheduledId)).isEqualTo(scheduledId);
     }
 
     @Test
@@ -633,13 +709,18 @@ class AdminParkingTariffSchedulePostgresIntegrationTest extends AbstractPostgres
     }
 
     private String immediateTariffBody(String code, String amount, long expectedVersion, String reason) throws Exception {
-        return json.writeValueAsString(java.util.Map.ofEntries(java.util.Map.entry("code", code),
-                java.util.Map.entry("name", "Tarifa inmediata QA"), java.util.Map.entry("currency", "USD"),
-                java.util.Map.entry("amount", amount), java.util.Map.entry("durationMinutes", 60),
-                java.util.Map.entry("minMinutes", 15), java.util.Map.entry("maxContinuousMinutes", 240),
-                java.util.Map.entry("gracePeriodMinutes", 0), java.util.Map.entry("roundingMode", "HALF_UP"),
-                java.util.Map.entry("normativeReference", "Referencia QA"), java.util.Map.entry("reason", reason),
-                java.util.Map.entry("expectedVersion", expectedVersion)));
+        return immediateTariffBody(code, amount, expectedVersion, reason, null);
+    }
+
+    private String immediateTariffBody(String code, String amount, long expectedVersion, String reason,
+            java.time.OffsetDateTime validTo) throws Exception {
+        java.util.Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("code", code); body.put("name", "Tarifa inmediata QA"); body.put("currency", "USD");
+        body.put("amount", amount); body.put("durationMinutes", 60); body.put("minMinutes", 15);
+        body.put("maxContinuousMinutes", 240); body.put("gracePeriodMinutes", 0); body.put("roundingMode", "HALF_UP");
+        body.put("normativeReference", "Referencia QA"); body.put("reason", reason);
+        body.put("expectedVersion", expectedVersion); body.put("validTo", validTo);
+        return json.writeValueAsString(body);
     }
 
     private JsonNode record(MvcResult result, UUID id) throws Exception {

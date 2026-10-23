@@ -5,6 +5,7 @@ import { PortalError } from '../../core/http/portal-error';
 import { ZonesApi } from '../zones/zones-api';
 import { BillingCalendar, BillingCalendarHistoryItem, EffectiveConfiguration, TariffsApi } from './tariffs-api';
 import { BillingDays } from './billing-days';
+import { OperationToast } from '../../shared/ui/operation-toast';
 
 const calendar: BillingCalendar = {
   id: 'general-1', zoneId: null, zoneCode: null, zoneName: null, validFrom: '2026-01-01', validTo: null,
@@ -162,6 +163,7 @@ describe('Billing days configuration screen', () => {
     expect(api.createBillingCalendar).not.toHaveBeenCalled();
     expect(page.actionMessage()).toContain('Se cre\u00f3 una nueva versi\u00f3n');
     expect(page.savedVersionId()).toBe('new-calendar');
+    expect(TestBed.inject(OperationToast).current()).toMatchObject({ kind: 'success', message: expect.stringContaining('Calendario actualizado correctamente') });
   });
 
   it('updates scheduled calendars in place, retaining their identity and showing success only after confirmation', () => {
@@ -192,6 +194,7 @@ describe('Billing days configuration screen', () => {
     page.openEdit(scheduled); page.form.patchValue({ validFrom:'2027-04-01', reason:'Cambio autorizado' }); page.submit(new Event('submit'));
     expect(page.form.controls.validFrom.value).toBe('2027-04-01');
     expect(page.actionError()).toContain('Otra persona modific\u00f3 este calendario');
+    expect(TestBed.inject(OperationToast).current()).toMatchObject({ kind: 'error', message: expect.stringContaining('Otra persona modific') });
     expect(page.showForm()).toBe(true);
   });
 

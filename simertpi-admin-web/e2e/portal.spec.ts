@@ -382,12 +382,15 @@ test('billing calendar scheduled lifecycle edits, cancels with a reason and conf
   await editor.getByRole('button', { name: 'Guardar cambios' }).click();
   const saving = editor.getByRole('button', { name: 'Guardando cambios…' });
   await expect(saving).toBeDisabled();
-  expect(updateCount).toBe(1);
+  await expect.poll(() => updateCount).toBe(1);
   expect(updateBody).toMatchObject({ expectedVersion: 3, chargeableDays: [1, 2, 4, 5], reason: 'Corrección local de calendario' });
   finishUpdate();
   await expect(editor).toBeHidden();
   await expect(page.locator('.success-note')).toContainText('Calendario actualizado correctamente.');
   await expect(page.locator('.success-note')).toContainText('calendar-e2e');
+  const calendarToast = page.locator('app-operation-toast-outlet [popover][role="status"]');
+  await expect(calendarToast).toBeVisible();
+  await expect(calendarToast).toContainText('Calendario actualizado correctamente.');
 
   const refreshedRow = page.locator('.calendar-versions-table tbody tr').filter({ hasText: 'Programado' });
   await refreshedRow.scrollIntoViewIfNeeded();
@@ -412,6 +415,7 @@ test('billing calendar scheduled lifecycle edits, cancels with a reason and conf
   expect(cancelBody).toMatchObject({ reason: 'Programación reemplazada en prueba local', expectedVersion: 4 });
   await expect(cancelDialog).toBeHidden();
   await expect(page.locator('.success-note')).toContainText('Programación cancelada correctamente.');
+  await expect(calendarToast).toContainText('Programación cancelada correctamente.');
   await expect(page.locator('.calendar-versions-table tbody tr')).toContainText('Cancelado');
 });
 
@@ -672,6 +676,7 @@ test('current tariff supports immediate revision and immediate ending with an un
   };
   let rows: Record<string, unknown>[] = [current];
   let revisionBody: Record<string, unknown> | null = null;
+  let revisionAttempts = 0;
   let endBody: Record<string, unknown> | null = null;
   let currentForEffective = current;
   await page.addInitScript(() => {
@@ -686,10 +691,12 @@ test('current tariff supports immediate revision and immediate ending with an un
   await page.route('**/api/v1/admin/auth/csrf', (route) => route.fulfill({ status: 204 }));
   await page.route('**/api/v1/admin/parking/tariffs', (route) => route.fulfill({ json: rows }));
   await page.route('**/api/v1/admin/parking/tariffs/current-now-1/revise-now', async (route) => {
+    revisionAttempts++;
     revisionBody = route.request().postDataJSON();
+    if (revisionAttempts === 1) return route.fulfill({ status: 409, json: { status: 409, message: 'TARIFF_VALIDITY_OVERLAP' } });
     const now = new Date().toISOString();
     const replacement = { ...current, id: 'current-now-2', code: 'GEN-NOW-02', amount: 0.30, rowVersion: 0,
-      previousVersionId: current.id, validFrom: now };
+      previousVersionId: current.id, validFrom: now, validTo: (revisionBody as Record<string, unknown>)['validTo'] };
     currentForEffective = replacement;
     rows = [{ ...current, validTo: new Date(Date.parse(now) - 1).toISOString(), rowVersion: 4 }, replacement];
     return route.fulfill({ status: 200, json: replacement });
@@ -715,20 +722,38 @@ test('current tariff supports immediate revision and immediate ending with an un
   const editor = page.getByRole('dialog', { name: 'Editar tarifa vigente · crear versión' });
   await editor.getByLabel('Aplicar ahora').check();
   await editor.locator('[formControlName="amount"]').fill('0,30');
+  await editor.locator('[formControlName="validTo"]').fill('2030-12-22T22:06');
   await editor.locator('[formControlName="reason"]').fill('Corrección inmediata respaldada');
   await editor.getByRole('button', { name: 'Guardar nueva versión' }).click();
-  await expect(page.locator('.success-note')).toContainText('las sesiones ya iniciadas conservan su tarifa anterior.');
+  await expect(editor.getByRole('alert').filter({ hasText: 'vigencia que se cruza' })).toBeVisible();
+  const errorToast = page.locator('app-operation-toast-outlet [popover][role="alert"]');
+  await expect(errorToast).toBeVisible();
+  await expect(errorToast).toContainText('vigencia que se cruza');
+  await expect(editor).toBeVisible();
+  await expect(editor.locator('[formControlName="validTo"]')).toHaveValue('2030-12-22T22:06');
+  expect(revisionAttempts).toBe(1);
+  await editor.getByRole('button', { name: 'Guardar nueva versión' }).click();
+  const successToast = page.locator('app-operation-toast-outlet [popover][role="status"]');
+  await expect(successToast).toBeVisible();
+  await expect(successToast).toContainText('Tarifa actualizada correctamente. Se creó una nueva versión y se conservaron los datos históricos.');
   expect(revisionBody).not.toHaveProperty('validFrom');
-  expect(revisionBody).toMatchObject({ amount: '0.30', expectedVersion: 3, reason: 'Corrección inmediata respaldada' });
+  expect(revisionBody).toMatchObject({ amount: '0.30', expectedVersion: 3, reason: 'Corrección inmediata respaldada', validTo: '2030-12-23T03:06:00.000Z' });
 
-  const replacementRow = page.getByRole('row').filter({ hasText: 'GEN-NOW-02' });
+  const replacementRow = page.getByRole('row', { name: /^GEN-NOW-02 Tarifa general/ });
+  await expect(replacementRow).toBeVisible();
+  expect(revisionAttempts).toBe(2);
+  await replacementRow.getByRole('button', { name: 'Ver' }).click();
+  const detail = page.getByRole('dialog', { name: 'Detalle de tarifa' });
+  await expect(detail).toBeVisible();
+  await expect(detail).toContainText('22 de diciembre de 2030');
+  await detail.getByRole('button', { name: 'Cerrar', exact: true }).click();
   await replacementRow.getByRole('button', { name: 'Finalizar vigencia' }).click();
   const endDialog = page.getByRole('dialog', { name: 'Finalizar vigencia de GEN-NOW-02' });
   await endDialog.getByLabel('Finalizar ahora').check();
   await expect(endDialog).toContainText('estas zonas quedarían sin tarifa aplicable: Z-01 · Centro');
   await endDialog.locator('[formControlName="reason"]').fill('Cese inmediato respaldado');
   await endDialog.getByRole('button', { name: 'Finalizar ahora' }).click();
-  expect(endBody).toEqual({ reason: 'Cese inmediato respaldado', expectedVersion: 0 });
+  await expect.poll(() => endBody).toEqual({ reason: 'Cese inmediato respaldado', expectedVersion: 0 });
 });
 
 test('tariff write uses the CSRF cookie issued by its preflight, not the token read before rotation', async ({ page }) => {

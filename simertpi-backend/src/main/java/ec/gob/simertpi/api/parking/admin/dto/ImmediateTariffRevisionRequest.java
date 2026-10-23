@@ -1,6 +1,7 @@
 package ec.gob.simertpi.api.parking.admin.dto;
 
 import jakarta.validation.constraints.*;
+import java.time.OffsetDateTime;
 
 public record ImmediateTariffRevisionRequest(
         @NotBlank @Size(max = 50) String code,
@@ -14,4 +15,5 @@ public record ImmediateTariffRevisionRequest(
         @NotBlank @Pattern(regexp = "^(UP|DOWN|CEILING|FLOOR|HALF_UP|HALF_DOWN|HALF_EVEN)$") String roundingMode,
         @NotBlank @Size(max = 255) String normativeReference,
         @NotBlank @Size(max = 500) String reason,
-        @NotNull @Min(0) Long expectedVersion) { }
+        @NotNull @Min(0) Long expectedVersion,
+        OffsetDateTime validTo) { }

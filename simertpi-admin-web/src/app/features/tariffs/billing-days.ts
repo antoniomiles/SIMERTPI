@@ -6,6 +6,7 @@ import { forkJoin, finalize, Observable } from 'rxjs';
 import { normalizeError, PortalError } from '../../core/http/portal-error';
 import { DataState } from '../../shared/ui/data-state';
 import { PageHeading } from '../../shared/ui/page-heading';
+import { OperationToast } from '../../shared/ui/operation-toast';
 import { ParkingZone, ZonesApi } from '../zones/zones-api';
 import { BillingCalendar, BillingCalendarHistoryItem, EffectiveConfiguration, TariffsApi } from './tariffs-api';
 import { currentConfigurationDate, formatConfigurationDate, formatConfigurationDateTime, isValidConfigurationDate, nextConfigurationDate } from './tariffs-format';
@@ -60,6 +61,7 @@ export class BillingDays {
   private readonly api = inject(TariffsApi);
   private readonly zonesApi = inject(ZonesApi);
   private readonly builder = inject(FormBuilder);
+  private readonly toast = inject(OperationToast);
   readonly preview = inject(ActivatedRoute).snapshot.pathFromRoot.some((route) => route.data['preview'] === true);
   readonly calendars = signal<BillingCalendar[]>([]);
   readonly zones = signal<ParkingZone[]>([]);
@@ -158,7 +160,7 @@ export class BillingDays {
     this.form.markAllAsTouched(); this.form.updateValueAndValidity();
     const value=this.form.getRawValue();
     if (value.scope==='ZONE' && !value.zoneId) this.form.controls.zoneId.setErrors({ required: true });
-    if (this.form.invalid) return;
+    if (this.form.invalid) { this.writeValidationFailed('Revise las fechas y los campos marcados antes de guardar.'); return; }
     this.saving.set(true); this.actionError.set(''); this.actionMessage.set(''); this.savedVersionId.set('');
     const calendar=this.editingCalendar();
     const body={ validFrom:value.validFrom, validTo:value.validTo || null, chargeableDays:this.chargeableDays(), normativeReference:value.normativeReference.trim(),
@@ -172,6 +174,7 @@ export class BillingDays {
         const id=typeof result==='string' ? result : result.id;
         this.savedVersionId.set(id);
         this.actionMessage.set(calendar ? this.isCurrent(calendar) ? 'Calendario actualizado correctamente. Se creó una nueva versión y se conservó el historial.' : 'Calendario actualizado correctamente.' : 'El calendario quedó registrado. Los días no marcados serán gratuitos, no prohibidos.');
+        this.toast.success(this.actionMessage());
         this.showForm.set(false); this.editingCalendar.set(null); this.revisionOf.set(null); this.form.controls.scope.enable(); this.form.controls.zoneId.enable(); this.load();
       },
       error: (error: unknown) => this.recordWriteError(error),
@@ -181,20 +184,20 @@ export class BillingDays {
   openEnd(calendar: BillingCalendar) { this.actionError.set(''); this.endForm.reset({ effectiveFrom: '', reason: '' }); this.endingCalendar.set(calendar); }
   submitEnd(event: Event) {
     event.preventDefault(); const calendar=this.endingCalendar(); if (!calendar || this.saving()) return;
-    this.endForm.markAllAsTouched(); if (this.endForm.invalid) return;
+    this.endForm.markAllAsTouched(); if (this.endForm.invalid) { this.writeValidationFailed('Seleccione una fecha válida y escriba el motivo de finalización.'); return; }
     const value=this.endForm.getRawValue(); this.saving.set(true); this.actionError.set('');
     this.api.endBillingCalendar(calendar.id,value.effectiveFrom,value.reason.trim(),calendar.rowVersion).pipe(finalize(()=>this.saving.set(false))).subscribe({
-      next:()=>{ this.endingCalendar.set(null); this.actionMessage.set('Vigencia finalizada correctamente. Desde esa fecha la excepción zonal heredará el calendario general, si existe.'); this.load(); },
+      next:()=>{ this.endingCalendar.set(null); this.actionMessage.set('Vigencia finalizada correctamente. Desde esa fecha la excepción zonal heredará el calendario general, si existe.'); this.toast.success(this.actionMessage()); this.load(); },
       error:(error:unknown)=>this.recordWriteError(error),
     });
   }
   openCancel(calendar: BillingCalendar) { this.cancellationForm.reset({ reason:'' }); this.actionError.set(''); this.cancellingCalendar.set(calendar); }
   submitCancel(event: Event) {
     event.preventDefault(); const calendar=this.cancellingCalendar(); if (!calendar || this.saving()) return;
-    this.cancellationForm.markAllAsTouched(); if (this.cancellationForm.invalid) return;
+    this.cancellationForm.markAllAsTouched(); if (this.cancellationForm.invalid) { this.writeValidationFailed('Escriba un motivo para cancelar la programación.'); return; }
     this.saving.set(true); this.actionError.set('');
     this.api.cancelScheduledBillingCalendar(calendar.id,this.cancellationForm.controls.reason.value.trim(),calendar.rowVersion).pipe(finalize(()=>this.saving.set(false))).subscribe({
-      next:()=>{ this.cancellingCalendar.set(null); this.actionMessage.set('Programación cancelada correctamente. Este calendario no entrará en vigencia.'); this.load(); },
+      next:()=>{ this.cancellingCalendar.set(null); this.actionMessage.set('Programación cancelada correctamente. Este calendario no entrará en vigencia.'); this.toast.success(this.actionMessage()); this.load(); },
       error:(error:unknown)=>this.recordWriteError(error),
     });
   }
@@ -207,7 +210,9 @@ export class BillingDays {
       if (normalized.fieldNames.includes('effectiveFrom')) this.endForm.controls.effectiveFrom.setErrors({ ...this.endForm.controls.effectiveFrom.errors, backendRejected:true });
     }
     this.actionError.set(normalized.message);
+    this.toast.error(normalized.message);
   }
+  private writeValidationFailed(message: string) { this.actionError.set(message); this.toast.error(message); }
   today() { return currentConfigurationDate(); }
   minStartDate() { return nextConfigurationDate(); }
   validFromError() {

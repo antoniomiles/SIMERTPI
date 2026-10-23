@@ -7,6 +7,7 @@ import { ParkingZone, ZonesApi } from '../zones/zones-api';
 import { ConfiguredTariff, EffectiveConfiguration, TariffsApi } from './tariffs-api';
 import { Tariffs } from './tariffs';
 import { isoToGuayaquilDateTimeLocal } from './tariffs-format';
+import { OperationToast } from '../../shared/ui/operation-toast';
 
 function formValue(overrides: Record<string, unknown>) {
   return { code: '', name: '', scope: 'GENERAL', zoneId: '', currency: 'USD', amount: '', durationMinutes: null,
@@ -313,21 +314,51 @@ describe('Tariff configuration screen', () => {
     expect(api.createTariff).not.toHaveBeenCalled();
   });
 
-  it('applies a current tariff revision at server time without sending a browser timestamp', () => {
+  it('applies a current tariff revision at server time and transmits the corrected Ecuador end date', () => {
     const fixture = TestBed.createComponent(Tariffs);
     fixture.detectChanges();
     const page = fixture.componentInstance;
     page.openRevision(tariff);
     page.setRevisionTiming('now');
-    page.form.setValue(formValue({ code: 'GEN-01-NOW', name: 'Tarifa corregida', scope: 'GENERAL', zoneId: '', currency: 'USD', amount: '0,30', durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240, gracePeriodMinutes: 0, roundingMode: 'HALF_UP', validFrom: '', validTo: '', normativeReference: 'Ordenanza vigente', reason: 'Corrección inmediata autorizada', expectedVersion: tariff.rowVersion }));
+    page.form.setValue(formValue({ code: 'GEN-01-NOW', name: 'Tarifa corregida', scope: 'GENERAL', zoneId: '', currency: 'USD', amount: '0,30', durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240, gracePeriodMinutes: 0, roundingMode: 'HALF_UP', validFrom: '', validTo: '2030-12-22T22:06', normativeReference: 'Ordenanza vigente', reason: 'Corrección inmediata autorizada', expectedVersion: tariff.rowVersion }));
     page.submit(new Event('submit'));
     expect(api.reviseTariffNow).toHaveBeenCalledOnce();
     expect(api.reviseTariffNow).toHaveBeenCalledWith(tariff.id, expect.objectContaining({
-      amount: '0.30', expectedVersion: tariff.rowVersion, reason: 'Corrección inmediata autorizada',
+      amount: '0.30', expectedVersion: tariff.rowVersion, reason: 'Corrección inmediata autorizada', validTo: '2030-12-23T03:06:00.000Z',
     }));
     expect(api.reviseTariffNow.mock.calls[0][1]).not.toHaveProperty('validFrom');
     expect(api.reviseTariff).not.toHaveBeenCalled();
-    expect(page.actionMessage()).toContain('las sesiones ya iniciadas conservan su tarifa anterior');
+    expect(page.actionMessage()).toContain('se conservaron los datos históricos');
+    expect(TestBed.inject(OperationToast).current()?.message).toContain('Identificador: tariff-version-now');
+  });
+
+  it('keeps the editor and entered values when the backend rejects a revision and shows a persistent error toast', () => {
+    api.reviseTariffNow.mockReturnValue(throwError(() => new PortalError('conflict', 'La operación entra en conflicto.', 'TARIFF_VALIDITY_OVERLAP')));
+    const fixture = TestBed.createComponent(Tariffs);
+    fixture.detectChanges();
+    const page = fixture.componentInstance;
+    page.openRevision(tariff);
+    page.setRevisionTiming('now');
+    page.form.setValue(formValue({ code: 'GEN-01-NOW', name: 'Tarifa corregida', currency: 'USD', amount: '0,30', durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240, gracePeriodMinutes: 0, roundingMode: 'HALF_UP', validTo: '2030-12-22T22:06', normativeReference: 'Ordenanza vigente', reason: 'Corrección respaldada' }));
+    page.submit(new Event('submit'));
+    expect(page.revisionOf()?.id).toBe(tariff.id);
+    expect(page.form.controls.amount.value).toBe('0,30');
+    expect(page.actionError()).toContain('vigencia que se cruza');
+    expect(TestBed.inject(OperationToast).current()).toMatchObject({ kind: 'error', message: expect.stringContaining('vigencia que se cruza') });
+    expect(page.actionMessage()).toBe('');
+  });
+
+  it('rejects an end date that cannot be converted in Ecuador instead of silently sending an open-ended version', () => {
+    const fixture = TestBed.createComponent(Tariffs);
+    fixture.detectChanges();
+    const page = fixture.componentInstance;
+    page.openRevision(tariff);
+    page.setRevisionTiming('now');
+    page.form.setValue(formValue({ code: 'GEN-01-NOW', name: 'Tarifa corregida', currency: 'USD', amount: '0,30', durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240, gracePeriodMinutes: 0, roundingMode: 'HALF_UP', validTo: '2030-02-30T22:06', normativeReference: 'Ordenanza vigente', reason: 'Corrección respaldada' }));
+    page.submit(new Event('submit'));
+    expect(api.reviseTariffNow).not.toHaveBeenCalled();
+    expect(page.form.controls.validTo.hasError('invalidDateTime')).toBe(true);
+    expect(TestBed.inject(OperationToast).current()?.kind).toBe('error');
   });
 
   it('finalizes a current tariff immediately with a reason and warns about zones losing effective coverage', () => {

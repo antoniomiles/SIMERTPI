@@ -84,7 +84,7 @@ export interface CreateTariff {
   roundingMode: string; validFrom: string; validTo: string | null; normativeReference: string;
   reason?: string; expectedVersion?: number;
 }
-export type ImmediateTariffRevision = Omit<CreateTariff, 'zoneId' | 'validFrom' | 'validTo'>;
+export type ImmediateTariffRevision = Omit<CreateTariff, 'zoneId' | 'validFrom'>;
 export interface TariffHistoryItem {
   id: string; tariffId: string; previousTariffId: string | null; action: string;
   actorId: string | null; actorName: string | null; occurredAt: string; effectiveAt: string | null;
