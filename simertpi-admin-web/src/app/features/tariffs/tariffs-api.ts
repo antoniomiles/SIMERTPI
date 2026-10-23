@@ -43,6 +43,18 @@ export interface BillingCalendar {
   createdAt: string;
   updatedAt: string;
   days: Record<string, boolean>;
+  rowVersion: number;
+  versionGroupId: string;
+  previousCalendarId: string | null;
+  cancelledAt: string | null;
+  cancelledByUserId: string | null;
+  cancellationReason: string | null;
+  cancelledByUsername: string | null;
+}
+export interface BillingCalendarHistoryItem {
+  id: string; calendarId: string; previousCalendarId: string | null; action: string;
+  actorId: string | null; actorName: string | null; occurredAt: string; effectiveFrom: string | null;
+  reason: string; beforeState: Record<string, unknown> | null; afterState: Record<string, unknown>;
 }
 
 export interface EffectiveConfiguration {
@@ -84,6 +96,10 @@ export interface TariffHistoryPage {
 export interface CreateBillingCalendar {
   zoneId: string | null; validFrom: string; validTo: string | null;
   chargeableDays: number[]; normativeReference: string;
+}
+export interface UpdateBillingCalendar extends Omit<CreateBillingCalendar, 'zoneId'> {
+  reason: string;
+  expectedVersion: number;
 }
 
 export interface ConfiguredSchedule {
@@ -181,7 +197,23 @@ export class TariffsApi {
     return this.api.post<string>('admin/parking/billing-day-calendars', body);
   }
 
-  endBillingCalendar(id: string, effectiveFrom: string) {
-    return this.api.post<string>(`admin/parking/billing-day-calendars/${encodeURIComponent(id)}/end`, { effectiveFrom });
+  endBillingCalendar(id: string, effectiveFrom: string, reason: string, expectedVersion: number) {
+    return this.api.post<BillingCalendar>(`admin/parking/billing-day-calendars/${encodeURIComponent(id)}/end`, { effectiveFrom, reason, expectedVersion });
+  }
+
+  updateScheduledBillingCalendar(id: string, body: UpdateBillingCalendar) {
+    return this.api.put<BillingCalendar>(`admin/parking/billing-day-calendars/${encodeURIComponent(id)}`, body);
+  }
+
+  reviseBillingCalendar(id: string, body: UpdateBillingCalendar) {
+    return this.api.post<BillingCalendar>(`admin/parking/billing-day-calendars/${encodeURIComponent(id)}/revise`, body);
+  }
+
+  cancelScheduledBillingCalendar(id: string, reason: string, expectedVersion: number) {
+    return this.api.post<BillingCalendar>(`admin/parking/billing-day-calendars/${encodeURIComponent(id)}/cancel`, { reason, expectedVersion });
+  }
+
+  billingCalendarHistory(id: string) {
+    return this.api.get<BillingCalendarHistoryItem[]>(`admin/parking/billing-day-calendars/${encodeURIComponent(id)}/history`);
   }
 }

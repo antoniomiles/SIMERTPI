@@ -327,7 +327,7 @@ describe('Tariff configuration screen', () => {
     }));
     expect(api.reviseTariffNow.mock.calls[0][1]).not.toHaveProperty('validFrom');
     expect(api.reviseTariff).not.toHaveBeenCalled();
-    expect(page.actionMessage()).toContain('Las sesiones ya iniciadas conservan su tarifa anterior.');
+    expect(page.actionMessage()).toContain('las sesiones ya iniciadas conservan su tarifa anterior');
   });
 
   it('finalizes a current tariff immediately with a reason and warns about zones losing effective coverage', () => {

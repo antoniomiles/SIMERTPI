@@ -69,13 +69,16 @@ class AdminGeneralParkingConfigurationPostgresIntegrationTest extends AbstractPo
     void cleanTestConfiguration() {
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
             jdbc.execute("ALTER TABLE parking.tariff_change_history DISABLE TRIGGER trg_tariff_history_append_only");
+            jdbc.execute("ALTER TABLE parking.billing_day_calendar_history DISABLE TRIGGER trg_billing_calendar_history_append_only");
             try {
                 jdbc.update("DELETE FROM parking.tariff_change_history WHERE tariff_id IN (SELECT id FROM parking.tariffs WHERE normative_reference=?)", reference);
                 jdbc.update("DELETE FROM parking.tariffs WHERE normative_reference=?", reference);
-                jdbc.update("DELETE FROM parking.billing_day_calendars WHERE normative_reference=?", reference);
+                jdbc.update("DELETE FROM parking.billing_day_calendar_history WHERE calendar_id IN (SELECT id FROM parking.billing_day_calendars WHERE normative_reference LIKE ?)", reference + "%");
+                jdbc.update("DELETE FROM parking.billing_day_calendars WHERE normative_reference LIKE ?", reference + "%");
                 if (testZoneId != null) jdbc.update("DELETE FROM parking.zones WHERE id=?", testZoneId);
             } finally {
                 jdbc.execute("ALTER TABLE parking.tariff_change_history ENABLE TRIGGER trg_tariff_history_append_only");
+                jdbc.execute("ALTER TABLE parking.billing_day_calendar_history ENABLE TRIGGER trg_billing_calendar_history_append_only");
             }
         });
     }
@@ -140,17 +143,86 @@ class AdminGeneralParkingConfigurationPostgresIntegrationTest extends AbstractPo
         assertThat(mondayZone.chargeable()).isFalse();
         assertThat(tuesdayZone.chargeable()).isTrue();
         assertThat(tuesdayZone.zoneId()).isEqualTo(zoneId);
-        mvc.perform(post("/api/v1/admin/parking/billing-day-calendars/" + calendarId + "/end").secure(true)
-                        .cookie(session, csrf).header("X-XSRF-TOKEN", csrf.getValue()).contentType("application/json")
-                        .content("{\"effectiveFrom\":\"" + monday.plusDays(7) + "\"}"))
-                .andExpect(status().isOk());
-        var inheritedAfterException = billingDays.resolve(zoneId, monday.plusDays(7));
-        assertThat(inheritedAfterException.zoneId()).isNull();
-        assertThat(inheritedAfterException.chargeable()).isTrue();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.billing_day_calendars WHERE zone_id IS NULL AND normative_reference=?", Integer.class, reference)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.billing_day_calendars WHERE zone_id=? AND normative_reference=?", Integer.class, zoneId, reference)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.billing_day_calendar_days d JOIN parking.billing_day_calendars c ON c.id=d.calendar_id WHERE c.zone_id=? AND c.normative_reference=?", Integer.class, zoneId, reference)).isEqualTo(7);
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM audit.functional_audit_log WHERE actor_id=? AND action IN ('CONFIGURATION_BILLING_DAYS_CREATED','CONFIGURATION_BILLING_DAYS_ENDED') AND result='SUCCESS'", Integer.class, adminId)).isEqualTo(3);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM audit.functional_audit_log WHERE actor_id=? AND action='CONFIGURATION_BILLING_DAYS_CREATED' AND result='SUCCESS'", Integer.class, adminId)).isEqualTo(2);
+    }
+
+    @Test
+    void currentCalendarCanBeEndedWithReasonAndPreservesItsHistoricalDays() throws Exception {
+        LocalDate today = LocalDate.now(ZoneId.of("America/Guayaquil"));
+        UUID id = UUID.randomUUID();
+        jdbc.update("INSERT INTO parking.billing_day_calendars(id,zone_id,valid_from,normative_reference,active) VALUES (?,NULL,?,?,TRUE)", id, today.minusDays(5), reference);
+        for (int day=1;day<=7;day++) jdbc.update("INSERT INTO parking.billing_day_calendar_days(calendar_id,day_of_week,chargeable) VALUES (?,?,?)", id, day, day==1);
+        LocalDate effectiveFrom = today.plusDays(4);
+        refreshCsrf();
+        mvc.perform(post("/api/v1/admin/parking/billing-day-calendars/" + id + "/end").secure(true).cookie(session, csrf)
+                        .header("X-XSRF-TOKEN", csrf.getValue()).contentType("application/json")
+                        .content("{\"effectiveFrom\":\"" + effectiveFrom + "\",\"reason\":\"Fin aprobado\",\"expectedVersion\":0}"))
+                .andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("SELECT valid_to FROM parking.billing_day_calendars WHERE id=?", LocalDate.class, id)).isEqualTo(effectiveFrom.minusDays(1));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.billing_day_calendar_days WHERE calendar_id=? AND chargeable", Integer.class, id)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT reason FROM parking.billing_day_calendar_history WHERE calendar_id=? AND action='ENDED'", String.class, id)).isEqualTo("Fin aprobado");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.billing_day_calendar_history WHERE calendar_id=? AND actor_id=?", Integer.class, id, adminId)).isEqualTo(1);
+    }
+
+    @Test
+    void scheduledCalendarCanBeEditedInPlaceThenCancelledWithReasonAndOptimisticVersioning() throws Exception {
+        LocalDate start = LocalDate.now(ZoneId.of("America/Guayaquil")).plusDays(15);
+        MvcResult created = postCalendar(null, start, null, "[1,2]").andExpect(status().isCreated()).andReturn();
+        UUID id = UUID.fromString(objectMapper.readTree(created.getResponse().getContentAsString()).asText());
+        String update = "{\"validFrom\":\"" + start.plusDays(2) + "\",\"validTo\":null,\"chargeableDays\":[3,4],"
+                + "\"normativeReference\":\"" + reference + "-UPDATED\",\"reason\":\"Corrección aprobada\",\"expectedVersion\":0}";
+        refreshCsrf();
+        MvcResult updated = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                        "/api/v1/admin/parking/billing-day-calendars/" + id).secure(true).cookie(session, csrf)
+                        .header("X-XSRF-TOKEN", csrf.getValue()).contentType("application/json").content(update))
+                .andExpect(status().isOk()).andReturn();
+        assertThat(objectMapper.readTree(updated.getResponse().getContentAsString()).path("id").asText()).isEqualTo(id.toString());
+        assertThat(jdbc.queryForObject("SELECT row_version FROM parking.billing_day_calendars WHERE id=?", Long.class, id)).isEqualTo(1L);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.billing_day_calendar_days WHERE calendar_id=? AND chargeable", Integer.class, id)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT reason FROM parking.billing_day_calendar_history WHERE calendar_id=? AND action='SCHEDULED_UPDATED'", String.class, id)).isEqualTo("Corrección aprobada");
+
+        refreshCsrf();
+        mvc.perform(post("/api/v1/admin/parking/billing-day-calendars/" + id + "/cancel").secure(true).cookie(session, csrf)
+                        .header("X-XSRF-TOKEN", csrf.getValue()).contentType("application/json")
+                        .content("{\"reason\":\"Se reemplaza la programación\",\"expectedVersion\":1}"))
+                .andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("SELECT active FROM parking.billing_day_calendars WHERE id=?", Boolean.class, id)).isFalse();
+        assertThat(jdbc.queryForObject("SELECT cancellation_reason FROM parking.billing_day_calendars WHERE id=?", String.class, id)).isEqualTo("Se reemplaza la programación");
+        assertThat(billingDays.resolve(null, start.plusDays(3)).configured()).isFalse();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.billing_day_calendar_history WHERE calendar_id=? AND action IN ('CREATED','SCHEDULED_UPDATED','SCHEDULED_CANCELLED')", Integer.class, id)).isEqualTo(3);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.billing_day_calendar_history WHERE calendar_id=? AND actor_id=?", Integer.class, id, adminId)).isEqualTo(3);
+
+        refreshCsrf();
+        mvc.perform(post("/api/v1/admin/parking/billing-day-calendars/" + id + "/cancel").secure(true).cookie(session, csrf)
+                        .header("X-XSRF-TOKEN", csrf.getValue()).contentType("application/json")
+                        .content("{\"reason\":\"Duplicada\",\"expectedVersion\":1}"))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void currentCalendarRevisionIsAtomicAndPreservesPreviousDaysAndVersion() throws Exception {
+        LocalDate today = LocalDate.now(ZoneId.of("America/Guayaquil"));
+        LocalDate starts = today.minusDays(5);
+        UUID id = UUID.randomUUID();
+        jdbc.update("INSERT INTO parking.billing_day_calendars(id,zone_id,valid_from,normative_reference,active) VALUES (?,NULL,?,?,TRUE)", id, starts, reference);
+        for (int day=1;day<=7;day++) jdbc.update("INSERT INTO parking.billing_day_calendar_days(calendar_id,day_of_week,chargeable) VALUES (?,?,?)", id, day, day==today.getDayOfWeek().getValue());
+        LocalDate newStart=today.plusDays(3);
+        String body="{\"validFrom\":\""+newStart+"\",\"validTo\":null,\"chargeableDays\":[],\"normativeReference\":\""+reference+"-NEXT\",\"reason\":\"Actualización aprobada\",\"expectedVersion\":0}";
+        refreshCsrf();
+        MvcResult response=mvc.perform(post("/api/v1/admin/parking/billing-day-calendars/"+id+"/revise").secure(true).cookie(session,csrf)
+                        .header("X-XSRF-TOKEN",csrf.getValue()).contentType("application/json").content(body))
+                .andExpect(status().isOk()).andReturn();
+        UUID newId=UUID.fromString(objectMapper.readTree(response.getResponse().getContentAsString()).path("id").asText());
+        assertThat(newId).isNotEqualTo(id);
+        assertThat(jdbc.queryForObject("SELECT valid_to FROM parking.billing_day_calendars WHERE id=?",LocalDate.class,id)).isEqualTo(newStart.minusDays(1));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.billing_day_calendar_days WHERE calendar_id=? AND chargeable",Integer.class,id)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT previous_calendar_id FROM parking.billing_day_calendars WHERE id=?",UUID.class,newId)).isEqualTo(id);
+        assertThat(billingDays.resolve(null,today).chargeable()).isTrue();
+        assertThat(billingDays.resolve(null,newStart).chargeable()).isFalse();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.billing_day_calendar_history h JOIN parking.billing_day_calendars c ON c.id=h.calendar_id WHERE c.version_group_id=(SELECT version_group_id FROM parking.billing_day_calendars WHERE id=?)",Integer.class,id)).isEqualTo(2);
     }
 
     @Test
@@ -183,6 +255,7 @@ class AdminGeneralParkingConfigurationPostgresIntegrationTest extends AbstractPo
         assertThat(row.path("tariff").path("code").asText()).isEqualTo(zoneCode);
         Long expectedVersion = jdbc.queryForObject("SELECT row_version FROM parking.tariffs WHERE id=?", Long.class, zoneTariffId);
         OffsetDateTime ends = starts.plusDays(4);
+        refreshCsrf();
         mvc.perform(post("/api/v1/admin/parking/tariffs/" + zoneTariffId + "/end").secure(true)
                         .cookie(session, csrf).header("X-XSRF-TOKEN", csrf.getValue()).contentType("application/json")
                         .content("{\"effectiveAt\":\"" + ends + "\",\"reason\":\"Fin de prueba QA\",\"expectedVersion\":" + expectedVersion + "}"))
@@ -242,13 +315,21 @@ class AdminGeneralParkingConfigurationPostgresIntegrationTest extends AbstractPo
         String validTo = to == null ? "null" : "\"" + to + "\"";
         String body = "{\"zoneId\":" + zone + ",\"validFrom\":\"" + from + "\",\"validTo\":" + validTo
                 + ",\"chargeableDays\":" + days + ",\"normativeReference\":\"" + reference + "\"}";
+        refreshCsrf();
         return mvc.perform(post("/api/v1/admin/parking/billing-day-calendars").secure(true).cookie(session, csrf)
                 .header("X-XSRF-TOKEN", csrf.getValue()).contentType("application/json").content(body));
     }
 
     private org.springframework.test.web.servlet.ResultActions postTariff(UUID zoneId, String code, OffsetDateTime validFrom) throws Exception {
+        refreshCsrf();
         return mvc.perform(post("/api/v1/admin/parking/tariffs").secure(true).cookie(session, csrf)
                 .header("X-XSRF-TOKEN", csrf.getValue()).contentType("application/json").content(tariffBody(zoneId, code, validFrom)));
+    }
+
+    private void refreshCsrf() throws Exception {
+        MvcResult refreshed = mvc.perform(get("/api/v1/admin/auth/csrf").secure(true).cookie(session))
+                .andExpect(status().isNoContent()).andReturn();
+        csrf = cookie(refreshed, "__Host-SIMERTPI_ADMIN_XSRF");
     }
 
     private String tariffBody(UUID zoneId, String code, OffsetDateTime validFrom) {

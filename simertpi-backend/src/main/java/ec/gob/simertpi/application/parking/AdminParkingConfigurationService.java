@@ -4,6 +4,7 @@ import ec.gob.simertpi.api.ResourceNotFoundException;
 import ec.gob.simertpi.api.parking.admin.dto.AdminBillingDaysWriteRequest;
 import ec.gob.simertpi.api.parking.admin.dto.AdminTariffWriteRequest;
 import ec.gob.simertpi.api.parking.admin.dto.ImmediateTariffRevisionRequest;
+import ec.gob.simertpi.api.parking.admin.dto.UpdateBillingDaysRequest;
 import ec.gob.simertpi.application.audit.Audited;
 import ec.gob.simertpi.domain.parking.entity.Tariff;
 import ec.gob.simertpi.domain.parking.entity.Zone;
@@ -29,11 +30,13 @@ public class AdminParkingConfigurationService {
     private final TariffChangeHistoryService tariffHistory;
     private final TariffScopeLockService tariffScopeLocks;
     private final EntityManager entityManager;
+    private final BillingCalendarHistoryService billingCalendarHistory;
 
     public AdminParkingConfigurationService(TariffRepository tariffs, ZoneRepository zones, JdbcTemplate jdbc,
-            TariffChangeHistoryService tariffHistory, TariffScopeLockService tariffScopeLocks, EntityManager entityManager) {
+            TariffChangeHistoryService tariffHistory, TariffScopeLockService tariffScopeLocks, EntityManager entityManager,
+            BillingCalendarHistoryService billingCalendarHistory) {
         this.tariffs = tariffs; this.zones = zones; this.jdbc = jdbc; this.tariffHistory = tariffHistory;
-        this.tariffScopeLocks = tariffScopeLocks; this.entityManager = entityManager;
+        this.tariffScopeLocks = tariffScopeLocks; this.entityManager = entityManager; this.billingCalendarHistory = billingCalendarHistory;
     }
 
     @Transactional(readOnly = true)
@@ -342,9 +345,12 @@ public class AdminParkingConfigurationService {
     public List<BillingCalendarView> billingCalendars() {
         return jdbc.query("""
                 SELECT c.id,c.zone_id,z.code AS zone_code,z.name AS zone_name,c.valid_from,c.valid_to,
-                       c.normative_reference,c.active,c.created_at,c.updated_at,d.day_of_week,d.chargeable
+                       c.normative_reference,c.active,c.created_at,c.updated_at,d.day_of_week,d.chargeable,
+                       c.row_version,c.version_group_id,c.previous_calendar_id,c.cancelled_at,c.cancelled_by_user_id,
+                       c.cancellation_reason,u.username AS cancelled_by_username
                   FROM parking.billing_day_calendars c
                   LEFT JOIN parking.zones z ON z.id=c.zone_id
+                  LEFT JOIN identity.users u ON u.id=c.cancelled_by_user_id
                   LEFT JOIN parking.billing_day_calendar_days d ON d.calendar_id=c.id
                  ORDER BY c.zone_id NULLS FIRST,c.valid_from DESC,d.day_of_week
                 """, rs -> {
@@ -356,7 +362,10 @@ public class AdminParkingConfigurationService {
                             rs.getString("zone_name"), rs.getObject("valid_from", LocalDate.class),
                             rs.getObject("valid_to", LocalDate.class), rs.getString("normative_reference"),
                             rs.getBoolean("active"), rs.getObject("created_at", OffsetDateTime.class),
-                            rs.getObject("updated_at", OffsetDateTime.class)); }
+                            rs.getObject("updated_at", OffsetDateTime.class), rs.getLong("row_version"),
+                            rs.getObject("version_group_id", UUID.class), rs.getObject("previous_calendar_id", UUID.class),
+                            rs.getObject("cancelled_at", OffsetDateTime.class), rs.getObject("cancelled_by_user_id", UUID.class),
+                            rs.getString("cancellation_reason"), rs.getString("cancelled_by_username")); }
                     catch (java.sql.SQLException ex) { throw new org.springframework.jdbc.UncategorizedSQLException("Read billing calendar", "", ex); }
                 });
                 Object day = rs.getObject("day_of_week");
@@ -384,30 +393,191 @@ public class AdminParkingConfigurationService {
                 """, Boolean.class, request.zoneId(), request.validTo(), request.validFrom());
         if (Boolean.TRUE.equals(overlap)) throw new IllegalArgumentException("BILLING_CALENDAR_VALIDITY_OVERLAP");
         UUID id = UUID.randomUUID();
-        jdbc.update("INSERT INTO parking.billing_day_calendars(id,zone_id,valid_from,valid_to,normative_reference,active) VALUES (?,?,?,?,?,true)",
-                id, request.zoneId(), request.validFrom(), request.validTo(), request.normativeReference().trim());
+        jdbc.update("INSERT INTO parking.billing_day_calendars(id,zone_id,valid_from,valid_to,normative_reference,active,version_group_id) VALUES (?,?,?,?,?,true,?)",
+                id, request.zoneId(), request.validFrom(), request.validTo(), request.normativeReference().trim(), id);
         Set<Integer> selected = Set.copyOf(request.chargeableDays());
         for (int day = 1; day <= 7; day++) jdbc.update("INSERT INTO parking.billing_day_calendar_days(calendar_id,day_of_week,chargeable) VALUES (?,?,?)",
                 id, day, selected.contains(day));
+        Map<String, Object> after = calendarSnapshot(id);
+        billingCalendarHistory.record(id, null, "CREATED", request.validFrom(),
+                "Registro inicial; referencia normativa declarada: " + request.normativeReference().trim(), null, after);
         return new BillingCalendarCreated(id);
     }
 
     @Transactional
     @Audited(action = "CONFIGURATION_BILLING_DAYS_ENDED", resourceType = "CONFIGURATION", resourceIdArgument = 0)
-    public UUID endBillingCalendar(UUID id, LocalDate effectiveFrom) {
+    public BillingCalendarView updateScheduledBillingCalendar(UUID id, UpdateBillingDaysRequest request) {
+        validateCalendarChange(request.validFrom(), request.validTo(), request.chargeableDays(), request.normativeReference(), request.reason());
+        LocalDate today = LocalDate.now(ZoneId.of("America/Guayaquil"));
+        if (!request.validFrom().isAfter(today)) throw new IllegalArgumentException("BILLING_CALENDAR_START_MUST_BE_FUTURE");
+        UUID zoneId = calendarScope(id);
+        lockScope("billing-days", zoneId);
+        CalendarState current = lockCalendar(id);
+        requireCalendarVersion(current, request.expectedVersion());
+        if (!current.active() || current.cancelledAt() != null || !current.validFrom().isAfter(today))
+            throw new IllegalArgumentException("BILLING_CALENDAR_NOT_SCHEDULED");
+        ensureNoCalendarOverlap(zoneId, id, request.validFrom(), request.validTo());
+        Map<String, Object> before = calendarSnapshot(id);
+        int changed = jdbc.update("""
+                UPDATE parking.billing_day_calendars SET valid_from=?,valid_to=?,normative_reference=?,updated_at=CURRENT_TIMESTAMP,
+                  row_version=row_version+1 WHERE id=? AND active AND row_version=? AND cancelled_at IS NULL
+                """, request.validFrom(), request.validTo(), request.normativeReference().trim(), id, request.expectedVersion());
+        if (changed != 1) throw new IllegalArgumentException("BILLING_CALENDAR_VERSION_CHANGED_REFRESH_REQUIRED");
+        replaceDays(id, request.chargeableDays());
+        Map<String, Object> after = calendarSnapshot(id);
+        billingCalendarHistory.record(id, current.previousCalendarId(), "SCHEDULED_UPDATED", request.validFrom(), request.reason(), before, after);
+        return calendarView(id);
+    }
+
+    @Transactional
+    @Audited(action = "CONFIGURATION_BILLING_DAYS_VERSIONED", resourceType = "CONFIGURATION", resourceIdArgument = 0)
+    public BillingCalendarView reviseBillingCalendar(UUID id, UpdateBillingDaysRequest request) {
+        validateCalendarChange(request.validFrom(), request.validTo(), request.chargeableDays(), request.normativeReference(), request.reason());
+        LocalDate today = LocalDate.now(ZoneId.of("America/Guayaquil"));
+        if (!request.validFrom().isAfter(today)) throw new IllegalArgumentException("BILLING_CALENDAR_START_MUST_BE_FUTURE");
+        UUID zoneId = calendarScope(id);
+        lockScope("billing-days", zoneId);
+        CalendarState current = lockCalendar(id);
+        requireCalendarVersion(current, request.expectedVersion());
+        if (!current.active() || current.cancelledAt() != null || current.validFrom().isAfter(today)
+                || current.validTo() != null && current.validTo().isBefore(today))
+            throw new IllegalArgumentException("BILLING_CALENDAR_NOT_CURRENT");
+        ensureNoCalendarOverlap(zoneId, id, request.validFrom(), request.validTo());
+        Map<String, Object> before = calendarSnapshot(id);
+        LocalDate priorEnd = request.validFrom().minusDays(1);
+        int changed = jdbc.update("""
+                UPDATE parking.billing_day_calendars SET valid_to=CASE WHEN valid_to IS NULL OR valid_to>=? THEN ? ELSE valid_to END,
+                  updated_at=CURRENT_TIMESTAMP,row_version=row_version+1 WHERE id=? AND active AND row_version=? AND cancelled_at IS NULL
+                """, request.validFrom(), priorEnd, id, request.expectedVersion());
+        if (changed != 1) throw new IllegalArgumentException("BILLING_CALENDAR_VERSION_CHANGED_REFRESH_REQUIRED");
+        UUID newId = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO parking.billing_day_calendars(id,zone_id,valid_from,valid_to,normative_reference,active,version_group_id,previous_calendar_id)
+                VALUES (?,?,?,?,?,true,?,?)
+                """, newId, zoneId, request.validFrom(), request.validTo(), request.normativeReference().trim(),
+                current.versionGroupId(), id);
+        replaceDays(newId, request.chargeableDays());
+        billingCalendarHistory.record(id, current.previousCalendarId(), "VERSIONED", request.validFrom(), request.reason(), before, calendarSnapshot(id));
+        billingCalendarHistory.record(newId, id, "CREATED", request.validFrom(), request.reason(), before, calendarSnapshot(newId));
+        return calendarView(newId);
+    }
+
+    @Transactional
+    @Audited(action = "CONFIGURATION_BILLING_DAYS_ENDED", resourceType = "CONFIGURATION", resourceIdArgument = 0)
+    public BillingCalendarView endBillingCalendar(UUID id, LocalDate effectiveFrom, String reason, Long expectedVersion) {
+        requireCalendarReason(reason);
         if (effectiveFrom == null || !effectiveFrom.isAfter(LocalDate.now(ZoneId.of("America/Guayaquil"))))
             throw new IllegalArgumentException("BILLING_CALENDAR_END_MUST_BE_FUTURE");
-        UUID zoneId = jdbc.query("SELECT zone_id FROM parking.billing_day_calendars WHERE id=?",
-                rs -> rs.next() ? rs.getObject(1, UUID.class) : null, id);
-        if (zoneId == null && !jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM parking.billing_day_calendars WHERE id=? AND zone_id IS NULL)", Boolean.class, id))
-            throw new ResourceNotFoundException("Billing calendar not found");
+        UUID zoneId = calendarScope(id);
         lockScope("billing-days", zoneId);
-        jdbc.query("SELECT id FROM parking.billing_day_calendars WHERE id=? FOR UPDATE", rs -> null, id);
-        LocalDate end = effectiveFrom == null ? null : effectiveFrom.minusDays(1);
-        int changed = jdbc.update("UPDATE parking.billing_day_calendars SET valid_to=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND active AND valid_from<? AND (valid_to IS NULL OR ?<=valid_to)",
-                end, id, effectiveFrom, end);
+        CalendarState current = lockCalendar(id);
+        requireCalendarVersion(current, expectedVersion);
+        LocalDate today = LocalDate.now(ZoneId.of("America/Guayaquil"));
+        if (!current.active() || current.cancelledAt() != null || current.validFrom().isAfter(today)
+                || current.validTo() != null && current.validTo().isBefore(today))
+            throw new IllegalArgumentException("BILLING_CALENDAR_NOT_CURRENT");
+        LocalDate end = effectiveFrom.minusDays(1);
+        if (current.validTo() != null && current.validTo().isBefore(effectiveFrom))
+            throw new IllegalArgumentException("INVALID_BILLING_CALENDAR_END");
+        Map<String, Object> before = calendarSnapshot(id);
+        int changed = jdbc.update("UPDATE parking.billing_day_calendars SET valid_to=?,updated_at=CURRENT_TIMESTAMP,row_version=row_version+1 WHERE id=? AND active AND row_version=? AND cancelled_at IS NULL",
+                end, id, expectedVersion);
         if (changed != 1) throw new IllegalArgumentException("INVALID_BILLING_CALENDAR_END");
-        return id;
+        Map<String, Object> after = calendarSnapshot(id);
+        billingCalendarHistory.record(id, current.previousCalendarId(), "ENDED", effectiveFrom, reason, before, after);
+        return calendarView(id);
+    }
+
+    @Transactional
+    @Audited(action = "CONFIGURATION_BILLING_DAYS_CANCELLED", resourceType = "CONFIGURATION", resourceIdArgument = 0)
+    public BillingCalendarView cancelScheduledBillingCalendar(UUID id, String reason, Long expectedVersion) {
+        requireCalendarReason(reason);
+        UUID zoneId = calendarScope(id);
+        lockScope("billing-days", zoneId);
+        CalendarState current = lockCalendar(id);
+        requireCalendarVersion(current, expectedVersion);
+        if (!current.active() || current.cancelledAt() != null
+                || !current.validFrom().isAfter(LocalDate.now(ZoneId.of("America/Guayaquil"))))
+            throw new IllegalArgumentException("BILLING_CALENDAR_NOT_SCHEDULED");
+        Map<String, Object> before = calendarSnapshot(id);
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        UUID actorId = jdbc.query("SELECT id FROM identity.users WHERE username=?", rs -> rs.next() ? rs.getObject(1, UUID.class) : null,
+                authentication == null ? "" : authentication.getName());
+        if (actorId == null) throw new IllegalStateException("ADMIN_ACTOR_NOT_FOUND_FOR_BILLING_CALENDAR_CANCELLATION");
+        int changed = jdbc.update("""
+                UPDATE parking.billing_day_calendars SET active=FALSE,cancelled_at=CURRENT_TIMESTAMP,cancelled_by_user_id=?,
+                  cancellation_reason=?,updated_at=CURRENT_TIMESTAMP,row_version=row_version+1
+                 WHERE id=? AND active AND cancelled_at IS NULL AND row_version=?
+                """, actorId, reason.trim(), id, expectedVersion);
+        if (changed != 1) throw new IllegalArgumentException("BILLING_CALENDAR_VERSION_CHANGED_REFRESH_REQUIRED");
+        Map<String, Object> after = calendarSnapshot(id);
+        billingCalendarHistory.record(id, current.previousCalendarId(), "SCHEDULED_CANCELLED", null, reason, before, after);
+        return calendarView(id);
+    }
+
+    @Transactional(readOnly = true)
+    public List<BillingCalendarHistoryService.BillingCalendarHistoryItem> billingCalendarHistory(UUID id) {
+        return billingCalendarHistory.history(id);
+    }
+
+    private UUID calendarScope(UUID id) {
+        UUID scope = jdbc.query("SELECT zone_id FROM parking.billing_day_calendars WHERE id=?", rs ->
+                rs.next() ? rs.getObject(1, UUID.class) : null, id);
+        if (scope == null && !jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM parking.billing_day_calendars WHERE id=?)", Boolean.class, id))
+            throw new ResourceNotFoundException("Billing calendar not found");
+        return scope;
+    }
+
+    private CalendarState lockCalendar(UUID id) {
+        return jdbc.query("SELECT id,zone_id,valid_from,valid_to,active,row_version,version_group_id,previous_calendar_id,cancelled_at FROM parking.billing_day_calendars WHERE id=? FOR UPDATE",
+                rs -> rs.next() ? new CalendarState(rs.getObject("id", UUID.class), rs.getObject("zone_id", UUID.class),
+                        rs.getObject("valid_from", LocalDate.class), rs.getObject("valid_to", LocalDate.class), rs.getBoolean("active"),
+                        rs.getLong("row_version"), rs.getObject("version_group_id", UUID.class), rs.getObject("previous_calendar_id", UUID.class),
+                        rs.getObject("cancelled_at", OffsetDateTime.class)) : null, id);
+    }
+
+    private void requireCalendarVersion(CalendarState state, Long expectedVersion) {
+        if (state == null) throw new ResourceNotFoundException("Billing calendar not found");
+        if (expectedVersion == null || state.rowVersion() != expectedVersion)
+            throw new IllegalArgumentException("BILLING_CALENDAR_VERSION_CHANGED_REFRESH_REQUIRED");
+    }
+
+    private void validateCalendarChange(LocalDate from, LocalDate to, List<Integer> days, String reference, String reason) {
+        validateRange(from, to); requireCalendarReason(reason);
+        if (reference == null || reference.isBlank() || reference.length() > 255) throw new IllegalArgumentException("INVALID_BILLING_CALENDAR_REFERENCE");
+        if (days == null || days.stream().anyMatch(d -> d == null || d < 1 || d > 7) || new HashSet<>(days).size() != days.size())
+            throw new IllegalArgumentException("INVALID_CHARGEABLE_DAYS");
+    }
+
+    private void requireCalendarReason(String reason) {
+        if (reason == null || reason.isBlank() || reason.trim().length() > 500)
+            throw new IllegalArgumentException("BILLING_CALENDAR_CHANGE_REASON_REQUIRED");
+    }
+
+    private void ensureNoCalendarOverlap(UUID zoneId, UUID excludedId, LocalDate from, LocalDate to) {
+        Boolean overlap = jdbc.queryForObject("""
+                SELECT EXISTS(SELECT 1 FROM parking.billing_day_calendars
+                 WHERE active AND cancelled_at IS NULL AND id<>? AND zone_id IS NOT DISTINCT FROM ?
+                   AND valid_from<=COALESCE(?,DATE 'infinity') AND COALESCE(valid_to,DATE 'infinity')>=?)
+                """, Boolean.class, excludedId, zoneId, to, from);
+        if (Boolean.TRUE.equals(overlap)) throw new IllegalArgumentException("BILLING_CALENDAR_VALIDITY_OVERLAP");
+    }
+
+    private void replaceDays(UUID id, List<Integer> days) {
+        jdbc.update("DELETE FROM parking.billing_day_calendar_days WHERE calendar_id=?", id);
+        Set<Integer> selected = Set.copyOf(days);
+        for (int day=1; day<=7; day++) jdbc.update("INSERT INTO parking.billing_day_calendar_days(calendar_id,day_of_week,chargeable) VALUES (?,?,?)", id, day, selected.contains(day));
+    }
+
+    private Map<String, Object> calendarSnapshot(UUID id) {
+        Map<String,Object> result = new LinkedHashMap<>(jdbc.queryForMap("SELECT id,zone_id,valid_from,valid_to,normative_reference,active,row_version,version_group_id,previous_calendar_id,cancelled_at,cancelled_by_user_id,cancellation_reason FROM parking.billing_day_calendars WHERE id=?", id));
+        result.put("days", jdbc.query("SELECT day_of_week,chargeable FROM parking.billing_day_calendar_days WHERE calendar_id=? ORDER BY day_of_week",
+                (rs,n) -> Map.of("day",rs.getInt(1),"chargeable",rs.getBoolean(2)), id));
+        return result;
+    }
+
+    private BillingCalendarView calendarView(UUID id) {
+        return billingCalendars().stream().filter(c -> c.id().equals(id)).findFirst().orElseThrow(() -> new ResourceNotFoundException("Billing calendar not found"));
     }
 
     @Transactional(readOnly = true)
@@ -499,17 +669,30 @@ public class AdminParkingConfigurationService {
     public record EffectiveSnapshot(OffsetDateTime at, EffectiveTariff generalTariff, UUID generalBillingCalendarId,
             boolean generalChargeable, boolean generalBillingDaysConfigured, String generalBillingNormativeReference,
             List<EffectiveZone> zones) { }
+    private record CalendarState(UUID id, UUID zoneId, LocalDate validFrom, LocalDate validTo, boolean active, long rowVersion,
+            UUID versionGroupId, UUID previousCalendarId, OffsetDateTime cancelledAt) { }
     public record BillingCalendarView(UUID id, UUID zoneId, String zoneCode, String zoneName, LocalDate validFrom,
             LocalDate validTo, String normativeReference, boolean active, OffsetDateTime createdAt,
-            OffsetDateTime updatedAt, Map<Integer, Boolean> days) { }
+            OffsetDateTime updatedAt, Map<Integer, Boolean> days, long rowVersion, UUID versionGroupId,
+            UUID previousCalendarId, OffsetDateTime cancelledAt, UUID cancelledByUserId, String cancellationReason,
+            String cancelledByUsername) { }
     private static final class MutableCalendar {
         final UUID id, zoneId; final String zoneCode, zoneName, normativeReference; final LocalDate validFrom, validTo;
-        final boolean active; final OffsetDateTime createdAt, updatedAt; final Map<Integer, Boolean> days = new LinkedHashMap<>();
+        final boolean active; final OffsetDateTime createdAt, updatedAt, cancelledAt;
+        final long rowVersion; final UUID versionGroupId, previousCalendarId, cancelledByUserId;
+        final String cancellationReason, cancelledByUsername; final Map<Integer, Boolean> days = new LinkedHashMap<>();
         MutableCalendar(UUID id, UUID zoneId, String zoneCode, String zoneName, LocalDate validFrom, LocalDate validTo,
-                String normativeReference, boolean active, OffsetDateTime createdAt, OffsetDateTime updatedAt) {
+                String normativeReference, boolean active, OffsetDateTime createdAt, OffsetDateTime updatedAt, long rowVersion,
+                UUID versionGroupId, UUID previousCalendarId, OffsetDateTime cancelledAt, UUID cancelledByUserId,
+                String cancellationReason, String cancelledByUsername) {
             this.id=id; this.zoneId=zoneId; this.zoneCode=zoneCode; this.zoneName=zoneName; this.validFrom=validFrom;
             this.validTo=validTo; this.normativeReference=normativeReference; this.active=active; this.createdAt=createdAt; this.updatedAt=updatedAt;
+            this.rowVersion=rowVersion; this.versionGroupId=versionGroupId; this.previousCalendarId=previousCalendarId;
+            this.cancelledAt=cancelledAt; this.cancelledByUserId=cancelledByUserId; this.cancellationReason=cancellationReason;
+            this.cancelledByUsername=cancelledByUsername;
         }
-        BillingCalendarView view() { return new BillingCalendarView(id,zoneId,zoneCode,zoneName,validFrom,validTo,normativeReference,active,createdAt,updatedAt,Map.copyOf(days)); }
+        BillingCalendarView view() { return new BillingCalendarView(id,zoneId,zoneCode,zoneName,validFrom,validTo,normativeReference,
+                active,createdAt,updatedAt,Map.copyOf(days),rowVersion,versionGroupId,previousCalendarId,cancelledAt,
+                cancelledByUserId,cancellationReason,cancelledByUsername); }
     }
 }

@@ -8,6 +8,7 @@
       <button class="button primary" type="button" (click)="openCreate()">Crear tarifa</button>
     }
   </app-page-heading>
+  @if (actionMessage()) { <p class="notice success-note" role="status">{{ actionMessage() }} @if (savedVersionId()) { <small class="success-id">Identificador: {{ savedVersionId() }}</small> }</p> }
 
   @if (preview) {
     <section class="notice preview-note" role="status">
@@ -21,7 +22,7 @@
       <button class="button secondary" type="button" (click)="load()">Reintentar</button>
     </app-data-state>
   } @else {
-    @if (actionMessage()) { <p class="notice success-note" role="status">{{ actionMessage() }}</p> }
+
     @if (actionError()) { <p class="notice error-note" role="alert">{{ actionError() }}</p> }
 
     <div class="summary-grid" aria-label="Resumen de tarifas">
@@ -66,12 +67,13 @@
         }
         <form class="admin-form" [formGroup]="form" (ngSubmit)="submit($event)" novalidate>
           @if (revisionOf()) {
-            <fieldset class="timing-options wide"><legend>Cuándo aplicar el cambio</legend>
-              <label class="timing-choice" [class.selected]="revisionTiming() === 'now'"><input type="radio" name="revisionTiming" [checked]="revisionTiming() === 'now'" (change)="setRevisionTiming('now')" /> Aplicar ahora</label>
-              <label class="timing-choice" [class.selected]="revisionTiming() === 'scheduled'"><input type="radio" name="revisionTiming" [checked]="revisionTiming() === 'scheduled'" (change)="setRevisionTiming('scheduled')" /> Programar cambio</label>
-            </fieldset>
+            <section class="form-section wide"><h3>1. Cuándo aplicar el cambio</h3><fieldset class="timing-options timing-options-compact"><legend>Seleccione una opción</legend>
+              <label class="timing-choice" [class.selected]="revisionTiming() === 'now'"><input type="radio" name="revisionTiming" [checked]="revisionTiming() === 'now'" (change)="setRevisionTiming('now')" /><svg aria-hidden="true" viewBox="0 0 20 20"><path d="M10 2.5v7.7l5.4 5.4"/><path d="M4.8 5.1A7.3 7.3 0 1 0 17.3 10"/></svg><span>Aplicar ahora</span></label>
+              <label class="timing-choice" [class.selected]="revisionTiming() === 'scheduled'"><input type="radio" name="revisionTiming" [checked]="revisionTiming() === 'scheduled'" (change)="setRevisionTiming('scheduled')" /><svg aria-hidden="true" viewBox="0 0 20 20"><rect x="2.8" y="4.2" width="14.4" height="13" rx="2"/><path d="M6.3 2.5v3.4m7.4-3.4v3.4M2.8 8h14.4"/></svg><span>Programar cambio</span></label>
+            </fieldset></section>
             @if (revisionTiming() === 'now') { <p class="notice wide" role="note">La nueva versión iniciará en el instante registrado por el servidor al confirmar. No se modifican sesiones ya iniciadas; las nuevas sesiones usarán la tarifa efectiva al comenzar.</p> }
           }
+          <section class="form-section wide"><h3>{{ revisionOf() ? '2. Datos de la nueva versión' : 'Datos de la tarifa' }}</h3><div class="tariff-data-grid">
           <label class="field"><span>Código</span><input formControlName="code" maxlength="50" placeholder="Ej.: TAR-GEN-2027-V2" autocomplete="off" /><small>El código identifica esta versión y debe pertenecer a la misma serie tarifaria.</small></label>
           <label class="field"><span>Nombre</span><input formControlName="name" maxlength="150" placeholder="Ej.: Tarifa general de estacionamiento" /></label>
           @if (revisionOf() || editingScheduled()?.previousVersionId) { <p class="field"><span>Aplicación conservada</span><strong>{{ (editingScheduled() ?? revisionOf())!.zoneId ? displayZone((editingScheduled() ?? revisionOf())!.zoneCode, (editingScheduled() ?? revisionOf())!.zoneName) : 'General para todas las zonas' }}</strong></p> }
@@ -93,8 +95,9 @@
           }
           <label class="field"><span>Vigente hasta (opcional)</span><input formControlName="validTo" type="datetime-local" /><small>Déjelo vacío si no se ha definido una fecha final.</small></label>
           <label class="field wide"><span>Referencia normativa</span><input formControlName="normativeReference" maxlength="255" placeholder="Ej.: Ordenanza municipal N.º 001-2027, artículo 5" /></label>
+          </div></section>
           @if (editingScheduled() || revisionOf()) {
-            <label class="field wide"><span>Motivo del cambio</span><textarea formControlName="reason" maxlength="500" placeholder="Ej.: Corrección aprobada mediante resolución municipal"></textarea><small>El motivo, la cuenta responsable y la fecha quedarán en el historial.</small></label>
+            <section class="form-section wide"><h3>3. Motivo del cambio</h3><label class="field"><span>Motivo obligatorio</span><textarea formControlName="reason" maxlength="500" placeholder="Ej.: Corrección aprobada mediante resolución municipal"></textarea><small>El motivo, la cuenta responsable y la fecha quedarán en el historial.</small></label><p class="section-note">La versión anterior se conserva en el historial para no alterar operaciones ya iniciadas.</p></section>
           }
           <div class="form-actions wide"><button class="button primary" type="submit" [disabled]="saving()">{{ saving() ? 'Guardando…' : editingScheduled() ? 'Guardar cambios' : revisionOf() ? 'Guardar nueva versión' : 'Registrar tarifa' }}</button><button class="button secondary" type="button" (click)="editingScheduled() ? requestEditClose() : cancelForms()">Cancelar</button></div>
         </form>

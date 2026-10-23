@@ -3,6 +3,7 @@ package ec.gob.simertpi.api.parking;
 import ec.gob.simertpi.api.parking.admin.dto.AdminBillingDaysWriteRequest;
 import ec.gob.simertpi.api.parking.admin.dto.AdminTariffWriteRequest;
 import ec.gob.simertpi.api.parking.admin.dto.ImmediateTariffRevisionRequest;
+import ec.gob.simertpi.api.parking.admin.dto.UpdateBillingDaysRequest;
 import ec.gob.simertpi.api.ResourceNotFoundException;
 import ec.gob.simertpi.application.parking.AdminParkingConfigurationService;
 import ec.gob.simertpi.application.parking.TariffChangeHistoryService;
@@ -87,6 +88,11 @@ public class AdminParkingConfigurationController {
         return noStore(service.billingCalendars());
     }
 
+    @GetMapping("/billing-day-calendars/{id}/history")
+    public ResponseEntity<List<ec.gob.simertpi.application.parking.BillingCalendarHistoryService.BillingCalendarHistoryItem>> billingCalendarHistory(@PathVariable UUID id) {
+        return noStore(service.billingCalendarHistory(id));
+    }
+
     @GetMapping("/tariffs/{id}/history")
     public ResponseEntity<List<TariffChangeHistoryService.TariffHistoryItem>> tariffHistory(@PathVariable UUID id) {
         return noStore(service.tariffHistory(id));
@@ -153,9 +159,28 @@ public class AdminParkingConfigurationController {
                 .body(service.createBillingCalendar(request).id());
     }
 
+    @PutMapping("/billing-day-calendars/{id}")
+    public ResponseEntity<AdminParkingConfigurationService.BillingCalendarView> updateScheduledBillingCalendar(
+            @PathVariable UUID id, @Valid @RequestBody UpdateBillingDaysRequest request) {
+        return noStore(service.updateScheduledBillingCalendar(id, request));
+    }
+
+    @PostMapping("/billing-day-calendars/{id}/revise")
+    public ResponseEntity<AdminParkingConfigurationService.BillingCalendarView> reviseBillingCalendar(
+            @PathVariable UUID id, @Valid @RequestBody UpdateBillingDaysRequest request) {
+        return noStore(service.reviseBillingCalendar(id, request));
+    }
+
     @PostMapping("/billing-day-calendars/{id}/end")
-    public ResponseEntity<UUID> endBillingCalendar(@PathVariable UUID id, @Valid @RequestBody EndBillingDaysRequest request) {
-        return noStore(service.endBillingCalendar(id, request.effectiveFrom()));
+    public ResponseEntity<AdminParkingConfigurationService.BillingCalendarView> endBillingCalendar(@PathVariable UUID id,
+            @Valid @RequestBody EndBillingDaysRequest request) {
+        return noStore(service.endBillingCalendar(id, request.effectiveFrom(), request.reason(), request.expectedVersion()));
+    }
+
+    @PostMapping("/billing-day-calendars/{id}/cancel")
+    public ResponseEntity<AdminParkingConfigurationService.BillingCalendarView> cancelBillingCalendar(@PathVariable UUID id,
+            @Valid @RequestBody CancelBillingDaysRequest request) {
+        return noStore(service.cancelScheduledBillingCalendar(id, request.reason(), request.expectedVersion()));
     }
 
     private static <T> ResponseEntity<T> noStore(T value) {
@@ -177,7 +202,11 @@ public class AdminParkingConfigurationController {
             @jakarta.validation.constraints.NotBlank @jakarta.validation.constraints.Size(max = 500) String reason,
             @jakarta.validation.constraints.NotNull @jakarta.validation.constraints.Min(0) Long expectedVersion) { }
     public record CancelTariffRequest(@jakarta.validation.constraints.NotBlank @jakarta.validation.constraints.Size(max = 500) String reason) { }
-    public record EndBillingDaysRequest(@jakarta.validation.constraints.NotNull LocalDate effectiveFrom) { }
+    public record EndBillingDaysRequest(@jakarta.validation.constraints.NotNull LocalDate effectiveFrom,
+            @jakarta.validation.constraints.NotBlank @jakarta.validation.constraints.Size(max = 500) String reason,
+            @jakarta.validation.constraints.NotNull @jakarta.validation.constraints.Min(0) Long expectedVersion) { }
+    public record CancelBillingDaysRequest(@jakarta.validation.constraints.NotBlank @jakarta.validation.constraints.Size(max = 500) String reason,
+            @jakarta.validation.constraints.NotNull @jakarta.validation.constraints.Min(0) Long expectedVersion) { }
     public record AdminTariffView(UUID id, String code, String name, UUID zoneId, String currency,
             java.math.BigDecimal amount, Integer durationMinutes, Integer minMinutes, Integer maxContinuousMinutes,
             Integer gracePeriodMinutes, String roundingMode, String normativeReference, boolean active,

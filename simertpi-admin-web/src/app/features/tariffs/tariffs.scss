@@ -193,6 +193,13 @@ td small {
   flex-wrap: wrap;
   gap: 9px;
 }
+.row-actions.calendar-actions {
+  display: grid;
+  align-items: stretch;
+  flex-wrap: nowrap;
+  grid-auto-rows: 31px;
+  gap: 5px;
+}
 .inline-form {
   margin-top: 14px;
 }

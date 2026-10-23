@@ -1757,17 +1757,97 @@ app-tariffs .status-ended { background: #eef0ef; color: #606b65; }
 app-tariffs .date-value { display: block; font-weight: 650; }
 app-tariffs .reference-cell { line-height: 1.4; }
 app-tariffs .row-actions { display: grid; grid-auto-rows: 31px; gap: 5px; min-width: 132px; margin: 0; align-items: stretch; }
-app-tariffs .row-actions .button { display: inline-flex; width: 100%; min-height: 31px; align-items: center; justify-content: flex-start; gap: 7px; padding: 4px 8px; font-size: 11px; line-height: 1; white-space: nowrap; }
-app-tariffs .row-actions .button svg { width: 14px; height: 14px; flex: 0 0 14px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+app-tariffs .row-actions .button { display: inline-flex; width: 100%; height: 31px; min-height: 31px; box-sizing: border-box; align-items: center; justify-content: flex-start; gap: 7px; padding: 4px 8px; font-size: 11px; line-height: 1; white-space: nowrap; }
+app-tariffs .row-actions .button svg { width: 14px; height: 14px; flex: 0 0 14px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
 app-tariffs .row-actions .button.action-edit { color: #315f96; border-color: #d7e3f1; background: #f4f8fd; }
 app-tariffs .row-actions .button.action-history { color: #606b65; border-color: #dfe4e1; background: #f7f8f7; }
 app-tariffs .timing-options { gap: 8px; padding: 7px; border-color: #e2e8e4; background: #f8faf8; }
 app-tariffs .timing-options label.timing-choice { min-height: 34px; gap: 7px; padding: 6px 11px; border: 1px solid transparent; border-radius: 7px; color: #53645a; font-size: 12px; cursor: pointer; }
 app-tariffs .timing-options label.timing-choice.selected { border-color: #b8cfbd; background: #edf5ef; color: #315f3d; }
-app-tariffs .timing-options label.timing-choice input { width: 14px; min-height: 14px; height: 14px; margin: 0; accent-color: #477553; }
+app-tariffs .tariff-dialog .timing-options label.timing-choice { flex: 0 1 205px; min-height: 36px; align-items: center; justify-content: flex-start; gap: 8px; padding: 6px 10px; }
+app-tariffs .tariff-dialog .timing-options label.timing-choice input[type="radio"] { flex: 0 0 14px; width: 14px; min-width: 14px; min-height: 14px; height: 14px; margin: 0; padding: 0; accent-color: #477553; }
+app-tariffs .tariff-dialog .timing-options label.timing-choice svg { width: 15px; height: 15px; flex: 0 0 15px; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; }
+app-tariffs .tariff-dialog .form-section { padding: 15px 0; border-bottom: 1px solid var(--border); }
+app-tariffs .tariff-dialog .form-section h3 { margin: 0 0 12px; color: var(--ink); font-size: 14px; }
+app-tariffs .tariff-data-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 13px 15px; align-items: start; }
+app-tariffs .tariff-data-grid > .field { display: grid; grid-template-rows: auto 42px minmax(2.4em,auto); align-content: start; gap: 6px; min-width: 0; }
+app-tariffs .tariff-data-grid > .field > small { margin: 0; }
+app-tariffs .tariff-data-grid > .field.wide { grid-column: 1 / -1; }
+app-tariffs .tariff-dialog textarea { width: 100%; min-height: 82px; }
+app-tariffs .tariff-dialog .success-id { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
 @media (max-width: 600px) {
   app-tariffs .tariff-versions-table { min-width: 980px; }
   app-tariffs .row-actions { min-width: 126px; }
   app-tariffs .timing-options { gap: 6px; }
-  app-tariffs .timing-options label.timing-choice { flex: 1 1 150px; }
+  app-tariffs .tariff-dialog .timing-options label.timing-choice { flex: 1 1 150px; }
+  app-tariffs .tariff-data-grid { grid-template-columns: 1fr; }
+  app-tariffs .tariff-data-grid > .field.wide { grid-column: auto; }
+}
+
+app-billing-days {
+.calendar-table-scroll { max-width: 100%; overflow-x: auto; }
+.calendar-versions-table { min-width: 970px; table-layout: fixed; }
+.calendar-versions-table th:nth-child(1) { width: 17%; }
+.calendar-versions-table th:nth-child(2) { width: 20%; }
+.calendar-versions-table th:nth-child(3) { width: 15%; }
+.calendar-versions-table th:nth-child(4) { width: 18%; }
+.calendar-versions-table th:nth-child(5) { width: 11%; }
+.calendar-versions-table th:nth-child(6) { width: 19%; }
+.calendar-versions-table th, .calendar-versions-table td { min-width: 0; padding: 10px 9px; overflow-wrap: anywhere; }
+.calendar-status { display: inline-flex; width: fit-content; padding: 4px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.calendar-status.status-current { color: #356345; background: #eaf4ec; }
+.calendar-status.status-scheduled { color: #315f96; background: #eaf1fb; }
+.calendar-status.status-cancelled { color: #914c49; background: #fbefee; }
+.calendar-status.status-ended { color: #606b65; background: #eef0ef; }
+.calendar-actions { display: grid; grid-auto-rows: 31px; gap: 5px; min-width: 145px; margin: 0; align-items: stretch; }
+.calendar-actions .button { display: inline-flex; width: 100%; height: 31px; min-height: 31px; box-sizing: border-box; align-items: center; justify-content: flex-start; gap: 7px; padding: 4px 8px; font-size: 11px; line-height: 1; white-space: nowrap; }
+.calendar-actions .button svg { pointer-events: none; }
+.calendar-actions .action-edit { color: #315f96; border-color: #d7e3f1; background: #f4f8fd; }
+.calendar-actions .action-history { color: #606b65; border-color: #dfe4e1; background: #f7f8f7; }
+.calendar-actions .action-danger { color: #914c49; border-color: #efd8d6; background: #fbf2f1; }
+.calendar-dialog { width: min(760px, calc(100vw - 28px)); max-width: none; max-height: calc(100dvh - 24px); padding: 0; border: 1px solid #dfe6e1; border-radius: 14px; }
+.calendar-dialog.compact-dialog { width: min(560px, calc(100vw - 28px)); }
+.calendar-dialog .dialog-content { min-height: 0; }
+.calendar-dialog .dialog-scroll { min-height: 0; }
+.calendar-dialog .calendar-form { display: block; margin: 0; }
+.calendar-form .form-section { padding: 17px 0; border-bottom: 1px solid var(--border); }
+.calendar-form .form-section:first-child { padding-top: 0; }
+.calendar-form .form-section h3 { margin: 0 0 13px; color: var(--ink); font-size: 14px; }
+.calendar-form .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 13px 16px; align-items: start; }
+.calendar-form .form-grid .field { display: grid; grid-template-rows: auto 42px minmax(2.4em,auto); gap: 6px; min-width: 0; }
+.calendar-form .form-grid .field > small { margin: 0; }
+.calendar-form .field-full { grid-column: 1 / -1; }
+.calendar-form textarea, .calendar-dialog textarea { width: 100%; min-height: 84px; resize: vertical; }
+.calendar-form .weekday-field { display: block; margin: 0; }
+.calendar-form .weekday-options { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.calendar-form .weekday-options label { display: inline-flex; align-items: center; gap: 7px; min-height: 33px; }
+.calendar-form .weekday-options input { width: 17px; min-height: 17px; }
+.calendar-form .dialog-actions { margin: 0 -22px -20px; }
+.calendar-dialog .dialog-actions { min-height: 62px; }
+.calendar-day-detail { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px 16px; padding: 0; margin: 0; list-style: none; }
+.calendar-day-detail li { display:flex; justify-content:space-between; gap: 12px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; }
+.calendar-day-detail strong { color: #356345; font-size: 12px; }
+.calendar-day-detail .day-free { color: #606b65; }
+.calendar-history-list { display: grid; gap: 15px; margin: 0; padding: 0; list-style: none; }
+.calendar-history-list > li { padding: 16px; border: 1px solid var(--border); border-radius: 10px; }
+.history-item-heading { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; }
+.history-action { padding: 4px 9px; border-radius: 999px; background:#eef0ef; color:#53645a; font-size:11px; font-weight:700; }
+.history-item-heading time { color:var(--muted); font-size:12px; }
+.calendar-history-list pre { max-height: 240px; overflow:auto; padding:12px; border-radius:8px; background:#f6f8f6; white-space:pre-wrap; overflow-wrap:anywhere; font-size:11px; }
+.calendar-history-list summary { color:#315f96; cursor:pointer; }
+.history-state-comparison { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:10px; }
+.history-state-comparison section { min-width:0; }
+.history-state-comparison h4 { margin:4px 0; color:var(--ink); font-size:12px; }
+.history-state-comparison p { color:var(--muted); font-size:12px; }
+.calendar-dialog .warning-note { margin: 14px 22px 0; }
+@media (max-width: 600px) {
+  .calendar-versions-table { min-width: 940px; }
+  .calendar-actions { min-width: 138px; }
+  .calendar-form .form-grid { grid-template-columns: 1fr; }
+  .calendar-form .field-full { grid-column: auto; }
+  .calendar-day-detail { grid-template-columns: 1fr; }
+  .history-item-heading { align-items:flex-start; flex-direction:column; }
+  .history-state-comparison { grid-template-columns:1fr; }
+  .calendar-form .dialog-actions { margin: 0 -16px -16px; }
+}
 }

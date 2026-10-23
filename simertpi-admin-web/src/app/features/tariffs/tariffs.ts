@@ -57,6 +57,7 @@ export class Tariffs {
   readonly errorMessage = signal('');
   readonly actionError = signal('');
   readonly actionMessage = signal('');
+  readonly savedVersionId = signal('');
   readonly saving = signal(false);
   readonly showForm = signal(false);
   readonly viewingTariff = signal<ConfiguredTariff | null>(null);
@@ -159,6 +160,7 @@ export class Tariffs {
     this.cancellingTariff.set(null);
     this.actionError.set('');
     this.actionMessage.set('');
+    this.savedVersionId.set('');
     this.form.controls.reason.clearValidators();
     this.form.reset({ code: '', name: '', scope: 'GENERAL', zoneId: '', currency: '', amount: '', durationMinutes: null, minMinutes: null, maxContinuousMinutes: null, gracePeriodMinutes: 0, roundingMode: 'HALF_UP', validFrom: '', validTo: '', normativeReference: '', reason: '' });
     this.showForm.set(true);
@@ -168,6 +170,7 @@ export class Tariffs {
     if (!this.canModify(row)) return;
     this.actionError.set('');
     this.actionMessage.set('');
+    this.savedVersionId.set('');
     this.endingTariff.set(null);
     this.editingScheduled.set(null);
     this.cancellingTariff.set(null);
@@ -264,6 +267,7 @@ export class Tariffs {
     this.saving.set(true);
     this.actionError.set('');
     this.actionMessage.set('');
+    this.savedVersionId.set('');
     if (!immediateRevision && Date.parse(start!) <= Date.now()) {
       this.saving.set(false);
       this.actionError.set('La fecha y hora de inicio debe ser futura en la hora de Ecuador (America/Guayaquil).');
@@ -292,11 +296,12 @@ export class Tariffs {
         this.showForm.set(false);
         this.revisionOf.set(null);
         this.editingScheduled.set(null);
+        this.savedVersionId.set(saved.id);
         this.actionMessage.set(revision
-          ? 'La tarifa vigente se conservará para las operaciones anteriores y la nueva versión entrará en vigor en la fecha indicada.'
+          ? 'Tarifa actualizada correctamente. Se creó una nueva versión y se conservó el historial.'
           : 'La nueva versión tarifaria quedó registrada con su vigencia y referencia normativa.');
         if (scheduled) this.actionMessage.set('La tarifa programada se actualizó correctamente.');
-        if (revision && immediateRevision) this.actionMessage.set(`La nueva versión rige desde ${this.formatDateTime(saved.validFrom)}. Las sesiones ya iniciadas conservan su tarifa anterior.`);
+        if (revision && immediateRevision) this.actionMessage.set(`Tarifa actualizada correctamente. Nueva versión ${saved.id}; las sesiones ya iniciadas conservan su tarifa anterior.`);
         this.load();
       },
       error: (error: unknown) => {

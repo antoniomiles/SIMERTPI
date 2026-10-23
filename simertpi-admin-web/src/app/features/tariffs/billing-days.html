@@ -1,20 +1,18 @@
 <section lang="es-EC">
-  <app-page-heading
-    eyebrow="ADMINISTRACIÓN / CONFIGURACIÓN MUNICIPAL"
-    title="Días de cobro"
-    description="Configure el calendario semanal general y sus excepciones por zona. Las zonas sin excepción heredan el calendario general."
-  >
+  <app-page-heading eyebrow="ADMINISTRACIÓN / CONFIGURACIÓN MUNICIPAL" title="Días de cobro"
+    description="Calendario semanal general y excepciones por zona. Las zonas sin excepción heredan el calendario general.">
     @if (!preview) { <button class="button primary" type="button" (click)="openCreate()">Crear calendario</button> }
   </app-page-heading>
+  @if (!preview && actionMessage()) { <p class="notice success-note" role="status">{{ actionMessage() }} @if (savedVersionId()) { <small>Identificador: {{ savedVersionId() }}</small> }</p> }
 
   @if (preview) {
     <section class="notice preview-note" role="status"><strong>Previsualización local</strong><p>Esta vista no consulta ni modifica datos. No se muestran calendarios de ejemplo.</p></section>
   } @else if (state() === 'loading') {
-    <app-data-state kind="loading" title="Consultando días de cobro" description="Cargando el calendario semanal y las excepciones registradas." />
+    <app-data-state kind="loading" title="Consultando días de cobro" description="Cargando los calendarios y excepciones registrados." />
   } @else if (state() === 'error') {
     <app-data-state kind="error" title="No se pudo cargar el calendario" [description]="errorMessage()"><button class="button secondary" type="button" (click)="load()">Reintentar</button></app-data-state>
   } @else {
-    @if (actionMessage()) { <p class="notice success-note" role="status">{{ actionMessage() }}</p> }
+
     @if (actionError()) { <p class="notice error-note" role="alert">{{ actionError() }}</p> }
 
     <div class="summary-grid" aria-label="Resumen del calendario de cobro">
@@ -25,37 +23,14 @@
       <article class="summary-card card"><span class="eyebrow">EXCEPCIONES VIGENTES</span><strong>{{ zoneExceptions().length }}</strong><span>{{ zoneExceptions().length === 1 ? 'zona con calendario propio' : 'zonas con calendario propio' }}</span></article>
       <article class="summary-card card"><span class="eyebrow">CAMBIOS PROGRAMADOS</span><strong>{{ scheduled().length }}</strong><span>Calendarios con vigencia futura</span></article>
     </div>
-
     <p class="notice calendar-meaning" role="note"><strong>Importante:</strong> un día sin cobro significa estacionamiento gratuito durante el horario operativo; no prohíbe estacionar ni confirma que un espacio esté disponible. La habilitación física del espacio es independiente.</p>
 
-    @if (showForm()) {
-      <section class="config-section card" aria-labelledby="billing-form-title">
-        <header class="section-heading"><div><p class="eyebrow">{{ revisionOf() ? 'NUEVA VERSIÓN' : 'NUEVA CONFIGURACIÓN' }}</p><h2 id="billing-form-title">{{ revisionOf() ? 'Modificar mediante una nueva versión' : 'Crear calendario semanal' }}</h2></div><button class="button secondary" type="button" (click)="cancelForms()">Cancelar</button></header>
-        @if (revisionOf()) { <p class="notice" role="note">La semana anterior terminará el día previo al inicio de esta versión. No se sobrescribe el historial.</p> }
-        <form class="admin-form" [formGroup]="form" (ngSubmit)="submit($event)" novalidate>
-          <label class="field"><span>Aplicación</span><select formControlName="scope"><option value="GENERAL">General para todas las zonas</option><option value="ZONE">Excepción para una zona</option></select><small>La excepción reemplaza el calendario semanal completo de esa zona.</small></label>
-          @if (form.controls.scope.value === 'ZONE') { <label class="field"><span>Zona</span><select formControlName="zoneId"><option value="">Seleccione una zona</option>@for (zone of zones(); track zone.id) { <option [value]="zone.id">{{ zone.code }} · {{ zone.name }}</option> }</select></label> }
-          <label class="field"><span>Vigente desde</span><input formControlName="validFrom" type="date" [min]="minStartDate()" [attr.aria-invalid]="validFromError() ? 'true' : null" aria-describedby="billing-valid-from-help" /><small id="billing-valid-from-help" [class.field-error]="validFromError()" [attr.role]="validFromError() ? 'alert' : null">{{ validFromError() || 'Seleccione una fecha futura. Ejemplo: 01/01/2027.' }}</small></label>
-          <label class="field"><span>Vigente hasta (opcional)</span><input formControlName="validTo" type="date" [min]="form.controls.validFrom.value || null" [attr.aria-invalid]="validToError() ? 'true' : null" aria-describedby="billing-valid-to-help" /><small id="billing-valid-to-help" [class.field-error]="validToError()" [attr.role]="validToError() ? 'alert' : null">{{ validToError() || 'Déjelo vacío si no se ha definido fecha final.' }}</small></label>
-          <fieldset class="weekday-field wide"><legend>Días con cobro</legend><p class="section-note">Los días no marcados serán gratuitos. No se precarga ningún día como aprobado.</p>
-            @for (day of weekDays; track day.value) { <label><input type="checkbox" [checked]="chargeableDays().includes(day.value)" (change)="toggleDay(day.value, $any($event.target).checked)" />{{ day.label }}</label> }
-          </fieldset>
-          <label class="field wide"><span>Referencia normativa</span><input formControlName="normativeReference" maxlength="255" placeholder="Ej.: Ordenanza municipal N.º 001-2027, artículo 5" /></label>
-          <div class="form-actions wide"><button class="button primary" type="submit" [disabled]="saving()">{{ saving() ? 'Guardando…' : revisionOf() ? 'Guardar nueva versión' : 'Registrar calendario' }}</button><button class="button secondary" type="button" (click)="cancelForms()">Cancelar</button></div>
-        </form>
-      </section>
-    }
-
-    @if (endingCalendar(); as calendar) {
-      <section class="config-section card" aria-labelledby="end-calendar-title"><h2 id="end-calendar-title">Finalizar calendario de {{ zoneName(calendar.zoneCode, calendar.zoneName) }}</h2><p class="section-note">Si se trata de una excepción, desde esta fecha la zona volverá a heredar el calendario general.</p><form class="inline-form" [formGroup]="endForm" (ngSubmit)="submitEnd($event)" novalidate><label class="field"><span>Aplicar herencia desde</span><input formControlName="effectiveFrom" type="date" [min]="minStartDate()" [attr.aria-invalid]="effectiveFromError() ? 'true' : null" aria-describedby="billing-end-from-help" /><small id="billing-end-from-help" [class.field-error]="effectiveFromError()" [attr.role]="effectiveFromError() ? 'alert' : null">{{ effectiveFromError() || 'Seleccione una fecha futura; ejemplo: 01/01/2027.' }}</small></label><button class="button primary" type="submit" [disabled]="saving()">Confirmar finalización</button><button class="button secondary" type="button" (click)="cancelForms()">Cancelar</button></form></section>
-    }
-
     <section class="config-section card" aria-labelledby="effective-days-title">
-      <header class="section-heading"><div><p class="eyebrow">HERENCIA POR ZONA</p><h2 id="effective-days-title">Calendario semanal efectivo</h2></div><span class="tag">Consulta: {{ effective()?.at ? formatDate(effective()!.at) : '—' }}</span></header>
+      <header class="section-heading"><div><p class="eyebrow">HERENCIA POR ZONA</p><h2 id="effective-days-title">Calendario semanal efectivo</h2></div><span class="tag">Consulta: {{ effective()?.at ? formatDateTime(effective()!.at) : '—' }}</span></header>
       @if (!generalCalendar()) { <p class="list-empty">No hay calendario general configurado. No se muestran días cobrables por defecto.</p> }
-      <div class="table-scroll"><table><thead><tr><th>Zona</th><th>Días con cobro</th><th>Origen</th><th>Estado vigente</th></tr></thead><tbody>
+      <div class="table-scroll"><table><thead><tr><th>Zona</th><th>Días con cobro</th><th>Origen</th><th>Estado del día</th></tr></thead><tbody>
         @for (zone of effective()?.zones ?? []; track zone.zoneId) {
-          <tr><td><strong>{{ zone.zoneCode }} · {{ zone.zoneName }}</strong></td><td>{{ daysLabel(inheritedCalendar(zone.zoneId)?.days) }}</td><td>{{ zone.billingDaysSource === 'ZONE' ? 'Excepción por zona' : zone.billingDaysSource === 'GENERAL' ? 'Calendario general heredado' : 'Sin calendario configurado' }}</td><td>{{ zone.billingDaysConfigured ? (zone.chargeable ? 'Hoy: cobrable' : 'Hoy: gratuito') : 'Sin regla semanal nueva' }}</td></tr>
+          <tr><td><strong>{{ zone.zoneCode }} · {{ zone.zoneName }}</strong></td><td>{{ daysLabel(inheritedCalendar(zone.zoneId)?.days) }}</td><td>{{ zone.billingDaysSource === 'ZONE' ? 'Excepción por zona' : zone.billingDaysSource === 'GENERAL' ? 'Calendario general heredado' : 'Sin calendario configurado' }}</td><td>{{ zone.billingDaysConfigured ? (zone.chargeable ? 'Hoy: cobrable' : 'Hoy: gratuito') : 'Sin regla semanal' }}</td></tr>
         } @empty { <tr><td colspan="4">No hay zonas registradas para mostrar herencia.</td></tr> }
       </tbody></table></div>
     </section>
@@ -63,13 +38,81 @@
     <section class="config-section card" aria-labelledby="calendar-list-title">
       <header class="section-heading"><div><p class="eyebrow">VERSIONES Y EXCEPCIONES</p><h2 id="calendar-list-title">Calendarios registrados</h2></div></header>
       <label class="field calendar-search"><span>Buscar por zona o referencia normativa</span><input type="search" [value]="query()" (input)="query.set($any($event.target).value)" placeholder="Ej.: Centro o artículo 5" autocomplete="off" /></label>
-      @if (!visibleCalendars().length) { <p class="list-empty">No hay calendarios semanales registrados.</p> } @else {
-        <div class="table-scroll"><table><thead><tr><th>Aplicación</th><th>Días con cobro</th><th>Vigencia</th><th>Referencia</th><th>Estado y acciones</th></tr></thead><tbody>
+      @if (!visibleCalendars().length) { <p class="list-empty">No hay calendarios que coincidan con la búsqueda.</p> } @else {
+        <div class="table-scroll calendar-table-scroll"><table class="calendar-versions-table"><thead><tr><th>Aplicación</th><th>Días con cobro</th><th>Vigencia</th><th>Referencia normativa</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>
           @for (calendar of visibleCalendars(); track calendar.id) {
-            <tr><td>{{ zoneName(calendar.zoneCode, calendar.zoneName) }}</td><td>{{ daysLabel(calendar.days) }}</td><td>{{ formatDate(calendar.validFrom) }}<small>Hasta: {{ formatDate(calendar.validTo) }}</small></td><td>{{ calendar.normativeReference }}</td><td><span class="tag" [class.inactive]="!calendar.active">{{ isScheduled(calendar) ? 'Programado' : isCurrent(calendar) ? 'Vigente' : calendar.active ? 'Fuera de vigencia' : 'Deshabilitado' }}</span><div class="row-actions">@if (canModify(calendar)) { <button class="button secondary" type="button" (click)="openRevision(calendar)">Modificar</button><button class="button secondary" type="button" (click)="openEnd(calendar)">Finalizar</button> }</div></td></tr>
+            <tr>
+              <td><strong>{{ zoneName(calendar.zoneCode, calendar.zoneName) }}</strong><small>{{ calendar.zoneId ? 'Excepción por zona' : 'Calendario general' }}</small></td>
+              <td>{{ daysLabel(calendar.days) }}</td>
+              <td>{{ formatDate(calendar.validFrom) }}<small>Hasta: {{ formatDate(calendar.validTo) }}</small></td>
+              <td class="reference-cell">{{ calendar.normativeReference || 'No registrada' }}</td>
+              <td><span class="calendar-status" [class.status-current]="isCurrent(calendar)" [class.status-scheduled]="isScheduled(calendar)" [class.status-cancelled]="isCancelled(calendar)" [class.status-ended]="isEnded(calendar) || (!calendar.active && !calendar.cancelledAt)">{{ statusLabel(calendar) }}</span></td>
+              <td><div class="row-actions calendar-actions">
+                <button class="button secondary action-button" type="button" (click)="openView(calendar)" aria-haspopup="dialog"><svg aria-hidden="true" viewBox="0 0 20 20"><path d="M1.8 10s3-5.2 8.2-5.2 8.2 5.2 8.2 5.2-3 5.2-8.2 5.2S1.8 10 1.8 10Z"/><circle cx="10" cy="10" r="2.2"/></svg><span>Ver</span></button>
+                @if (isScheduled(calendar) || isCurrent(calendar)) { <button class="button secondary action-button action-edit" type="button" (click)="openEdit(calendar)" aria-haspopup="dialog"><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m3 14.8-.6 3 3-.6L17 5.7 14.3 3 3 14.8Z"/><path d="m12.9 4.4 2.7 2.7"/></svg><span>Editar</span></button> }
+                @if (isScheduled(calendar)) { <button class="button subtle-danger action-button action-danger" type="button" (click)="openCancel(calendar)" aria-haspopup="dialog"><svg aria-hidden="true" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.2"/><path d="m7.3 7.3 5.4 5.4m0-5.4-5.4 5.4"/></svg><span>Cancelar programación</span></button> }
+                @if (isCurrent(calendar)) { <button class="button subtle-danger action-button action-danger" type="button" (click)="openEnd(calendar)" aria-haspopup="dialog"><svg aria-hidden="true" viewBox="0 0 20 20"><path d="M10 2.5v7.7l5.4 5.4"/><path d="M4.8 5.1A7.3 7.3 0 1 0 17.3 10"/></svg><span>Finalizar vigencia</span></button> }
+                <button class="button secondary action-button action-history" type="button" (click)="openHistory(calendar)" aria-haspopup="dialog"><svg aria-hidden="true" viewBox="0 0 20 20"><path d="M3 5.5h14M3 10h14M3 14.5h9"/><circle cx="15.5" cy="14.5" r="2.5"/></svg><span>Historial</span></button>
+              </div></td>
+            </tr>
           }
         </tbody></table></div>
       }
     </section>
+
+    @if (showForm()) {
+      <dialog #editDialog class="tariff-dialog calendar-dialog" aria-labelledby="calendar-edit-title" (cancel)="cancelForms()" (close)="cancelForms()">
+        <div class="dialog-content"><header class="dialog-heading"><div><p class="eyebrow">{{ editingCalendar() ? 'VERSIONADO DE CALENDARIO' : 'NUEVA CONFIGURACIÓN' }}</p><h2 id="calendar-edit-title">{{ editingCalendar() ? (isCurrent(editingCalendar()!) ? 'Editar calendario vigente · crear versión' : 'Editar calendario programado') : 'Crear calendario semanal' }}</h2></div><button class="icon-button" type="button" aria-label="Cerrar" (click)="cancelForms()">×</button></header>
+          @if (editingCalendar() && isCurrent(editingCalendar()!)) { <p class="notice warning-note">El calendario vigente no se sobrescribirá. La nueva versión comenzará en la fecha futura seleccionada y se conservará la versión anterior.</p> }
+          @if (editingCalendar() && isScheduled(editingCalendar()!)) { <p class="notice" role="note">Se conserva el identificador de esta programación. La versión y los cambios quedarán en el historial.</p> }
+          <div class="dialog-scroll">
+            <form class="admin-form calendar-form" [formGroup]="form" (ngSubmit)="submit($event)" novalidate>
+              <section class="form-section"><h3>1. Alcance del calendario</h3><div class="form-grid">
+                <label class="field"><span>Aplicación</span><select formControlName="scope"><option value="GENERAL">General para todas las zonas</option><option value="ZONE">Excepción para una zona</option></select><small>La excepción reemplaza el calendario semanal completo de la zona.</small></label>
+                @if (form.controls.scope.value === 'ZONE') { <label class="field"><span>Zona</span><select formControlName="zoneId"><option value="">Seleccione una zona</option>@for (zone of zones(); track zone.id) { <option [value]="zone.id">{{ zone.code }} · {{ zone.name }}</option> }</select><small>Una zona sin excepción hereda el calendario general.</small></label> }
+              </div></section>
+              <section class="form-section"><h3>2. Días de cobro</h3><fieldset class="weekday-field"><legend>Seleccione los días cobrables</legend><p class="section-note">Los días no marcados serán gratuitos. No se precarga ningún día como aprobado.</p><div class="weekday-options">
+                @for (day of weekDays; track day.value) { <label><input type="checkbox" [checked]="chargeableDays().includes(day.value)" (change)="toggleDay(day.value, $any($event.target).checked)" />{{ day.label }}</label> }
+              </div></fieldset></section>
+              <section class="form-section"><h3>3. Vigencia y respaldo normativo</h3><div class="form-grid">
+                <label class="field"><span>Vigente desde</span><input formControlName="validFrom" type="date" [min]="minStartDate()" [attr.aria-invalid]="validFromError() ? 'true' : null" aria-describedby="calendar-valid-from-help" /><small id="calendar-valid-from-help" [class.field-error]="validFromError()" [attr.role]="validFromError() ? 'alert' : null">{{ validFromError() || 'Use una fecha futura. Ejemplo: 01/01/2027.' }}</small></label>
+                <label class="field"><span>Vigente hasta (opcional)</span><input formControlName="validTo" type="date" [min]="form.controls.validFrom.value || null" [attr.aria-invalid]="validToError() ? 'true' : null" aria-describedby="calendar-valid-to-help" /><small id="calendar-valid-to-help" [class.field-error]="validToError()" [attr.role]="validToError() ? 'alert' : null">{{ validToError() || 'Déjelo vacío si no se ha definido una fecha final.' }}</small></label>
+                <label class="field field-full"><span>Referencia normativa</span><input formControlName="normativeReference" maxlength="255" placeholder="Ej.: Ordenanza municipal N.º 001-2027, artículo 5" /><small>Indique la disposición que respalda estos días.</small></label>
+              </div></section>
+              @if (editingCalendar()) { <section class="form-section"><h3>4. Motivo del cambio</h3><label class="field"><span>Motivo obligatorio</span><textarea formControlName="reason" maxlength="500" rows="3" placeholder="Ej.: Corrección conforme a la resolución municipal vigente"></textarea><small>El motivo, responsable y fecha quedarán registrados en el historial.</small></label><p class="section-note">Los días cobrables de las fechas anteriores no se reescriben; esta operación crea o actualiza una versión futura.</p></section> }
+              @if (actionError()) { <p class="notice error-note" role="alert">{{ actionError() }}</p> }
+              <footer class="dialog-actions"><button class="button secondary" type="button" [disabled]="saving()" (click)="cancelForms()">Cancelar</button><button class="button primary" type="submit" [disabled]="saving()">{{ saving() ? 'Guardando cambios…' : editingCalendar() ? (isCurrent(editingCalendar()!) ? 'Guardar nueva versión' : 'Guardar cambios') : 'Registrar calendario' }}</button></footer>
+            </form>
+          </div>
+        </div>
+      </dialog>
+    }
+
+    @if (viewingCalendar(); as calendar) {
+      <dialog #detailDialog class="tariff-dialog calendar-dialog" aria-labelledby="calendar-detail-title" (cancel)="closeView($event)" (close)="closeView()"><div class="dialog-content"><header class="dialog-heading"><div><p class="eyebrow">DETALLE DEL CALENDARIO</p><h2 id="calendar-detail-title">{{ zoneName(calendar.zoneCode,calendar.zoneName) }}</h2></div><button class="icon-button" type="button" aria-label="Cerrar detalle" autofocus (click)="closeView()">×</button></header><div class="dialog-scroll">
+        <section class="detail-section"><h3>Configuración y vigencia</h3><dl class="tariff-detail-grid"><div><dt>Estado</dt><dd><span class="calendar-status" [class.status-current]="isCurrent(calendar)" [class.status-scheduled]="isScheduled(calendar)" [class.status-cancelled]="isCancelled(calendar)" [class.status-ended]="isEnded(calendar) || (!calendar.active && !calendar.cancelledAt)">{{ statusLabel(calendar) }}</span></dd></div><div><dt>Aplicación</dt><dd>{{ calendar.zoneId ? 'Excepción por zona' : 'General para todas las zonas' }}</dd></div><div><dt>Vigente desde</dt><dd>{{ formatDate(calendar.validFrom) }}</dd></div><div><dt>Vigente hasta</dt><dd>{{ formatDate(calendar.validTo) }}</dd></div><div class="detail-wide"><dt>Referencia normativa</dt><dd>{{ calendar.normativeReference || 'No registrada' }}</dd></div><div><dt>Creado</dt><dd>{{ formatDateTime(calendar.createdAt) }}</dd></div><div><dt>Última actualización</dt><dd>{{ formatDateTime(calendar.updatedAt) }}</dd></div></dl></section>
+        <section class="detail-section"><h3>Semana configurada</h3><ul class="calendar-day-detail">@for (day of weekDays; track day.value) { <li><span>{{ day.label }}</span><strong [class.day-free]="!isDayChargeable(calendar,day.value)">{{ isDayChargeable(calendar,day.value) ? 'Con cobro' : 'Gratuito' }}</strong></li> }</ul></section>
+        @if (calendar.cancelledAt) { <section class="detail-section"><h3>Cancelación</h3><dl class="tariff-detail-grid"><div><dt>Cancelada el</dt><dd>{{ formatDateTime(calendar.cancelledAt) }}</dd></div><div><dt>Responsable</dt><dd>{{ calendar.cancelledByUsername || 'Cuenta administrativa registrada' }}</dd></div><div class="detail-wide"><dt>Motivo</dt><dd>{{ calendar.cancellationReason || 'No registrado' }}</dd></div></dl></section> }
+      </div><footer class="dialog-actions"><button class="button secondary" type="button" (click)="closeView()">Cerrar</button></footer></div></dialog>
+    }
+
+    @if (cancellingCalendar(); as calendar) {
+      <dialog #cancelDialog class="tariff-dialog calendar-dialog compact-dialog" aria-labelledby="calendar-cancel-title" (cancel)="cancellingCalendar.set(null)" (close)="cancellingCalendar.set(null)"><div class="dialog-content"><header class="dialog-heading"><div><p class="eyebrow">CANCELAR PROGRAMACIÓN</p><h2 id="calendar-cancel-title">¿Cancelar este calendario?</h2></div><button class="icon-button" type="button" aria-label="Cerrar" (click)="cancellingCalendar.set(null)">×</button></header><p>El calendario {{ zoneName(calendar.zoneCode,calendar.zoneName) }} no entrará en vigencia. No se eliminará su historial.</p><p class="notice warning-note">{{ formatDate(calendar.validFrom) }} · {{ daysLabel(calendar.days) }}</p>
+        <form [formGroup]="cancellationForm" (ngSubmit)="submitCancel($event)"><label class="field"><span>Motivo obligatorio</span><textarea formControlName="reason" maxlength="500" rows="3" placeholder="Ej.: Se reemplazó por una resolución corregida"></textarea><small>Se registrarán responsable, fecha y motivo.</small></label>@if (actionError()) { <p class="notice error-note" role="alert">{{ actionError() }}</p> }<footer class="dialog-actions"><button class="button secondary" type="button" [disabled]="saving()" (click)="cancellingCalendar.set(null)">Volver</button><button class="button subtle-danger" type="submit" [disabled]="saving()">{{ saving() ? 'Cancelando…' : 'Confirmar cancelación' }}</button></footer></form>
+      </div></dialog>
+    }
+
+    @if (endingCalendar(); as calendar) {
+      <dialog #endDialog class="tariff-dialog calendar-dialog compact-dialog" aria-labelledby="calendar-end-title" (cancel)="endingCalendar.set(null)" (close)="endingCalendar.set(null)"><div class="dialog-content"><header class="dialog-heading"><div><p class="eyebrow">FINALIZAR VIGENCIA</p><h2 id="calendar-end-title">Finalizar {{ zoneName(calendar.zoneCode,calendar.zoneName) }}</h2></div><button class="icon-button" type="button" aria-label="Cerrar" (click)="endingCalendar.set(null)">×</button></header>
+        <p class="notice warning-note">El calendario actual se conservará hasta el día anterior a la fecha seleccionada. @if (calendar.zoneId) { Desde esa fecha la zona heredará el calendario general, si existe; si no existe, quedará sin calendario semanal configurado. } @else { Las zonas sin excepción quedarán sin calendario semanal general. }</p>
+        <form [formGroup]="endForm" (ngSubmit)="submitEnd($event)"><label class="field"><span>Aplicar desde</span><input formControlName="effectiveFrom" type="date" [min]="minStartDate()" [attr.aria-invalid]="effectiveFromError() ? 'true' : null" /><small [class.field-error]="effectiveFromError()">{{ effectiveFromError() || 'Seleccione una fecha futura en Ecuador.' }}</small></label><label class="field"><span>Motivo obligatorio</span><textarea formControlName="reason" maxlength="500" rows="3" placeholder="Ej.: Finalización conforme a la disposición municipal"></textarea><small>Se conservarán el responsable, la fecha y los valores previos.</small></label>@if (actionError()) { <p class="notice error-note" role="alert">{{ actionError() }}</p> }<footer class="dialog-actions"><button class="button secondary" type="button" [disabled]="saving()" (click)="endingCalendar.set(null)">Cancelar</button><button class="button subtle-danger" type="submit" [disabled]="saving()">{{ saving() ? 'Guardando…' : 'Confirmar finalización' }}</button></footer></form>
+      </div></dialog>
+    }
+
+    @if (historyCalendar(); as calendar) {
+      <dialog #historyDialog class="tariff-dialog calendar-dialog" aria-labelledby="calendar-history-title" (cancel)="historyCalendar.set(null)" (close)="historyCalendar.set(null)"><div class="dialog-content"><header class="dialog-heading"><div><p class="eyebrow">HISTORIAL DE CAMBIOS</p><h2 id="calendar-history-title">{{ zoneName(calendar.zoneCode,calendar.zoneName) }}</h2></div><button class="icon-button" type="button" aria-label="Cerrar historial" (click)="historyCalendar.set(null)">×</button></header><div class="dialog-scroll">
+        @if (historyLoading()) { <p role="status">Consultando historial…</p> } @else if (historyError()) { <p class="notice error-note" role="alert">{{ historyError() }} <button type="button" class="button secondary" (click)="openHistory(calendar)">Reintentar</button></p> } @else if (!historyItems().length) { <p class="list-empty">No hay cambios registrados en esta serie de calendarios.</p> } @else { <ol class="calendar-history-list">@for (item of historyItems(); track item.id) { <li><div class="history-item-heading"><span class="history-action">{{ item.action === 'BASELINE' ? 'Registro anterior' : item.action === 'CREATED' ? 'Creado' : item.action === 'VERSIONED' ? 'Nueva versión' : item.action === 'SCHEDULED_UPDATED' ? 'Programación editada' : item.action === 'SCHEDULED_CANCELLED' ? 'Programación cancelada' : item.action === 'ENDED' ? 'Vigencia finalizada' : item.action }}</span><time>{{ formatDateTime(item.occurredAt) }}</time></div><dl class="tariff-detail-grid"><div><dt>Responsable</dt><dd>{{ item.actorName || 'No disponible para este registro histórico anterior.' }}</dd></div><div><dt>Vigente desde</dt><dd>{{ formatDate(item.effectiveFrom) }}</dd></div><div class="detail-wide"><dt>Motivo</dt><dd>{{ item.reason }}</dd></div><div class="detail-wide"><dt>Valores</dt><dd><details><summary>Ver detalle</summary><div class="history-state-comparison"><section><h4>Valores anteriores</h4>@if (item.beforeState) { <pre>{{ formatJson(item.beforeState) }}</pre> } @else { <p>No disponibles para este registro hist&#243;rico anterior.</p> }</section><section><h4>Valores nuevos</h4><pre>{{ formatJson(item.afterState) }}</pre></section></div></details></dd></div></dl></li> }</ol> }
+      </div><footer class="dialog-actions"><button class="button secondary" type="button" (click)="historyCalendar.set(null)">Cerrar</button></footer></div></dialog>
+    }
   }
 </section>

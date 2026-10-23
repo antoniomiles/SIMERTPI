@@ -305,9 +305,114 @@ test('billing calendar preview states that unselected days are free and does not
   const requests: string[] = [];
   page.on('request', (request) => { if (['fetch', 'xhr'].includes(request.resourceType())) requests.push(request.url()); });
   await page.goto('/preview/tariffs/billing-days');
-  await expect(page.getByRole('heading', { name: 'Días de cobro' })).toBeVisible();
+  await expect(page.locator('app-page-heading h1')).toHaveText('Días de cobro', { timeout: 15000 });
   await expect(page.locator('#main-content')).toContainText('no consulta ni modifica datos');
   expect(requests).toEqual([]);
+});
+
+test('billing calendar scheduled lifecycle edits, cancels with a reason and confirms only after backend success', async ({ page }) => {
+  const identity = {
+    userId: 'local-test-admin', username: 'admin.fixture', roles: ['SIMERTPI_ADMIN'], enabled: true,
+    sessionExpiresAt: new Date(Date.now() + 600000).toISOString(), absoluteExpiresAt: new Date(Date.now() + 3600000).toISOString(),
+  };
+  let calendar: Record<string, any> = {
+    id: 'calendar-e2e', zoneId: null, zoneCode: null, zoneName: null,
+    validFrom: new Date(Date.now() + 10 * 86400000).toISOString().slice(0, 10), validTo: null,
+    normativeReference: 'Ordenanza de prueba local', active: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    rowVersion: 3, versionGroupId: 'calendar-series-e2e', previousCalendarId: null,
+    cancelledAt: null, cancelledByUserId: null, cancellationReason: null, cancelledByUsername: null,
+    days: { '1': true, '2': true, '3': false, '4': true, '5': true, '6': false, '7': false },
+  };
+  let updateBody: Record<string, unknown> | null = null;
+  let cancelBody: Record<string, unknown> | null = null;
+  let updateCount = 0;
+  let cancelCount = 0;
+  let finishUpdate!: () => void;
+  let updatePending = new Promise<void>((resolve) => { finishUpdate = resolve; });
+
+  await page.addInitScript(() => {
+    const nativeCookie = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie');
+    Object.defineProperty(document, 'cookie', {
+      configurable: true,
+      get: () => `${nativeCookie?.get?.call(document) ?? ''}; __Host-SIMERTPI_ADMIN_XSRF=calendar-csrf-fixture`,
+      set: (value: string) => nativeCookie?.set?.call(document, value),
+    });
+  });
+  await page.route('**/api/v1/admin/auth/me', (route) => route.fulfill({ json: identity }));
+  await page.route('**/api/v1/admin/auth/csrf', (route) => route.fulfill({ status: 204 }));
+  await page.route('**/api/v1/admin/parking/billing-day-calendars', (route) => route.fulfill({ json: [calendar] }));
+  await page.route('**/api/v1/admin/parking/billing-day-calendars/calendar-e2e', async (route) => {
+    if (route.request().method() !== 'PUT') return route.fallback();
+    updateCount++;
+    updateBody = route.request().postDataJSON();
+    await updatePending;
+    calendar = { ...calendar, ...updateBody, rowVersion: calendar.rowVersion + 1, updatedAt: new Date().toISOString() };
+    return route.fulfill({ status: 200, json: calendar });
+  });
+  await page.route('**/api/v1/admin/parking/billing-day-calendars/calendar-e2e/cancel', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    cancelCount++;
+    cancelBody = route.request().postDataJSON();
+    calendar = { ...calendar, active: false, cancelledAt: new Date().toISOString(), cancellationReason: cancelBody.reason as string, rowVersion: calendar.rowVersion + 1 };
+    return route.fulfill({ status: 200, json: calendar });
+  });
+  await page.route('**/api/v1/admin/parking/zones', (route) => route.fulfill({ json: [] }));
+  await page.route('**/api/v1/admin/parking/configuration/effective*', (route) => route.fulfill({ json: {
+    at: new Date().toISOString(), generalTariff: null, generalBillingCalendarId: null, generalChargeable: true,
+    generalBillingDaysConfigured: false, generalBillingNormativeReference: null, zones: [],
+  } }));
+  await page.goto('http://127.0.0.1:4301/admin/tariffs/billing-days');
+  await expect(page.locator('app-page-heading h1')).toHaveText('Días de cobro', { timeout: 15000 });
+  const row = page.locator('.calendar-versions-table tbody tr').filter({ hasText: 'Programado' });
+  const actions = row.locator('.calendar-actions .button');
+  await expect(actions).toHaveText(['Ver', 'Editar', 'Cancelar programación', 'Historial']);
+  const boxes = await actions.evaluateAll((buttons) => buttons.map((button) => {
+    const rect = button.getBoundingClientRect();
+    return { width: rect.width, height: rect.height, top: rect.top };
+  }));
+  expect(Math.max(...boxes.map((box) => box.width)) - Math.min(...boxes.map((box) => box.width))).toBeLessThan(1);
+  expect(new Set(boxes.map((box) => box.height)).size).toBe(1);
+  expect(boxes.slice(1).every((box, index) => box.top >= boxes[index].top + boxes[index].height), JSON.stringify(boxes)).toBe(true);
+
+  await actions.nth(1).click();
+  const editor = page.getByRole('dialog', { name: 'Editar calendario programado' });
+  await expect(editor).toBeVisible();
+  await editor.locator('[formControlName="validFrom"]').fill(new Date(Date.now() + 12 * 86400000).toISOString().slice(0, 10));
+  await editor.locator('[formControlName="reason"]').fill('Corrección local de calendario');
+  await editor.getByRole('button', { name: 'Guardar cambios' }).click();
+  const saving = editor.getByRole('button', { name: 'Guardando cambios…' });
+  await expect(saving).toBeDisabled();
+  expect(updateCount).toBe(1);
+  expect(updateBody).toMatchObject({ expectedVersion: 3, chargeableDays: [1, 2, 4, 5], reason: 'Corrección local de calendario' });
+  finishUpdate();
+  await expect(editor).toBeHidden();
+  await expect(page.locator('.success-note')).toContainText('Calendario actualizado correctamente.');
+  await expect(page.locator('.success-note')).toContainText('calendar-e2e');
+
+  const refreshedRow = page.locator('.calendar-versions-table tbody tr').filter({ hasText: 'Programado' });
+  await refreshedRow.scrollIntoViewIfNeeded();
+  const refreshedButtons = refreshedRow.locator('.calendar-actions .button');
+  const cancelButton = refreshedRow.getByRole('button', { name: 'Cancelar programación' });
+  await cancelButton.scrollIntoViewIfNeeded();
+  const refreshedHitTargets = await refreshedButtons.evaluateAll((buttons) => buttons.map((button) => {
+    const rect = button.getBoundingClientRect();
+    const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    return { label: button.textContent?.trim(), left: rect.left, top: rect.top, width: rect.width, height: rect.height,
+      hit: hit?.closest('.calendar-actions .button') === button, hitElement: hit?.outerHTML.slice(0, 180) };
+  }));
+  expect(refreshedHitTargets.every((item) => item.hit), JSON.stringify(refreshedHitTargets)).toBe(true);
+  await cancelButton.click();
+  const cancelDialog = page.getByRole('dialog', { name: '¿Cancelar este calendario?' });
+  await expect(cancelDialog).toBeVisible();
+  await cancelDialog.getByRole('button', { name: 'Confirmar cancelación' }).click();
+  expect(cancelCount).toBe(0);
+  await cancelDialog.locator('[formControlName="reason"]').fill('Programación reemplazada en prueba local');
+  await cancelDialog.getByRole('button', { name: 'Confirmar cancelación' }).click();
+  await expect.poll(() => cancelCount).toBe(1);
+  expect(cancelBody).toMatchObject({ reason: 'Programación reemplazada en prueba local', expectedVersion: 4 });
+  await expect(cancelDialog).toBeHidden();
+  await expect(page.locator('.success-note')).toContainText('Programación cancelada correctamente.');
+  await expect(page.locator('.calendar-versions-table tbody tr')).toContainText('Cancelado');
 });
 
 test('tariff editor is opened on demand and sends the exact API decimal using admin CSRF', async ({ page }) => {
@@ -361,7 +466,7 @@ test('tariff editor is opened on demand and sends the exact API decimal using ad
   await page.getByRole('button', { name: 'Crear tarifa' }).click();
   await expect(page.getByPlaceholder('Ej.: Tarifa general de estacionamiento')).toBeVisible();
   await expect(page.getByPlaceholder('Ej.: 0,25')).toBeVisible();
-  const firstFormRow = await page.locator('.admin-form > .field').evaluateAll((fields) => fields.slice(0, 3).map((field) => ({
+  const firstFormRow = await page.locator('.tariff-data-grid > .field').evaluateAll((fields) => fields.slice(0, 3).map((field) => ({
     fieldTop: field.getBoundingClientRect().top,
     controlTop: field.querySelector('input, select')?.getBoundingClientRect().top,
   })));
@@ -475,7 +580,7 @@ test('scheduled tariff actions are aligned and view/edit use accessible responsi
   await expect.poll(() => updateCount).toBe(1);
   expect(updatedBody).toMatchObject({ amount: '0.75' });
   await expect(editor).toBeHidden();
-  await expect(page.getByRole('status')).toContainText('La tarifa programada se actualizó correctamente.');
+  await expect(page.locator('.success-note')).toContainText('La tarifa programada se actualizó correctamente.');
 });
 
 test('current tariff edits create one future version and early finalization requires an audited reason', async ({ page }) => {
@@ -539,7 +644,7 @@ test('current tariff edits create one future version and early finalization requ
   await editor.getByRole('button', { name: 'Guardar nueva versión' }).click();
   await expect.poll(() => revisionCount).toBe(1);
   expect(revisionBody).toMatchObject({ amount: '0.30', expectedVersion: 4, reason: 'Corrección respaldada en prueba local' });
-  await expect(page.getByRole('status')).toContainText('La tarifa vigente se conservará para las operaciones anteriores');
+  await expect(page.locator('.success-note')).toContainText('Tarifa actualizada correctamente. Se creó una nueva versión y se conservó el historial.');
 
   await row.getByRole('button', { name: 'Finalizar vigencia' }).click();
   const endDialog = page.getByRole('dialog', { name: 'Finalizar vigencia de GEN-CURRENT-01' });
@@ -612,7 +717,7 @@ test('current tariff supports immediate revision and immediate ending with an un
   await editor.locator('[formControlName="amount"]').fill('0,30');
   await editor.locator('[formControlName="reason"]').fill('Corrección inmediata respaldada');
   await editor.getByRole('button', { name: 'Guardar nueva versión' }).click();
-  await expect(page.getByRole('status')).toContainText('Las sesiones ya iniciadas conservan su tarifa anterior.');
+  await expect(page.locator('.success-note')).toContainText('las sesiones ya iniciadas conservan su tarifa anterior.');
   expect(revisionBody).not.toHaveProperty('validFrom');
   expect(revisionBody).toMatchObject({ amount: '0.30', expectedVersion: 3, reason: 'Corrección inmediata respaldada' });
 
