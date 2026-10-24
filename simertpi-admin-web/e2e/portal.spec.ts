@@ -252,7 +252,7 @@ test('tariff history preview stays empty and does not call administrative histor
   expect(requests).toEqual([]);
 });
 
-test('tariff history remains a separate responsive screen and opens complete change details accessibly', async ({ page }) => {
+test('tariff history remains a separate responsive screen and opens complete change details accessibly', async ({ page }, testInfo) => {
   const identity = {
     userId: 'local-test-admin', username: 'admin.fixture', roles: ['SIMERTPI_ADMIN'], enabled: true,
     sessionExpiresAt: new Date(Date.now() + 600000).toISOString(), absoluteExpiresAt: new Date(Date.now() + 3600000).toISOString(),
@@ -273,19 +273,19 @@ test('tariff history remains a separate responsive screen and opens complete cha
   };
   await page.route('**/api/v1/admin/auth/me', (route) => route.fulfill({ json: identity }));
   await page.route('**/api/v1/admin/parking/tariffs/history**', (route) => route.fulfill({ json: history }));
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto('http://127.0.0.1:4301/admin/tariffs/history?tariffId=tariff-version-1');
   await expect(page.getByRole('heading', { name: 'Historial de cambios de tarifas' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Volver a tarifas' })).toBeVisible();
   await expect(page.locator('.history-series')).toContainText('GEN-01-V2 · Tarifa general revisada');
-  await expect(page.locator('.history-table')).toContainText('admin.fixture');
-  await expect(page.locator('.history-table')).toContainText('Corrección aprobada');
-  await expect(page.locator('.history-table')).toContainText('Importe');
-  await expect(page.locator('.history-table')).toContainText('0,25 USD');
+  await expect(page.locator('.history-event-card')).toContainText('admin.fixture');
+  await expect(page.locator('.history-event-card')).toContainText('Corrección aprobada');
+  await expect(page.locator('.history-event-card')).toContainText('Importe');
+  await expect(page.locator('.history-event-card')).toContainText('0,25 USD');
+  await page.screenshot({ path: testInfo.outputPath('tariff-history-reference.png'), fullPage: true });
 
   await page.setViewportSize({ width: 390, height: 844 });
-  const historyRegion = page.getByRole('region', { name: /Registros del historial/ });
-  await expect(historyRegion).toBeVisible();
-  expect(await historyRegion.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+  await expect(page.locator('.history-event-card')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.getByRole('button', { name: 'Ver detalle' }).click();
   const detail = page.getByRole('dialog', { name: 'Detalle del cambio' });
@@ -310,7 +310,7 @@ test('billing calendar preview states that unselected days are free and does not
   expect(requests).toEqual([]);
 });
 
-test('billing calendar scheduled lifecycle edits, cancels with a reason and confirms only after backend success', async ({ page }) => {
+test('billing calendar scheduled lifecycle edits, cancels with a reason and confirms only after backend success', async ({ page }, testInfo) => {
   const identity = {
     userId: 'local-test-admin', username: 'admin.fixture', roles: ['SIMERTPI_ADMIN'], enabled: true,
     sessionExpiresAt: new Date(Date.now() + 600000).toISOString(), absoluteExpiresAt: new Date(Date.now() + 3600000).toISOString(),
@@ -361,8 +361,11 @@ test('billing calendar scheduled lifecycle edits, cancels with a reason and conf
     at: new Date().toISOString(), generalTariff: null, generalBillingCalendarId: null, generalChargeable: true,
     generalBillingDaysConfigured: false, generalBillingNormativeReference: null, zones: [],
   } }));
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto('http://127.0.0.1:4301/admin/tariffs/billing-days');
   await expect(page.locator('app-page-heading h1')).toHaveText('Días de cobro', { timeout: 15000 });
+  await expect(page.locator('.calendar-versions-table tbody tr')).toContainText('Programado');
+  await page.screenshot({ path: testInfo.outputPath('billing-days-list-reference.png'), fullPage: true });
   const row = page.locator('.calendar-versions-table tbody tr').filter({ hasText: 'Programado' });
   const actions = row.locator('.calendar-actions .button');
   await expect(actions).toHaveText(['Ver', 'Editar', 'Cancelar programación', 'Historial']);
@@ -377,6 +380,7 @@ test('billing calendar scheduled lifecycle edits, cancels with a reason and conf
   await actions.nth(1).click();
   const editor = page.getByRole('dialog', { name: 'Editar calendario programado' });
   await expect(editor).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('billing-days-scheduled-editor.png'), fullPage: true });
   await editor.locator('[formControlName="validFrom"]').fill(new Date(Date.now() + 12 * 86400000).toISOString().slice(0, 10));
   await editor.locator('[formControlName="reason"]').fill('Corrección local de calendario');
   await editor.getByRole('button', { name: 'Guardar cambios' }).click();
@@ -395,6 +399,7 @@ test('billing calendar scheduled lifecycle edits, cancels with a reason and conf
   const refreshedRow = page.locator('.calendar-versions-table tbody tr').filter({ hasText: 'Programado' });
   await refreshedRow.scrollIntoViewIfNeeded();
   const refreshedButtons = refreshedRow.locator('.calendar-actions .button');
+  await expect(refreshedButtons.first().locator('svg')).toHaveCSS('fill', 'none');
   const cancelButton = refreshedRow.getByRole('button', { name: 'Cancelar programación' });
   await cancelButton.scrollIntoViewIfNeeded();
   const refreshedHitTargets = await refreshedButtons.evaluateAll((buttons) => buttons.map((button) => {
@@ -407,6 +412,8 @@ test('billing calendar scheduled lifecycle edits, cancels with a reason and conf
   await cancelButton.click();
   const cancelDialog = page.getByRole('dialog', { name: '¿Cancelar este calendario?' });
   await expect(cancelDialog).toBeVisible();
+  await expect(cancelDialog.locator('textarea')).toHaveCSS('border-radius', '8px');
+  await page.screenshot({ path: testInfo.outputPath('billing-days-cancel-confirmation.png'), fullPage: true });
   await cancelDialog.getByRole('button', { name: 'Confirmar cancelación' }).click();
   expect(cancelCount).toBe(0);
   await cancelDialog.locator('[formControlName="reason"]').fill('Programación reemplazada en prueba local');
@@ -419,7 +426,7 @@ test('billing calendar scheduled lifecycle edits, cancels with a reason and conf
   await expect(page.locator('.calendar-versions-table tbody tr')).toContainText('Cancelado');
 });
 
-test('tariff editor is opened on demand and sends the exact API decimal using admin CSRF', async ({ page }) => {
+test('tariff editor is opened on demand and sends the exact API decimal using admin CSRF', async ({ page }, testInfo) => {
   const createBodies: unknown[] = [];
   const csrfHeaders: string[] = [];
   let csrfReads = 0;
@@ -464,13 +471,15 @@ test('tariff editor is opened on demand and sends the exact API decimal using ad
   });
   await page.route('**/api/v1/admin/parking/zones', (route) => route.fulfill({ json: [] }));
   await page.route('**/api/v1/admin/parking/configuration/effective*', (route) => route.fulfill({ json: effective }));
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto('http://127.0.0.1:4301/admin/tariffs');
   await expect(page.getByRole('heading', { name: 'Configuración de tarifas' })).toBeVisible();
   await expect(page.locator('form')).toHaveCount(0);
   await page.getByRole('button', { name: 'Crear tarifa' }).click();
   await expect(page.getByPlaceholder('Ej.: Tarifa general de estacionamiento')).toBeVisible();
   await expect(page.getByPlaceholder('Ej.: 0,25')).toBeVisible();
-  const firstFormRow = await page.locator('.tariff-data-grid > .field').evaluateAll((fields) => fields.slice(0, 3).map((field) => ({
+  await page.screenshot({ path: testInfo.outputPath('tariff-create-reference.png'), fullPage: true });
+  const firstFormRow = await page.locator('.tariff-data-grid > .field').evaluateAll((fields) => fields.slice(0, 2).map((field) => ({
     fieldTop: field.getBoundingClientRect().top,
     controlTop: field.querySelector('input, select')?.getBoundingClientRect().top,
   })));
@@ -494,7 +503,7 @@ test('tariff editor is opened on demand and sends the exact API decimal using ad
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-test('scheduled tariff actions are aligned and view/edit use accessible responsive dialogs', async ({ page }) => {
+test('scheduled tariff actions are aligned and view/edit use accessible responsive dialogs', async ({ page }, testInfo) => {
   const identity = {
     userId: 'local-test-admin', username: 'admin.fixture', roles: ['SIMERTPI_ADMIN'], enabled: true,
     sessionExpiresAt: new Date(Date.now() + 600000).toISOString(), absoluteExpiresAt: new Date(Date.now() + 3600000).toISOString(),
@@ -535,6 +544,8 @@ test('scheduled tariff actions are aligned and view/edit use accessible responsi
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto('http://127.0.0.1:4301/admin/tariffs');
   await expect(page.getByRole('heading', { name: 'Configuración de tarifas' })).toBeVisible();
+  await expect(page.locator('.tariff-versions-table tbody tr')).toContainText('Programada');
+  await page.screenshot({ path: testInfo.outputPath('tariff-list-reference.png'), fullPage: true });
 
   const actions = page.locator('.row-actions .button');
   await expect(actions).toHaveText(['Ver', 'Editar', 'Cancelar programación', 'Historial']);
@@ -563,19 +574,20 @@ test('scheduled tariff actions are aligned and view/edit use accessible responsi
   await detail.getByRole('button', { name: 'Cerrar', exact: true }).click();
   await expect(detail).toBeHidden();
 
-  await page.setViewportSize({ width: 390, height: 844 });
   await actions.nth(1).click();
-  const editor = page.getByRole('dialog', { name: 'Editar tarifa programada' });
+  const editor = page.locator('.tariff-editor-panel');
   await expect(editor).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('tariff-scheduled-editor.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
   const box = await editor.boundingBox();
   expect(box).not.toBeNull();
   expect(box!.x).toBeGreaterThanOrEqual(0);
   expect(box!.x + box!.width).toBeLessThanOrEqual(390);
-  const editorShell = editor.locator('.dialog-shell');
+  const editorShell = editor.locator('form');
   expect(await editorShell.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
   await expect(editor.locator('[formControlName="amount"]')).toHaveValue('0,25');
   await editor.locator('[formControlName="amount"]').fill('0,50');
-  await page.keyboard.press('Escape');
+  await editor.getByRole('button', { name: 'Cerrar formulario de tarifa' }).first().click();
   await expect(editor.getByRole('alertdialog')).toContainText('Hay cambios sin guardar');
   await editor.getByRole('button', { name: 'Seguir editando' }).click();
   await editor.locator('[formControlName="amount"]').fill('0,75');
@@ -639,7 +651,7 @@ test('current tariff edits create one future version and early finalization requ
   const row = page.getByRole('row').filter({ hasText: 'GEN-CURRENT-01' });
   await expect(row.getByText('Vigente', { exact: true })).toBeVisible();
   await row.getByRole('button', { name: 'Editar' }).click();
-  const editor = page.getByRole('dialog', { name: 'Editar tarifa vigente · crear versión' });
+  const editor = page.locator('.tariff-editor-panel');
   await expect(editor).toBeVisible();
   await expect(editor.getByText(/No se sobrescribe el historial/)).toBeVisible();
   await editor.locator('[formControlName="amount"]').fill('0,30');
@@ -648,7 +660,7 @@ test('current tariff edits create one future version and early finalization requ
   await editor.getByRole('button', { name: 'Guardar nueva versión' }).click();
   await expect.poll(() => revisionCount).toBe(1);
   expect(revisionBody).toMatchObject({ amount: '0.30', expectedVersion: 4, reason: 'Corrección respaldada en prueba local' });
-  await expect(page.locator('.success-note')).toContainText('Tarifa actualizada correctamente. Se creó una nueva versión y se conservó el historial.');
+  await expect(page.locator('.success-note')).toContainText('Tarifa actualizada correctamente. Se creó una nueva versión y se conservaron los datos históricos.');
 
   await row.getByRole('button', { name: 'Finalizar vigencia' }).click();
   const endDialog = page.getByRole('dialog', { name: 'Finalizar vigencia de GEN-CURRENT-01' });
@@ -662,7 +674,7 @@ test('current tariff edits create one future version and early finalization requ
   expect(revisionCount).toBe(1);
 });
 
-test('current tariff supports immediate revision and immediate ending with an uncovered-zone warning', async ({ page }) => {
+test('current tariff supports immediate revision and immediate ending with an uncovered-zone warning', async ({ page }, testInfo) => {
   const identity = {
     userId: 'local-test-admin', username: 'admin.fixture', roles: ['SIMERTPI_ADMIN'], enabled: true,
     sessionExpiresAt: new Date(Date.now() + 600000).toISOString(), absoluteExpiresAt: new Date(Date.now() + 3600000).toISOString(),
@@ -719,7 +731,8 @@ test('current tariff supports immediate revision and immediate ending with an un
   await page.goto('http://127.0.0.1:4301/admin/tariffs');
   const row = page.getByRole('row').filter({ hasText: 'GEN-NOW-01' });
   await row.getByRole('button', { name: 'Editar' }).click();
-  const editor = page.getByRole('dialog', { name: 'Editar tarifa vigente · crear versión' });
+  const editor = page.locator('.tariff-editor-panel');
+  await page.screenshot({ path: testInfo.outputPath('tariff-current-version-editor.png'), fullPage: true });
   await editor.getByLabel('Aplicar ahora').check();
   await editor.locator('[formControlName="amount"]').fill('0,30');
   await editor.locator('[formControlName="validTo"]').fill('2030-12-22T22:06');
@@ -738,6 +751,19 @@ test('current tariff supports immediate revision and immediate ending with an un
   await expect(successToast).toContainText('Tarifa actualizada correctamente. Se creó una nueva versión y se conservaron los datos históricos.');
   expect(revisionBody).not.toHaveProperty('validFrom');
   expect(revisionBody).toMatchObject({ amount: '0.30', expectedVersion: 3, reason: 'Corrección inmediata respaldada', validTo: '2030-12-23T03:06:00.000Z' });
+  const savedVersionRow = page.getByRole('row').filter({ hasText: 'GEN-NOW-02' });
+  await savedVersionRow.getByRole('button', { name: 'Ver' }).click();
+  const persistedDetail = page.getByRole('dialog', { name: 'Detalle de tarifa' });
+  await page.screenshot({ path: testInfo.outputPath('tariff-saved-version-detail.png'), fullPage: true });
+  await expect(persistedDetail).toContainText('0,30 USD');
+  await expect(persistedDetail).toContainText('22 de diciembre de 2030');
+  await persistedDetail.getByRole('button', { name: 'Cerrar detalle de tarifa' }).click();
+  await page.reload();
+  const reloadedVersionRow = page.getByRole('row').filter({ hasText: 'GEN-NOW-02' });
+  await reloadedVersionRow.getByRole('button', { name: 'Ver' }).click();
+  const reloadedDetail = page.getByRole('dialog', { name: 'Detalle de tarifa' });
+  await expect(reloadedDetail).toContainText('22 de diciembre de 2030');
+  await reloadedDetail.getByRole('button', { name: 'Cerrar detalle de tarifa' }).click();
 
   const replacementRow = page.getByRole('row', { name: /^GEN-NOW-02 Tarifa general/ });
   await expect(replacementRow).toBeVisible();

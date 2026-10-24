@@ -1786,6 +1786,9 @@ app-tariffs .tariff-dialog .success-id { display: block; margin-top: 4px; color:
 
 app-billing-days {
 .calendar-table-scroll { max-width: 100%; overflow-x: auto; }
+.calendar-days { display: flex; flex-wrap: wrap; gap: 5px; margin: 5px 0; }
+.calendar-days .day { padding: 4px 7px; border-radius: 6px; background: #e9f8ef; color: #086c3f; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.calendar-days .day.free { background: #f1f3f6; color: #5d6b78; }
 .calendar-versions-table { min-width: 970px; table-layout: fixed; }
 .calendar-versions-table th:nth-child(1) { width: 17%; }
 .calendar-versions-table th:nth-child(2) { width: 20%; }
@@ -1801,7 +1804,7 @@ app-billing-days {
 .calendar-status.status-ended { color: #606b65; background: #eef0ef; }
 .calendar-actions { display: grid; grid-auto-rows: 31px; gap: 5px; min-width: 145px; margin: 0; align-items: stretch; }
 .calendar-actions .button { display: inline-flex; width: 100%; height: 31px; min-height: 31px; box-sizing: border-box; align-items: center; justify-content: flex-start; gap: 7px; padding: 4px 8px; font-size: 11px; line-height: 1; white-space: nowrap; }
-.calendar-actions .button svg { pointer-events: none; }
+.calendar-actions .button svg { width: 14px; height: 14px; flex: 0 0 14px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
 .calendar-actions .action-edit { color: #315f96; border-color: #d7e3f1; background: #f4f8fd; }
 .calendar-actions .action-history { color: #606b65; border-color: #dfe4e1; background: #f7f8f7; }
 .calendar-actions .action-danger { color: #914c49; border-color: #efd8d6; background: #fbf2f1; }
@@ -1809,6 +1812,9 @@ app-billing-days {
 .calendar-dialog.compact-dialog { width: min(560px, calc(100vw - 28px)); }
 .calendar-dialog .dialog-content { min-height: 0; }
 .calendar-dialog .dialog-scroll { min-height: 0; }
+.calendar-dialog.compact-dialog .dialog-content > p:not(.notice) { margin: 16px 22px 8px; }
+.calendar-dialog.compact-dialog .dialog-content > form { margin: 0; padding: 0 22px 22px; }
+.calendar-dialog.compact-dialog .dialog-content > form .dialog-actions { margin: 12px -22px -22px; }
 .calendar-dialog .calendar-form { display: block; margin: 0; }
 .calendar-form .form-section { padding: 17px 0; border-bottom: 1px solid var(--border); }
 .calendar-form .form-section:first-child { padding-top: 0; }
@@ -1818,6 +1824,9 @@ app-billing-days {
 .calendar-form .form-grid .field > small { margin: 0; }
 .calendar-form .field-full { grid-column: 1 / -1; }
 .calendar-form textarea, .calendar-dialog textarea { width: 100%; min-height: 84px; resize: vertical; }
+.calendar-dialog .field textarea { box-sizing: border-box; min-width: 0; padding: 10px 12px; border: 1px solid #b9c5ce; border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; line-height: 1.5; }
+.calendar-dialog .field textarea::placeholder { color: #657184; font-size: 12px; }
+.calendar-dialog .field textarea:focus-visible { border-color: var(--green); outline: 3px solid rgb(8 108 63 / 18%); outline-offset: 1px; }
 .calendar-form .weekday-field { display: block; margin: 0; }
 .calendar-form .weekday-options { display: flex; flex-wrap: wrap; gap: 8px 18px; }
 .calendar-form .weekday-options label { display: inline-flex; align-items: center; gap: 7px; min-height: 33px; }
@@ -1849,5 +1858,56 @@ app-billing-days {
   .history-item-heading { align-items:flex-start; flex-direction:column; }
   .history-state-comparison { grid-template-columns:1fr; }
   .calendar-form .dialog-actions { margin: 0 -16px -16px; }
+  .calendar-dialog.compact-dialog .dialog-content > p:not(.notice) { margin-inline: 16px; }
+  .calendar-dialog.compact-dialog .dialog-content > form { padding: 0 16px 16px; }
+  .calendar-dialog.compact-dialog .dialog-content > form .dialog-actions { margin: 12px -16px -16px; }
 }
+}
+
+/* Alineación de dos paneles que reproduce la referencia de tarifas aprobada. */
+app-tariffs .tariff-workspace-layout { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(360px, 1fr); align-items: start; gap: 16px; }
+app-tariffs .tariff-workspace-layout:not(.with-editor) { grid-template-columns: minmax(0, 1fr); }
+app-tariffs .tariff-workspace-layout > .config-section { min-width: 0; margin-bottom: 20px; }
+app-tariffs .tariff-list-panel { overflow: hidden; }
+app-tariffs .tariff-editor-panel { position: sticky; top: 16px; max-height: calc(100dvh - 32px); overflow: auto; padding: 20px; }
+app-tariffs .tariff-editor-panel .section-heading { align-items: flex-start; margin-bottom: 12px; }
+app-tariffs .tariff-editor-panel .section-heading h2 { font-size: 18px; }
+app-tariffs .tariff-editor-panel .admin-form { grid-template-columns: minmax(0, 1fr); gap: 10px; margin-top: 12px; }
+app-tariffs .tariff-editor-panel .admin-form > .field,
+app-tariffs .tariff-editor-panel .tariff-data-grid > .field { grid-template-rows: auto 40px minmax(0, auto); gap: 5px; }
+app-tariffs .tariff-editor-panel .tariff-data-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
+app-tariffs .tariff-editor-panel .tariff-data-grid > .field.wide { grid-column: 1 / -1; }
+app-tariffs .tariff-editor-panel .form-section { padding: 12px 0; }
+app-tariffs .tariff-editor-panel .form-section h3 { margin-bottom: 8px; }
+app-tariffs .tariff-editor-panel .timing-options { gap: 7px; padding: 7px; }
+app-tariffs .tariff-editor-panel .timing-options label.timing-choice { flex: 1 1 130px; min-height: 40px; padding: 7px 8px; }
+app-tariffs .tariff-editor-panel .timing-options label.timing-choice input[type="radio"] { flex: 0 0 17px; width: 17px; min-width: 17px; min-height: 17px; height: 17px; margin: 0; padding: 0; accent-color: #087e4b; }
+app-tariffs .tariff-editor-panel .timing-options label.timing-choice svg { display: block; width: 16px; height: 16px; flex: 0 0 16px; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+app-tariffs .tariff-editor-panel .form-actions { justify-content: flex-end; margin-top: 12px; }
+app-tariffs .tariff-table-scroll { position: relative; }
+app-tariffs .tariff-versions-table { min-width: 840px; table-layout: fixed; }
+app-tariffs .tariff-versions-table th:nth-child(1) { width: 18%; }
+app-tariffs .tariff-versions-table th:nth-child(2) { width: 12%; }
+app-tariffs .tariff-versions-table th:nth-child(3) { width: 12%; }
+app-tariffs .tariff-versions-table th:nth-child(4) { width: 19%; }
+app-tariffs .tariff-versions-table th:nth-child(5) { width: 13%; }
+app-tariffs .tariff-versions-table th:nth-child(6) { width: 8%; }
+app-tariffs .tariff-versions-table th:last-child,
+app-tariffs .tariff-versions-table td:last-child { position: sticky; right: 0; z-index: 2; background: #fff; box-shadow: -8px 0 10px -10px #18251d99; }
+app-tariffs .tariff-versions-table th:last-child { z-index: 3; background: #f4f7f5; }
+app-tariffs .tariff-subcode { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; }
+app-tariffs .tariff-versions-table .reference-cell { display: block; margin-top: 6px; color: var(--muted); font-size: 11px; }
+app-tariffs .row-actions { min-width: 138px; grid-auto-rows: 32px; gap: 5px; }
+app-tariffs .row-actions .button { height: 32px; min-height: 32px; padding: 3px 7px; }
+app-tariffs .row-actions .button.action-danger { height: 32px; white-space: normal; line-height: 1; }
+app-tariffs .row-actions .button.action-danger span { min-width: 0; white-space: normal; }
+@media (max-width: 1120px) {
+  app-tariffs .tariff-workspace-layout { grid-template-columns: minmax(0, 1fr); }
+  app-tariffs .tariff-editor-panel { position: static; max-height: none; }
+}
+@media (max-width: 600px) {
+  app-tariffs .tariff-editor-panel { padding: 16px; }
+  app-tariffs .tariff-editor-panel .tariff-data-grid { grid-template-columns: minmax(0, 1fr); }
+  app-tariffs .tariff-editor-panel .tariff-data-grid > .field.wide { grid-column: auto; }
+  app-tariffs .tariff-editor-panel .timing-options label.timing-choice { flex-basis: 100%; }
 }

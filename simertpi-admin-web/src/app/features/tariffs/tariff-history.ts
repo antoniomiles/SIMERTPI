@@ -59,36 +59,40 @@ const CHANGE_KEYS = [
       } @else {
         @if (tariffId) {
           <section class="history-series card" aria-label="Serie tarifaria consultada">
-            <div><span class="history-kicker">TARIFA CONSULTADA</span><strong>{{ seriesLabel() }}</strong><small>El historial se filtra por esta tarifa y sus versiones relacionadas.</small></div>
+            <div><span class="eyebrow">TARIFA CONSULTADA</span><strong>{{ seriesLabel() }}</strong><small>El historial se filtra por esta tarifa y sus versiones relacionadas.</small></div>
             <span class="history-count">{{ result()!.total }} {{ result()!.total === 1 ? 'evento' : 'eventos' }}</span>
           </section>
         } @else {
           <section class="history-series card" aria-label="Resumen del historial">
-            <div><span class="history-kicker">HISTORIAL GENERAL</span><strong>Todos los cambios de tarifas</strong><small>Los registros se presentan en páginas de 25 eventos.</small></div>
+            <div><span class="eyebrow">HISTORIAL GENERAL</span><strong>Todos los cambios de tarifas</strong><small>Los registros se presentan en páginas de 25 eventos.</small></div>
             <span class="history-count">{{ result()!.total }} {{ result()!.total === 1 ? 'evento' : 'eventos' }}</span>
           </section>
         }
         <section class="card history-panel" aria-labelledby="history-title">
           <header class="history-heading"><div><p class="eyebrow">TRAZABILIDAD ADMINISTRATIVA</p><h2 id="history-title">{{ result()!.total }} cambios registrados</h2><p>Fechas y horas expresadas en la zona de Ecuador (America/Guayaquil).</p></div></header>
-          <div class="history-table-scroll" role="region" aria-label="Registros del historial; deslice horizontalmente para ver todas las columnas" tabindex="0">
-            <table class="history-table"><thead><tr><th>Fecha y acción</th><th>Tarifa / versión</th><th>Responsable</th><th>Motivo</th><th>Valores modificados</th></tr></thead>
-              <tbody>@for (item of result()!.items; track item.id) {
-                <tr>
-                  <td data-label="Fecha y acción"><time>{{ formatDateTime(item.occurredAt) }}</time><small class="effective-date">Efectiva: {{ item.effectiveAt ? formatDateTime(item.effectiveAt) : 'No especificada' }}</small><span class="history-action" [class]="actionClass(item.action)">{{ actionLabel(item.action) }}</span></td>
-                  <td data-label="Tarifa / versión"><strong class="version-code">{{ versionCode(item) }}</strong><small>{{ versionName(item) || 'Nombre no disponible en este registro' }}</small><small class="version-caption">Versión afectada</small></td>
-                  <td data-label="Responsable">{{ item.actorName || 'Responsable no registrado en este evento' }}</td>
-                  <td data-label="Motivo"><span class="reason-text">{{ item.reason?.trim() || 'No se registró un motivo para este evento histórico.' }}</span></td>
-                  <td data-label="Valores modificados">
-                    @if (item.beforeState) {
-                      <ul class="change-list">@for (change of changePreview(item).items; track change.key) {<li><strong>{{ change.label }}:</strong> {{ change.before }} <span aria-hidden="true">→</span> {{ change.after }}</li>}</ul>
-                      @if (changePreview(item).remaining > 0) { <small class="more-changes">{{ changePreview(item).remaining }} cambios adicionales</small> }
-                    } @else { <span class="legacy-note">Estado inicial registrado; no hay una versión anterior para comparar.</span> }
-                    <button class="button secondary detail-button" type="button" (click)="openDetails(item)" aria-haspopup="dialog">Ver detalle</button>
-                  </td>
-                </tr>
-              }</tbody>
-            </table>
-          </div>
+          <ol class="history-events" aria-label="Eventos del historial">
+            @for (item of result()!.items; track item.id) {
+              <li class="history-event-card">
+                <header class="history-event-heading">
+                  <div class="history-event-title"><span class="history-action" [class]="actionClass(item.action)">{{ actionLabel(item.action) }}</span><strong>{{ versionName(item) || versionCode(item) }}</strong><small>Versión afectada: {{ versionCode(item) }}</small></div>
+                  <time>{{ formatDateTime(item.occurredAt) }}</time>
+                </header>
+                <dl class="history-event-meta">
+                  <div><dt>Responsable</dt><dd>{{ item.actorName || 'No disponible para este registro histórico anterior.' }}</dd></div>
+                  <div><dt>Vigencia efectiva</dt><dd>{{ item.effectiveAt ? formatDateTime(item.effectiveAt) : 'No especificada' }}</dd></div>
+                  <div><dt>Motivo</dt><dd>{{ item.reason?.trim() || 'No se registró un motivo para este evento histórico.' }}</dd></div>
+                </dl>
+                <div class="history-event-summary">
+                  @if (item.beforeState) {
+                    <strong>Resumen de los cambios</strong>
+                    <ul class="change-list">@for (change of changePreview(item).items; track change.key) {<li><strong>{{ change.label }}:</strong> {{ change.before }} <span aria-hidden="true">→</span> {{ change.after }}</li>}</ul>
+                    @if (changePreview(item).remaining > 0) { <small class="more-changes">{{ changePreview(item).remaining }} cambios adicionales</small> }
+                  } @else { <span class="legacy-note">Registro histórico inicial; no hay valores anteriores para comparar.</span> }
+                  <button class="button secondary detail-button" type="button" (click)="openDetails(item)" aria-haspopup="dialog">Ver detalle</button>
+                </div>
+              </li>
+            }
+          </ol>
           <nav class="history-pagination" aria-label="Paginación del historial">
             <button class="button secondary" type="button" [disabled]="page() === 0 || loading()" (click)="load(page() - 1)">Anterior</button>
             <span>Página {{ page() + 1 }} de {{ pageCount() }}</span>

@@ -2,7 +2,7 @@ import { Component, ElementRef, computed, effect, inject, signal, viewChild } fr
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute } from '@angular/router';
 import { AbstractControl, FormBuilder, ReactiveFormsModule, ValidationErrors, ValidatorFn, Validators } from '@angular/forms';
-import { forkJoin, finalize, Observable } from 'rxjs';
+import { catchError, forkJoin, finalize, map, Observable, of, switchMap } from 'rxjs';
 import { normalizeError, PortalError } from '../../core/http/portal-error';
 import { DataState } from '../../shared/ui/data-state';
 import { PageHeading } from '../../shared/ui/page-heading';
@@ -91,6 +91,7 @@ export class BillingDays {
   readonly historyDialog = viewChild<ElementRef<HTMLDialogElement>>('historyDialog');
   readonly formatDate = formatConfigurationDate;
   readonly formatDateTime = formatConfigurationDateTime;
+  private listRequestSequence = 0;
   readonly weekDays = [
     { value: 1, label: 'Lunes' }, { value: 2, label: 'Martes' }, { value: 3, label: 'Miércoles' },
     { value: 4, label: 'Jueves' }, { value: 5, label: 'Viernes' }, { value: 6, label: 'Sábado' }, { value: 7, label: 'Domingo' },
@@ -125,11 +126,34 @@ export class BillingDays {
 
   load() {
     if (this.preview) return;
+    const requestSequence = ++this.listRequestSequence;
     this.state.set('loading'); this.errorMessage.set('');
-    forkJoin({ calendars: this.api.listBillingCalendars(), zones: this.zonesApi.listZones(), effective: this.api.effective(new Date().toISOString()) }).subscribe({
-      next: (r) => { this.calendars.set(r.calendars); this.zones.set(r.zones); this.effective.set(r.effective); this.state.set('ready'); },
-      error: (e: unknown) => { this.errorMessage.set(normalizeError(e).message || 'No se pudo consultar el calendario semanal.'); this.state.set('error'); },
+    this.loadConfiguration().subscribe({
+      next: (r) => { if (requestSequence === this.listRequestSequence) this.applyConfiguration(r); },
+      error: (e: unknown) => { if (requestSequence === this.listRequestSequence) { this.errorMessage.set(normalizeError(e).message || 'No se pudo consultar el calendario semanal.'); this.state.set('error'); } },
     });
+  }
+
+  private loadConfiguration() {
+    return forkJoin({ calendars: this.api.listBillingCalendars(), zones: this.zonesApi.listZones(), effective: this.api.effective(new Date().toISOString()) });
+  }
+
+  private applyConfiguration(result: { calendars: BillingCalendar[]; zones: ParkingZone[]; effective: EffectiveConfiguration }) {
+    this.calendars.set(result.calendars); this.zones.set(result.zones); this.effective.set(result.effective); this.state.set('ready');
+  }
+
+  private refreshAfterWrite() {
+    const requestSequence = ++this.listRequestSequence;
+    return this.loadConfiguration().pipe(
+      map((configuration) => ({ configuration, refreshed: true as const })),
+      catchError(() => of({ configuration: null, refreshed: false as const })),
+      map((result) => { if (requestSequence === this.listRequestSequence && result.configuration) this.applyConfiguration(result.configuration); return result.refreshed; }),
+    );
+  }
+
+  private closeDialog(dialog: ElementRef<HTMLDialogElement> | undefined) {
+    const element = dialog?.nativeElement;
+    if (element?.open) element.close();
   }
 
   openCreate() {
@@ -169,13 +193,15 @@ export class BillingDays {
       ? (this.isCurrent(calendar) ? this.api.reviseBillingCalendar(calendar.id, body) : this.api.updateScheduledBillingCalendar(calendar.id, body))
       : this.api.createBillingCalendar({ zoneId:value.scope==='ZONE' ? value.zoneId : null, validFrom:value.validFrom, validTo:value.validTo || null,
           chargeableDays:this.chargeableDays(), normativeReference:value.normativeReference.trim() });
-    request.pipe(finalize(() => this.saving.set(false))).subscribe({
-      next: (result) => {
+    request.pipe(switchMap((result) => this.refreshAfterWrite().pipe(map((refreshed) => ({ result, refreshed })))), finalize(() => this.saving.set(false))).subscribe({
+      next: ({ result, refreshed }) => {
         const id=typeof result==='string' ? result : result.id;
         this.savedVersionId.set(id);
         this.actionMessage.set(calendar ? this.isCurrent(calendar) ? 'Calendario actualizado correctamente. Se creó una nueva versión y se conservó el historial.' : 'Calendario actualizado correctamente.' : 'El calendario quedó registrado. Los días no marcados serán gratuitos, no prohibidos.');
+        if (!refreshed) this.actionMessage.update((message) => `${message} El servidor confirmó el guardado, pero el listado no pudo actualizarse. Use “Actualizar” para consultar los datos persistidos.`);
+        this.closeDialog(this.editDialog());
+        this.showForm.set(false); this.editingCalendar.set(null); this.revisionOf.set(null); this.form.controls.scope.enable(); this.form.controls.zoneId.enable();
         this.toast.success(this.actionMessage());
-        this.showForm.set(false); this.editingCalendar.set(null); this.revisionOf.set(null); this.form.controls.scope.enable(); this.form.controls.zoneId.enable(); this.load();
       },
       error: (error: unknown) => this.recordWriteError(error),
     });
@@ -186,8 +212,8 @@ export class BillingDays {
     event.preventDefault(); const calendar=this.endingCalendar(); if (!calendar || this.saving()) return;
     this.endForm.markAllAsTouched(); if (this.endForm.invalid) { this.writeValidationFailed('Seleccione una fecha válida y escriba el motivo de finalización.'); return; }
     const value=this.endForm.getRawValue(); this.saving.set(true); this.actionError.set('');
-    this.api.endBillingCalendar(calendar.id,value.effectiveFrom,value.reason.trim(),calendar.rowVersion).pipe(finalize(()=>this.saving.set(false))).subscribe({
-      next:()=>{ this.endingCalendar.set(null); this.actionMessage.set('Vigencia finalizada correctamente. Desde esa fecha la excepción zonal heredará el calendario general, si existe.'); this.toast.success(this.actionMessage()); this.load(); },
+    this.api.endBillingCalendar(calendar.id,value.effectiveFrom,value.reason.trim(),calendar.rowVersion).pipe(switchMap(()=>this.refreshAfterWrite()),finalize(()=>this.saving.set(false))).subscribe({
+      next:(refreshed)=>{ this.closeDialog(this.endDialog()); this.endingCalendar.set(null); this.actionMessage.set(`Vigencia finalizada correctamente. Desde esa fecha la excepción zonal heredará el calendario general, si existe.${refreshed ? '' : ' El listado no pudo actualizarse; use “Actualizar” para volver a consultar.'}`); this.toast.success(this.actionMessage()); },
       error:(error:unknown)=>this.recordWriteError(error),
     });
   }
@@ -196,8 +222,8 @@ export class BillingDays {
     event.preventDefault(); const calendar=this.cancellingCalendar(); if (!calendar || this.saving()) return;
     this.cancellationForm.markAllAsTouched(); if (this.cancellationForm.invalid) { this.writeValidationFailed('Escriba un motivo para cancelar la programación.'); return; }
     this.saving.set(true); this.actionError.set('');
-    this.api.cancelScheduledBillingCalendar(calendar.id,this.cancellationForm.controls.reason.value.trim(),calendar.rowVersion).pipe(finalize(()=>this.saving.set(false))).subscribe({
-      next:()=>{ this.cancellingCalendar.set(null); this.actionMessage.set('Programación cancelada correctamente. Este calendario no entrará en vigencia.'); this.toast.success(this.actionMessage()); this.load(); },
+    this.api.cancelScheduledBillingCalendar(calendar.id,this.cancellationForm.controls.reason.value.trim(),calendar.rowVersion).pipe(switchMap(()=>this.refreshAfterWrite()),finalize(()=>this.saving.set(false))).subscribe({
+      next:(refreshed)=>{ this.closeDialog(this.cancelDialog()); this.cancellingCalendar.set(null); this.actionMessage.set(`Programación cancelada correctamente. Este calendario no entrará en vigencia.${refreshed ? '' : ' El listado no pudo actualizarse; use “Actualizar” para volver a consultar.'}`); this.toast.success(this.actionMessage()); },
       error:(error:unknown)=>this.recordWriteError(error),
     });
   }

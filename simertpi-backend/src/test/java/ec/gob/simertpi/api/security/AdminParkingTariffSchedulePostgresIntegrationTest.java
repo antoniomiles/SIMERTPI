@@ -104,6 +104,8 @@ class AdminParkingTariffSchedulePostgresIntegrationTest extends AbstractPostgres
         org.assertj.core.api.Assertions.assertThat(tariff.path("zoneCode").asText()).isEqualTo("QA-TZ-" + suffix);
         org.assertj.core.api.Assertions.assertThat(tariff.path("amount").decimalValue()).isEqualByComparingTo("0.50");
         org.assertj.core.api.Assertions.assertThat(tariff.path("gracePeriodMinutes").asInt()).isZero();
+        org.assertj.core.api.Assertions.assertThat(tariff.path("rowVersion").asLong())
+                .isEqualTo(jdbc.queryForObject("SELECT row_version FROM parking.tariffs WHERE id=?", Long.class, tariffId));
 
         MvcResult schedules = mvc.perform(get("/api/v1/admin/parking/schedules").secure(true).cookie(sessionCookie))
                 .andExpect(status().isOk()).andReturn();
@@ -396,6 +398,21 @@ class AdminParkingTariffSchedulePostgresIntegrationTest extends AbstractPostgres
                 INSERT INTO payments.payments(id,parking_session_id,provider,idempotency_key,amount,currency,status)
                 VALUES (?,?, 'QA', ?,0.50,'USD','PENDING')
                 """, paymentId, sessionId, "qa-tariff-immediate-" + suffix);
+        UUID historicalSessionId = UUID.randomUUID();
+        UUID approvedPaymentId = UUID.randomUUID();
+        java.time.OffsetDateTime historicallyPaidAt = prior.plusHours(4);
+        jdbc.update("""
+                INSERT INTO parking.parking_sessions(id,user_id,vehicle_id,parking_space_id,tariff_id,started_at,
+                    expected_end_at,ended_at,status,total_amount)
+                VALUES (?,?,?,?,?,?,?,?,'COMPLETED',0.50)
+                """, historicalSessionId, userId, vehicleId, spaceId, tariffId, prior.plusHours(3),
+                prior.plusHours(4), historicallyPaidAt);
+        jdbc.update("""
+                INSERT INTO payments.payments(id,parking_session_id,provider,provider_transaction_id,idempotency_key,
+                    amount,currency,status,paid_at)
+                VALUES (?,?, 'QA', ?, ?,0.50,'USD','APPROVED',?)
+                """, approvedPaymentId, historicalSessionId, "qa-historical-txn-" + suffix,
+                "qa-historical-payment-" + suffix, historicallyPaidAt);
         long version = jdbc.queryForObject("SELECT row_version FROM parking.tariffs WHERE id=?", Long.class, tariffId);
         Cookie csrf = csrfCookie();
         MvcResult revised = mvc.perform(post("/api/v1/admin/parking/tariffs/" + tariffId + "/revise-now").secure(true)
@@ -417,6 +434,14 @@ class AdminParkingTariffSchedulePostgresIntegrationTest extends AbstractPostgres
                 .isEqualTo(tariffId);
         org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT amount FROM payments.payments WHERE id=?", java.math.BigDecimal.class, paymentId))
                 .isEqualByComparingTo("0.50");
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM parking.parking_sessions
+                 WHERE id=? AND tariff_id=? AND status='COMPLETED' AND total_amount=0.50 AND ended_at=?
+                """, Integer.class, historicalSessionId, tariffId, historicallyPaidAt)).isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM payments.payments
+                 WHERE id=? AND parking_session_id=? AND status='APPROVED' AND amount=0.50 AND paid_at=?
+                """, Integer.class, approvedPaymentId, historicalSessionId, historicallyPaidAt)).isEqualTo(1);
         org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT tariff_id FROM parking.parking_sessions WHERE id=?", UUID.class, sessionId)).isEqualTo(tariffId);
         org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT status FROM parking.parking_sessions WHERE id=?", String.class, sessionId)).isEqualTo("PENDING_PAYMENT");
         org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT amount FROM payments.payments WHERE id=?", java.math.BigDecimal.class, paymentId)).isEqualByComparingTo("0.50");

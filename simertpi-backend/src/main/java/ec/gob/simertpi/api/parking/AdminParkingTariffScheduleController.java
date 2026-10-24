@@ -52,7 +52,8 @@ public class AdminParkingTariffScheduleController {
                         zoneName(zones, t.getZoneId()), t.getCurrency(), t.getAmount(), t.getDurationMinutes(),
                         t.getMinMinutes(), t.getMaxContinuousMinutes(), t.getGracePeriodMinutes(), t.getRoundingMode(),
                         t.getNormativeReference(), t.isActive(), t.getValidFrom(), t.getValidTo(), t.getCreatedAt(), t.getUpdatedAt(),
-                        t.getCancelledAt(), t.getCancelledByUserId(), t.getCancellationReason(), cancellationActors.get(t.getId())))
+                        t.getCancelledAt(), t.getCancelledByUserId(), t.getCancellationReason(), cancellationActors.get(t.getId()),
+                        t.getRowVersion()))
                 .toList();
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(rows);
     }
@@ -99,7 +100,8 @@ public class AdminParkingTariffScheduleController {
             String currency, BigDecimal amount, Integer durationMinutes, Integer minMinutes,
             Integer maxContinuousMinutes, Integer gracePeriodMinutes, String roundingMode, String normativeReference, boolean active,
             OffsetDateTime validFrom, OffsetDateTime validTo, OffsetDateTime createdAt, OffsetDateTime updatedAt,
-            OffsetDateTime cancelledAt, UUID cancelledByUserId, String cancellationReason, String cancelledByUsername) { }
+            OffsetDateTime cancelledAt, UUID cancelledByUserId, String cancellationReason, String cancelledByUsername,
+            Long rowVersion) { }
 
     public record ScheduleView(UUID id, UUID zoneId, String zoneCode, String zoneName, Short dayOfWeek,
             LocalTime startTime, LocalTime endTime, boolean active, LocalDate validFrom, LocalDate validTo,

@@ -60,7 +60,8 @@ describe('Tariff history screen', () => {
     expect(fixture.nativeElement.textContent).toContain('Corrección aprobada');
     expect(fixture.nativeElement.textContent).toContain('Importe: 0,25 USD → 0,30 USD');
     expect(fixture.nativeElement.textContent).toContain('enero de 2027');
-    expect(fixture.nativeElement.querySelectorAll('.history-table thead th')).toHaveLength(5);
+    expect(fixture.nativeElement.querySelectorAll('.history-event-card')).toHaveLength(1);
+    expect(fixture.nativeElement.querySelector('.history-event-meta')).not.toBeNull();
     expect(fixture.nativeElement.querySelector('.history-detail-dialog')).toBeNull();
   });
 
@@ -82,13 +83,13 @@ describe('Tariff history screen', () => {
     fixture.componentInstance.closeDetails();
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.history-detail-dialog')).toBeNull();
-    expect(fixture.nativeElement.querySelector('.history-table')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('.history-event-card')).not.toBeNull();
   });
 
   it('explains missing legacy actor and reason without inventing either value', async () => {
     const legacyEvent = { ...revisedEvent, actorId: null, actorName: null, reason: '' };
     const { fixture } = await createFixture(legacyEvent);
-    expect(fixture.nativeElement.textContent).toContain('Responsable no registrado en este evento');
+    expect(fixture.nativeElement.textContent).toContain('No disponible para este registro histórico anterior.');
     expect(fixture.nativeElement.textContent).toContain('No se registró un motivo para este evento histórico.');
     expect(fixture.nativeElement.textContent).not.toContain('admin.fixture');
     expect(fixture.nativeElement.querySelector('.history-detail-dialog')).toBeNull();

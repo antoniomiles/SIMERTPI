@@ -3,7 +3,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { AbstractControl, FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { NgTemplateOutlet } from '@angular/common';
-import { forkJoin, finalize } from 'rxjs';
+import { catchError, forkJoin, finalize, map, of, switchMap } from 'rxjs';
 import { normalizeError, PortalError } from '../../core/http/portal-error';
 import { DataState } from '../../shared/ui/data-state';
 import { PageHeading } from '../../shared/ui/page-heading';
@@ -67,7 +67,7 @@ export class Tariffs {
   readonly showForm = signal(false);
   readonly viewingTariff = signal<ConfiguredTariff | null>(null);
   readonly detailDialog = viewChild<ElementRef<HTMLDialogElement>>('detailDialog');
-  readonly editDialog = viewChild<ElementRef<HTMLDialogElement>>('editDialog');
+  readonly cancelDialog = viewChild<ElementRef<HTMLDialogElement>>('cancelDialog');
   readonly endDialog = viewChild<ElementRef<HTMLDialogElement>>('endDialog');
   readonly confirmEditDiscard = signal(false);
   readonly revisionOf = signal<ConfiguredTariff | null>(null);
@@ -102,6 +102,7 @@ export class Tariffs {
   readonly cancellationForm = this.builder.nonNullable.group({ reason: ['', [Validators.required, Validators.maxLength(500)]] });
   readonly editingScheduled = signal<ConfiguredTariff | null>(null);
   readonly cancellingTariff = signal<ConfiguredTariff | null>(null);
+  private listRequestSequence = 0;
 
   readonly visibleTariffs = computed(() => {
     const query = this.query().trim().toLocaleLowerCase('es-EC');
@@ -126,37 +127,59 @@ export class Tariffs {
       if (detail && viewing && !detail.open) detail.showModal();
       else if (detail && !viewing && detail.open) detail.close();
 
-      const editing = this.editingScheduled();
-      const editor = this.editDialog()?.nativeElement;
-      const revision = this.revisionOf();
-      if (editor && (editing || revision) && !editor.open) editor.showModal();
-      else if (editor && !editing && !revision && editor.open) editor.close();
-
       const ending = this.endingTariff();
       const endDialog = this.endDialog()?.nativeElement;
       if (endDialog && ending && !endDialog.open) endDialog.showModal();
       else if (endDialog && !ending && endDialog.open) endDialog.close();
+
+      const cancelling = this.cancellingTariff();
+      const cancelDialog = this.cancelDialog()?.nativeElement;
+      if (cancelDialog && cancelling && !cancelDialog.open) cancelDialog.showModal();
+      else if (cancelDialog && !cancelling && cancelDialog.open) cancelDialog.close();
     });
     if (!this.preview) this.load();
   }
 
   load() {
     if (this.preview) return;
+    const requestSequence = ++this.listRequestSequence;
     this.state.set('loading');
     this.errorMessage.set('');
-    forkJoin({ tariffs: this.api.listTariffs(), zones: this.zonesApi.listZones(), effective: this.api.effective(new Date().toISOString()) })
+    this.loadConfiguration()
       .subscribe({
         next: (result) => {
-          this.tariffs.set(result.tariffs);
-          this.zones.set(result.zones);
-          this.effective.set(result.effective);
-          this.state.set('ready');
+          if (requestSequence === this.listRequestSequence) this.applyConfiguration(result);
         },
         error: (error: unknown) => {
-          this.errorMessage.set(normalizeError(error).message || 'No se pudo consultar la configuración de tarifas.');
-          this.state.set('error');
+          if (requestSequence === this.listRequestSequence) {
+            this.errorMessage.set(normalizeError(error).message || 'No se pudo consultar la configuración de tarifas.');
+            this.state.set('error');
+          }
         },
       });
+  }
+
+  private loadConfiguration() {
+    return forkJoin({ tariffs: this.api.listTariffs(), zones: this.zonesApi.listZones(), effective: this.api.effective(new Date().toISOString()) });
+  }
+
+  private applyConfiguration(result: { tariffs: ConfiguredTariff[]; zones: ParkingZone[]; effective: EffectiveConfiguration }) {
+    this.tariffs.set(result.tariffs);
+    this.zones.set(result.zones);
+    this.effective.set(result.effective);
+    this.state.set('ready');
+  }
+
+  private refreshAfterWrite(saved: ConfiguredTariff, successMessage: string) {
+    const requestSequence = ++this.listRequestSequence;
+    return this.loadConfiguration().pipe(
+      map((configuration) => ({ saved, configuration, refreshed: true as const })),
+      catchError(() => of({ saved, configuration: null, refreshed: false as const })),
+      map((result) => {
+        if (requestSequence === this.listRequestSequence && result.configuration) this.applyConfiguration(result.configuration);
+        return { ...result, successMessage };
+      }),
+    );
   }
 
   openCreate() {
@@ -315,19 +338,19 @@ export class Tariffs {
         })
         : this.api.reviseTariff(revision.id, body)
       : this.api.createTariff(body);
-    save.pipe(finalize(() => this.saving.set(false))).subscribe({
-      next: (saved) => {
+    save.pipe(
+      switchMap((saved) => this.refreshAfterWrite(saved, revision
+        ? 'Tarifa actualizada correctamente. Se creó una nueva versión y se conservaron los datos históricos.'
+        : scheduled ? 'La tarifa programada se actualizó correctamente.' : 'Los cambios se guardaron correctamente.')),
+      finalize(() => this.saving.set(false)),
+    ).subscribe({
+        next: ({ saved, refreshed, successMessage }) => {
         this.showForm.set(false);
         this.revisionOf.set(null);
         this.editingScheduled.set(null);
         this.savedVersionId.set(saved.id);
-        this.actionMessage.set(revision
-          ? 'Tarifa actualizada correctamente. Se creó una nueva versión y se conservó el historial.'
-          : 'La nueva versión tarifaria quedó registrada con su vigencia y referencia normativa.');
-        if (scheduled) this.actionMessage.set('La tarifa programada se actualizó correctamente.');
-        if (revision && immediateRevision) this.actionMessage.set(`Tarifa actualizada correctamente. Se creó una nueva versión y se conservaron los datos históricos. Identificador: ${saved.id}`);
-        this.toast.success(this.actionMessage());
-        this.load();
+        this.actionMessage.set(refreshed ? successMessage : `${successMessage} El servidor confirmó el guardado, pero el listado no pudo actualizarse. Use “Actualizar” para consultar la versión persistida.`);
+        this.toast.success(this.savedVersionId() ? `${this.actionMessage()} Identificador: ${this.savedVersionId()}` : this.actionMessage());
       },
       error: (error: unknown) => {
         this.actionError.set(normalizeTariffWriteError(error).message);
@@ -390,6 +413,13 @@ export class Tariffs {
     this.actionError.set('');
   }
 
+  cancelScheduledDialog(event?: Event) {
+    event?.preventDefault();
+    this.cancelDialog()?.nativeElement.close();
+    this.cancellingTariff.set(null);
+    this.actionError.set('');
+  }
+
   openCancel(row: ConfiguredTariff) {
     if (!this.isScheduled(row)) return;
     this.showForm.set(false); this.endingTariff.set(null); this.revisionOf.set(null); this.editingScheduled.set(null);
@@ -404,8 +434,9 @@ export class Tariffs {
     if (this.cancellationForm.invalid) { this.formValidationFailed('Escriba el motivo obligatorio para cancelar la programación.'); return; }
     this.saving.set(true);
     this.api.cancelScheduledTariff(row.id, this.cancellationForm.controls.reason.value.trim())
-      .pipe(finalize(() => this.saving.set(false))).subscribe({
-        next: () => { this.cancellingTariff.set(null); this.actionMessage.set('La programación fue cancelada. Esta tarifa no entrará en vigencia.'); this.toast.success(this.actionMessage()); this.load(); },
+      .pipe(switchMap((saved) => this.refreshAfterWrite(saved, 'La programación fue cancelada. Esta tarifa no entrará en vigencia.')),
+        finalize(() => this.saving.set(false))).subscribe({
+        next: ({ refreshed, successMessage }) => { this.cancelDialog()?.nativeElement.close(); this.cancellingTariff.set(null); this.actionMessage.set(refreshed ? successMessage : `${successMessage} El servidor confirmó la cancelación, pero el listado no pudo actualizarse. Use “Actualizar” para consultar el estado persistido.`); this.toast.success(this.actionMessage()); },
         error: (error: unknown) => { this.actionError.set(normalizeTariffWriteError(error).message); this.toast.error(this.actionError()); },
       });
   }
@@ -424,8 +455,9 @@ export class Tariffs {
     const request = immediate
       ? this.api.endTariffNow(row.id, this.endForm.controls.reason.value.trim(), row.rowVersion)
       : this.api.endTariff(row.id, value!, this.endForm.controls.reason.value.trim(), row.rowVersion);
-    request.pipe(finalize(() => this.saving.set(false))).subscribe({
-      next: () => { this.endingTariff.set(null); this.actionMessage.set(immediate ? 'La tarifa dejó de aplicarse desde el momento de confirmación.' : 'La finalización futura quedó registrada.'); this.toast.success(this.actionMessage()); this.load(); },
+    request.pipe(switchMap((saved) => this.refreshAfterWrite(saved, immediate ? 'La vigencia se finalizó correctamente.' : 'La finalización se programó correctamente.')),
+      finalize(() => this.saving.set(false))).subscribe({
+      next: ({ refreshed, successMessage }) => { this.endDialog()?.nativeElement.close(); this.endingTariff.set(null); this.actionMessage.set(refreshed ? successMessage : `${successMessage} El servidor confirmó la operación, pero el listado no pudo actualizarse. Use “Actualizar” para consultar el estado persistido.`); this.toast.success(this.actionMessage()); },
       error: (error: unknown) => { this.actionError.set(normalizeTariffWriteError(error).message); this.toast.error(this.actionError()); },
     });
   }

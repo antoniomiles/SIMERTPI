@@ -5,6 +5,7 @@
     description="Administre la tarifa general y las excepciones vigentes o programadas por zona. Las zonas sin excepción heredan la tarifa general."
   >
     @if (!preview) {
+      <button class="button secondary" type="button" (click)="load()">Actualizar</button>
       <button class="button primary" type="button" (click)="openCreate()">Crear tarifa</button>
     }
   </app-page-heading>
@@ -55,7 +56,7 @@
             <p class="eyebrow">{{ editingScheduled() ? 'PROGRAMACIÓN' : revisionOf() ? 'NUEVA VERSIÓN' : 'NUEVA CONFIGURACIÓN' }}</p>
             <h2 id="tariff-form-title">{{ editingScheduled() ? 'Editar tarifa programada' : revisionOf() ? 'Editar tarifa vigente · crear versión' : 'Crear configuración de tarifa' }}</h2>
           </div>
-          <button class="button secondary" type="button" (click)="editingScheduled() ? requestEditClose() : cancelForms()">Cancelar</button>
+          <button class="icon-button" type="button" aria-label="Cerrar formulario de tarifa" (click)="editingScheduled() || revisionOf() ? requestEditClose() : cancelForms()">×</button>
         </header>
         @if ((editingScheduled() || revisionOf()) && actionError()) { <p class="notice error-note" role="alert">{{ actionError() }}</p> }
         @if (editingScheduled()) {
@@ -71,6 +72,7 @@
               <label class="timing-choice" [class.selected]="revisionTiming() === 'now'"><input type="radio" name="revisionTiming" [checked]="revisionTiming() === 'now'" (change)="setRevisionTiming('now')" /><svg aria-hidden="true" viewBox="0 0 20 20"><path d="M10 2.5v7.7l5.4 5.4"/><path d="M4.8 5.1A7.3 7.3 0 1 0 17.3 10"/></svg><span>Aplicar ahora</span></label>
               <label class="timing-choice" [class.selected]="revisionTiming() === 'scheduled'"><input type="radio" name="revisionTiming" [checked]="revisionTiming() === 'scheduled'" (change)="setRevisionTiming('scheduled')" /><svg aria-hidden="true" viewBox="0 0 20 20"><rect x="2.8" y="4.2" width="14.4" height="13" rx="2"/><path d="M6.3 2.5v3.4m7.4-3.4v3.4M2.8 8h14.4"/></svg><span>Programar cambio</span></label>
             </fieldset></section>
+            <p class="section-note timing-default-note wide" role="note">Por seguridad, el formulario inicia en “Programar cambio”. Seleccione “Aplicar ahora” únicamente cuando el respaldo normativo indique que la nueva tarifa debe entrar en vigor inmediatamente.</p>
             @if (revisionTiming() === 'now') { <p class="notice wide" role="note">La nueva versión iniciará en el instante registrado por el servidor al confirmar. No se modifican sesiones ya iniciadas; las nuevas sesiones usarán la tarifa efectiva al comenzar.</p> }
           }
           <section class="form-section wide"><h3>{{ revisionOf() ? '2. Datos de la nueva versión' : 'Datos de la tarifa' }}</h3><div class="tariff-data-grid">
@@ -99,44 +101,24 @@
           @if (editingScheduled() || revisionOf()) {
             <section class="form-section wide"><h3>3. Motivo del cambio</h3><label class="field"><span>Motivo obligatorio</span><textarea formControlName="reason" maxlength="500" placeholder="Ej.: Corrección aprobada mediante resolución municipal" [attr.aria-invalid]="controlError(form.controls.reason, 'el motivo') ? 'true' : null"></textarea><small>El motivo, la cuenta responsable y la fecha quedarán en el historial.</small>@if (controlError(form.controls.reason, 'el motivo')) { <small class="field-error" role="alert">{{ controlError(form.controls.reason, 'el motivo') }}</small> }</label><p class="section-note">La versión anterior se conserva en el historial para no alterar operaciones ya iniciadas.</p></section>
           }
-          <div class="form-actions wide"><button class="button primary" type="submit" [disabled]="saving()">{{ saving() ? 'Guardando…' : editingScheduled() ? 'Guardar cambios' : revisionOf() ? 'Guardar nueva versión' : 'Registrar tarifa' }}</button><button class="button secondary" type="button" (click)="editingScheduled() ? requestEditClose() : cancelForms()">Cancelar</button></div>
+          <div class="form-actions wide"><button class="button primary" type="submit" [disabled]="saving()">{{ saving() ? 'Guardando…' : editingScheduled() ? 'Guardar cambios' : revisionOf() ? 'Guardar nueva versión' : 'Registrar tarifa' }}</button><button class="icon-button" type="button" aria-label="Cerrar formulario de tarifa" (click)="editingScheduled() || revisionOf() ? requestEditClose() : cancelForms()">×</button></div>
         </form>
     </ng-template>
 
-    @if (showForm() && !editingScheduled() && !revisionOf()) {
-      <section class="config-section card" aria-labelledby="tariff-form-title">
-        <ng-container [ngTemplateOutlet]="tariffFormTemplate"></ng-container>
-      </section>
-    }
-
-    @if (editingScheduled() || revisionOf()) {
-      @let editTarget = editingScheduled() ?? revisionOf();
-      <dialog #editDialog class="tariff-dialog tariff-edit-dialog" aria-labelledby="tariff-form-title" (cancel)="requestEditClose($event)">
-        <section class="config-section card dialog-shell" aria-labelledby="tariff-form-title">
-          <ng-container [ngTemplateOutlet]="tariffFormTemplate"></ng-container>
-          @if (confirmEditDiscard()) {
-            <div class="discard-confirmation" role="alertdialog" aria-labelledby="discard-title" aria-describedby="discard-description">
-              <h3 id="discard-title">¿Descartar los cambios?</h3>
-              <p id="discard-description">Hay cambios sin guardar en {{ editTarget?.code }}. Si cierra el formulario, se perderán.</p>
-              <div class="form-actions"><button class="button secondary" type="button" (click)="confirmEditDiscard.set(false)">Seguir editando</button><button class="button subtle-danger" type="button" (click)="closeScheduledEditor()">Descartar cambios</button></div>
-            </div>
-          }
-        </section>
+    @if (cancellingTariff(); as cancelling) {
+      <dialog #cancelDialog class="tariff-dialog tariff-edit-dialog compact-dialog" aria-labelledby="cancel-scheduled-title" (cancel)="cancelScheduledDialog($event)" (close)="cancelScheduledDialog()">
+        <div class="dialog-content">
+          <header class="dialog-heading"><div><p class="eyebrow">CONFIRMACIÓN REQUERIDA</p><h2 id="cancel-scheduled-title">Cancelar programación {{ cancelling.code }}</h2></div><button class="icon-button" type="button" aria-label="Cerrar cancelación" (click)="cancelScheduledDialog()">×</button></header>
+          <div class="dialog-scroll"><p class="notice" role="note">{{ cancelling.name }} · {{ formatAmount(cancelling.amount, cancelling.currency) }} · Inicio: {{ formatDateTime(cancelling.validFrom) }}. La tarifa no entrará en vigencia.</p>
+            <form [formGroup]="cancellationForm" (ngSubmit)="submitCancel($event)" novalidate>
+              <label class="field"><span>Motivo de cancelación obligatorio</span><textarea formControlName="reason" maxlength="500" placeholder="Ej.: Se seleccionó un importe incorrecto"></textarea><small>El motivo, la fecha y el usuario quedarán registrados.</small></label>
+              @if (actionError()) { <p class="notice error-note" role="alert">{{ actionError() }}</p> }
+              <footer class="dialog-actions"><button class="button secondary" type="button" [disabled]="saving()" (click)="cancelScheduledDialog()">Volver</button><button class="button subtle-danger" type="submit" [disabled]="saving()">{{ saving() ? 'Cancelando…' : 'Confirmar cancelación' }}</button></footer>
+            </form>
+          </div>
+        </div>
       </dialog>
     }
-
-    @if (cancellingTariff(); as cancelling) {
-      <section class="config-section card" aria-labelledby="cancel-scheduled-title">
-        <header class="section-heading"><div><p class="eyebrow">CONFIRMACIÓN REQUERIDA</p><h2 id="cancel-scheduled-title">Cancelar programación {{ cancelling.code }}</h2></div></header>
-        <p class="notice" role="alert">{{ cancelling.name }} · {{ formatAmount(cancelling.amount, cancelling.currency) }} · Inicio: {{ formatDateTime(cancelling.validFrom) }}. La tarifa no entrará en vigencia.</p>
-        <form class="inline-form" [formGroup]="cancellationForm" (ngSubmit)="submitCancel($event)" novalidate>
-          <label class="field"><span>Motivo de cancelación</span><textarea formControlName="reason" maxlength="500" placeholder="Ej.: Se seleccionó un importe incorrecto"></textarea><small>El motivo, la fecha y el usuario quedarán registrados.</small></label>
-          <button class="button primary" type="submit" [disabled]="saving()">{{ saving() ? 'Cancelando…' : 'Confirmar cancelación' }}</button>
-          <button class="button secondary" type="button" (click)="cancelForms()">Volver</button>
-        </form>
-      </section>
-    }
-
     @if (endingTariff(); as ending) {
       <dialog #endDialog class="tariff-dialog tariff-edit-dialog" aria-labelledby="end-tariff-title" (cancel)="closeEnd($event)" (close)="closeEnd()">
       <section class="config-section card dialog-shell" aria-labelledby="end-tariff-title">
@@ -174,16 +156,17 @@
       </tbody></table></div>
     </section>
 
-    <section class="config-section card" aria-labelledby="tariff-versions-title">
+    <div class="tariff-workspace-layout" [class.with-editor]="showForm() || !!editingScheduled() || !!revisionOf()">
+    <section class="config-section card tariff-list-panel" aria-labelledby="tariff-versions-title">
       <header class="section-heading"><div><p class="eyebrow">VERSIONES Y VIGENCIAS</p><h2 id="tariff-versions-title">Configuraciones registradas</h2></div><a class="text-link" routerLink="/admin/tariffs/history">Consultar historial</a></header>
       <div class="filters tariff-filters">
         <label class="field"><span>Buscar por código, nombre, zona o referencia</span><input type="search" [value]="query()" (input)="query.set($any($event.target).value)" placeholder="Ej.: TAR-GEN o Centro" autocomplete="off" /></label>
         <label class="field"><span>Filtrar versiones</span><select [value]="statusFilter()" (change)="statusFilter.set($any($event.target).value)"><option value="all">Todas</option><option value="vigentes">Vigentes</option><option value="programadas">Programadas</option><option value="finalizadas">Finalizadas</option><option value="canceladas">Canceladas</option></select></label>
       </div>
       @if (!visibleTariffs().length) { <p class="list-empty">No hay tarifas que coincidan con los filtros.</p> } @else {
-        <div class="table-scroll tariff-table-scroll"><table class="tariff-versions-table"><thead><tr><th>Tarifa</th><th>Aplicación</th><th>Importe y duración</th><th>Vigencia</th><th>Referencia normativa</th><th>Acciones</th></tr></thead><tbody>
+        <div class="table-scroll tariff-table-scroll"><table class="tariff-versions-table"><thead><tr><th>Tarifa</th><th>Aplicación</th><th>Importe y duración</th><th>Vigencia</th><th>Referencia normativa</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>
           @for (row of visibleTariffs(); track row.id) {
-            <tr><td class="tariff-name-cell"><strong>{{ row.code }}</strong><span>{{ row.name }}</span><small class="tariff-status" [class.status-current]="statusClass(row) === 'current'" [class.status-scheduled]="statusClass(row) === 'scheduled'" [class.status-cancelled]="statusClass(row) === 'cancelled'" [class.status-ended]="statusClass(row) === 'ended'">{{ statusLabel(row) }}</small></td><td>{{ displayZone(row.zoneCode, row.zoneName) }}</td><td><strong>{{ formatAmount(row.amount, row.currency ?? 'USD') }}</strong><small>Por {{ row.durationMinutes }} minutos</small></td><td><span class="date-value">{{ formatDateTime(row.validFrom) }}</span><small>Hasta: {{ row.validTo ? formatDateTime(row.validTo) : 'Sin fecha final' }}</small>@if (row.cancelledAt) { <small>Cancelada el {{ formatDateTime(row.cancelledAt) }}</small> }</td><td class="reference-cell">{{ row.normativeReference || 'No registrada' }}</td><td class="row-actions">
+            <tr><td class="tariff-name-cell"><strong>{{ row.code }}</strong><span>{{ row.name }}</span></td><td>{{ displayZone(row.zoneCode, row.zoneName) }}</td><td><strong>{{ formatAmount(row.amount, row.currency ?? 'USD') }}</strong><small>Por {{ row.durationMinutes }} minutos</small></td><td><span class="date-value">{{ formatDateTime(row.validFrom) }}</span><small>Hasta: {{ row.validTo ? formatDateTime(row.validTo) : 'Sin fecha final' }}</small>@if (row.cancelledAt) { <small>Cancelada el {{ formatDateTime(row.cancelledAt) }}</small> }</td><td class="reference-cell">{{ row.normativeReference || 'No registrada' }}</td><td><span class="tariff-status" [class.status-current]="statusClass(row) === 'current'" [class.status-scheduled]="statusClass(row) === 'scheduled'" [class.status-cancelled]="statusClass(row) === 'cancelled'" [class.status-ended]="statusClass(row) === 'ended'">{{ statusLabel(row) }}</span></td><td class="row-actions">
               <button class="button secondary action-button" type="button" (click)="openView(row)" aria-haspopup="dialog"><svg aria-hidden="true" focusable="false" viewBox="0 0 20 20"><path d="M1.8 10s3-5.2 8.2-5.2 8.2 5.2 8.2 5.2-3 5.2-8.2 5.2S1.8 10 1.8 10Z"/><circle cx="10" cy="10" r="2.2"/></svg><span>Ver</span></button>
               @if (isScheduled(row)) { <button class="button secondary action-button action-edit" type="button" (click)="openEditScheduled(row)"><svg aria-hidden="true" focusable="false" viewBox="0 0 20 20"><path d="m3 14.8-.6 3 3-.6L17 5.7 14.3 3 3 14.8Z"/><path d="m12.9 4.4 2.7 2.7"/></svg><span>Editar</span></button><button class="button subtle-danger action-button action-danger" type="button" (click)="openCancel(row)"><svg aria-hidden="true" focusable="false" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.2"/><path d="m7.3 7.3 5.4 5.4m0-5.4-5.4 5.4"/></svg><span>Cancelar programación</span></button> }
               @else if (canModify(row)) { <button class="button secondary action-button action-edit" type="button" (click)="openRevision(row)" aria-haspopup="dialog"><svg aria-hidden="true" focusable="false" viewBox="0 0 20 20"><path d="m3 14.8-.6 3 3-.6L17 5.7 14.3 3 3 14.8Z"/><path d="m12.9 4.4 2.7 2.7"/></svg><span>Editar</span></button><button class="button subtle-danger action-button action-danger" type="button" (click)="openEnd(row)" aria-haspopup="dialog"><svg aria-hidden="true" focusable="false" viewBox="0 0 20 20"><path d="M10 2.5v7.7l5.4 5.4"/><path d="M4.8 5.1A7.3 7.3 0 1 0 17.3 10"/></svg><span>Finalizar vigencia</span></button> }
@@ -193,6 +176,21 @@
         </tbody></table></div>
       }
     </section>
+
+    @if (showForm() || editingScheduled() || revisionOf()) {
+      @let editTarget = editingScheduled() ?? revisionOf();
+      <aside class="config-section card tariff-editor-panel" aria-labelledby="tariff-form-title">
+        <ng-container [ngTemplateOutlet]="tariffFormTemplate"></ng-container>
+        @if (confirmEditDiscard()) {
+          <div class="discard-confirmation" role="alertdialog" aria-labelledby="discard-title" aria-describedby="discard-description">
+            <h3 id="discard-title">¿Descartar los cambios?</h3>
+            <p id="discard-description">Hay cambios sin guardar en {{ editTarget?.code || 'esta tarifa' }}. Si cierra el formulario, se perderán.</p>
+            <div class="form-actions"><button class="button secondary" type="button" (click)="confirmEditDiscard.set(false)">Seguir editando</button><button class="button subtle-danger" type="button" (click)="closeScheduledEditor()">Descartar cambios</button></div>
+          </div>
+        }
+      </aside>
+    }
+    </div>
 
     @if (viewingTariff(); as viewed) {
       <dialog #detailDialog class="tariff-dialog tariff-detail-dialog" aria-labelledby="tariff-detail-title" (cancel)="closeView($event)" (close)="closeView()">

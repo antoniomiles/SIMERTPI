@@ -1,7 +1,7 @@
 <section lang="es-EC">
   <app-page-heading eyebrow="ADMINISTRACIÓN / CONFIGURACIÓN MUNICIPAL" title="Días de cobro"
     description="Calendario semanal general y excepciones por zona. Las zonas sin excepción heredan el calendario general.">
-    @if (!preview) { <button class="button primary" type="button" (click)="openCreate()">Crear calendario</button> }
+    @if (!preview) { <button class="button secondary" type="button" (click)="load()">Actualizar</button><button class="button primary" type="button" (click)="openCreate()">Crear calendario</button> }
   </app-page-heading>
   @if (!preview && actionMessage()) { <p class="notice success-note" role="status">{{ actionMessage() }} @if (savedVersionId()) { <small>Identificador: {{ savedVersionId() }}</small> }</p> }
 
@@ -43,7 +43,7 @@
           @for (calendar of visibleCalendars(); track calendar.id) {
             <tr>
               <td><strong>{{ zoneName(calendar.zoneCode, calendar.zoneName) }}</strong><small>{{ calendar.zoneId ? 'Excepción por zona' : 'Calendario general' }}</small></td>
-              <td>{{ daysLabel(calendar.days) }}</td>
+              <td><div class="calendar-days">@for (day of weekDays; track day.value) { <span class="day" [class.free]="!isDayChargeable(calendar, day.value)">{{ day.label }}@if (!isDayChargeable(calendar, day.value)) { · gratis }</span> }</div></td>
               <td>{{ formatDate(calendar.validFrom) }}<small>Hasta: {{ formatDate(calendar.validTo) }}</small></td>
               <td class="reference-cell">{{ calendar.normativeReference || 'No registrada' }}</td>
               <td><span class="calendar-status" [class.status-current]="isCurrent(calendar)" [class.status-scheduled]="isScheduled(calendar)" [class.status-cancelled]="isCancelled(calendar)" [class.status-ended]="isEnded(calendar) || (!calendar.active && !calendar.cancelledAt)">{{ statusLabel(calendar) }}</span></td>

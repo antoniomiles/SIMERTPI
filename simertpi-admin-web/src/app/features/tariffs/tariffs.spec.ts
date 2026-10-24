@@ -206,7 +206,7 @@ describe('Tariff configuration screen', () => {
     const fixture = TestBed.createComponent(Tariffs);
     fixture.componentInstance.tariffs.set(rows);
     fixture.detectChanges();
-    const statuses = [...fixture.nativeElement.querySelectorAll('.tariff-name-cell .tariff-status') as NodeListOf<HTMLElement>];
+    const statuses = [...fixture.nativeElement.querySelectorAll('.tariff-status') as NodeListOf<HTMLElement>];
     expect(statuses.map((item) => item.textContent?.trim())).toEqual(['Vigente', 'Programada', 'Cancelada', 'Finalizada']);
     expect(statuses.map((item) => ['status-current', 'status-scheduled', 'status-cancelled', 'status-ended'].find((name) => item.classList.contains(name))))
       .toEqual(['status-current', 'status-scheduled', 'status-cancelled', 'status-ended']);
@@ -253,7 +253,7 @@ describe('Tariff configuration screen', () => {
     expect(dialog.querySelector('details')).toBeNull();
   });
 
-  it('opens scheduled editing in a dialog and asks before discarding unsaved values', () => {
+  it('opens scheduled editing in the reference side panel and asks before discarding unsaved values', () => {
     const scheduled: ConfiguredTariff = { ...tariff, validFrom: new Date(Date.now() + 86400000).toISOString() };
     const fixture = TestBed.createComponent(Tariffs);
     fixture.componentInstance.tariffs.set([scheduled]);
@@ -261,7 +261,7 @@ describe('Tariff configuration screen', () => {
     fixture.nativeElement.querySelectorAll('.row-actions button')[1].click();
     fixture.detectChanges();
 
-    const dialog = fixture.nativeElement.querySelector('.tariff-edit-dialog');
+    const dialog = fixture.nativeElement.querySelector('.tariff-editor-panel');
     expect(dialog).not.toBeNull();
     expect(dialog.textContent).toContain('Editar tarifa programada');
     expect(dialog.querySelector('[formControlName="code"]').value).toBe(scheduled.code);
@@ -277,7 +277,7 @@ describe('Tariff configuration screen', () => {
     fixture.componentInstance.confirmEditDiscard.set(false);
     fixture.componentInstance.closeScheduledEditor();
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('.tariff-edit-dialog')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.tariff-editor-panel')).toBeNull();
   });
 
   it('revises a current tariff with one atomic version request and mandatory reason', () => {
@@ -288,7 +288,7 @@ describe('Tariff configuration screen', () => {
     const page = fixture.componentInstance;
     page.openRevision(tariff);
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('.tariff-edit-dialog')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('.tariff-editor-panel')).not.toBeNull();
     expect(fixture.nativeElement.textContent).toContain('Editar tarifa vigente');
     page.form.setValue(formValue({ code: 'GEN-01', name: 'Tarifa revisada', scope: 'GENERAL', zoneId: '', currency: 'USD', amount: '0,30', durationMinutes: 60, minMinutes: 15, maxContinuousMinutes: 240, gracePeriodMinutes: 0, roundingMode: 'HALF_UP', validFrom: '2027-02-01T00:00', validTo: '', normativeReference: 'Nueva ordenanza', reason: 'Corrección respaldada por norma', expectedVersion: 0 }));
     page.submit(new Event('submit'));
