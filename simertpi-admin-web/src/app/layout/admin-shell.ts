@@ -50,6 +50,7 @@ export class AdminShell {
   readonly groups = NAVIGATION;
   readonly opened = signal(false);
   readonly tariffsMenuExpanded = signal(false);
+  readonly zonesMenuExpanded = signal(false);
   readonly compact = signal(window.matchMedia('(max-width: 960px)').matches);
   readonly tooltip = signal<NavigationTooltip | null>(null);
   readonly preview = inject(ActivatedRoute).snapshot.data['preview'] === true;
@@ -58,6 +59,7 @@ export class AdminShell {
   private hideTimer: ReturnType<typeof setTimeout> | undefined;
   constructor() {
     this.tariffsMenuExpanded.set(!this.isCollapsed() && this.isTariffsActive());
+    this.zonesMenuExpanded.set(!this.isCollapsed() && this.isZonesActive());
     const destroy = inject(DestroyRef);
     destroy.onDestroy(() => {
       if (this.hideTimer) clearTimeout(this.hideTimer);
@@ -70,6 +72,7 @@ export class AdminShell {
       .subscribe(() => {
         this.opened.set(false);
         this.tariffsMenuExpanded.set(!this.isCollapsed() && this.isTariffsActive());
+        this.zonesMenuExpanded.set(!this.isCollapsed() && this.isZonesActive());
         this.hideTooltip();
         afterNextRender(() => document.getElementById('main-content')?.focus(), {
           injector: this.injector,
@@ -102,6 +105,7 @@ export class AdminShell {
     if (!this.compact()) {
       this.preference.toggle();
       this.tariffsMenuExpanded.set(!this.isCollapsed() && this.isTariffsActive());
+      this.zonesMenuExpanded.set(!this.isCollapsed() && this.isZonesActive());
       return;
     }
     this.opened.update((value) => !value);
@@ -139,6 +143,14 @@ export class AdminShell {
     this.tariffsMenuExpanded.set(expanding);
   }
   isTariffsActive() { return this.router.url.startsWith(this.base + '/tariffs'); }
+  isZonesActive() { return ['/zones','/streets','/spaces'].some(path => this.router.url.startsWith(this.base + path)); }
+  isNavigationActive(label: string) { return label === 'Tarifas y horarios' ? this.isTariffsActive() : label === 'Zonas y espacios' ? this.isZonesActive() : false; }
+  isNavigationExpanded(label: string) { return label === 'Tarifas y horarios' ? this.tariffsMenuExpanded() : label === 'Zonas y espacios' ? this.zonesMenuExpanded() : false; }
+  toggleNavigationMenu(label: string) { if (label === 'Zonas y espacios') this.toggleZonesMenu(); else this.toggleTariffsMenu(); }
+  private toggleZonesMenu() {
+    if (this.isCollapsed()) { this.preference.toggle(); this.zonesMenuExpanded.set(true); return; }
+    this.zonesMenuExpanded.update(value => !value);
+  }
   childRoute(path: string) { return [this.base, ...path.split('/')]; }
   showTooltip(event: Event, key: string, pending = false) {
     if (!this.isCollapsed()) return;

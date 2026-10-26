@@ -23,7 +23,13 @@ export const NAVIGATION: readonly NavigationGroup[] = [
     items: [
       { label: 'Mapa de estacionamientos', icon: 'map', path: 'map' },
       { label: 'Estacionamientos y sesiones', icon: 'sessions', path: 'parking-sessions' },
-      { label: 'Zonas y espacios', icon: 'spaces', path: 'zones' },
+      {
+        label: 'Zonas y espacios', icon: 'spaces', children: [
+          { label: 'Zonas', description: 'Administración y consulta de zonas.', path: 'zones' },
+          { label: 'Calles y tramos', description: 'Calles registradas por zona; el modelo actual no separa tramos.', path: 'streets' },
+          { label: 'Espacios', description: 'Espacios, estado administrativo y cobertura geográfica registrada.', path: 'spaces' },
+        ],
+      },
       { label: 'Infracciones', icon: 'violation', path: 'violations' },
       { label: 'Inspectores', icon: 'inspectors' },
     ],

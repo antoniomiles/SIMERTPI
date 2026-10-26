@@ -3,6 +3,7 @@ import { of, throwError } from 'rxjs';
 import { Audit } from './audit';
 import { AuditApi, AuditRecord } from './audit-api';
 import { PortalError } from '../../core/http/portal-error';
+import { ActivatedRoute } from '@angular/router';
 
 const rows: AuditRecord[] = [
   {
@@ -24,7 +25,10 @@ describe('Administrative audit view', () => {
     search = vi.fn().mockReturnValue(of(rows));
     await TestBed.configureTestingModule({
       imports: [Audit],
-      providers: [{ provide: AuditApi, useValue: { search } }],
+      providers: [
+        { provide: AuditApi, useValue: { search } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: new URLSearchParams() } } },
+      ],
     }).compileComponents();
   });
 
@@ -48,6 +52,7 @@ describe('Administrative audit view', () => {
     fixture.componentInstance.filters.setValue({
       action: ' LOGIN ',
       resourceType: ' ADMIN_SESSION ',
+      resourceId: '',
       result: 'FAILURE',
       correlationId: ' trace-2 ',
       from: '2026-10-18T09:00',

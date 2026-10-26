@@ -148,12 +148,11 @@ class ParkingSessionServiceTest {
 
     @Test
     void shouldCreateSessionWhenParkingCalendarIsOperational() {
+        stubLockedCatalogRelations();
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
         when(vehicleRepository.findByIdForUpdate(vehicleId)).thenReturn(Optional.of(vehicle));
         when(parkingSpaceRepository.findById(parkingSpaceId)).thenReturn(Optional.of(parkingSpace));
         when(parkingSessionRepository.existsByParkingSpaceIdAndStatusIn(parkingSpaceId, List.of("PENDING_PAYMENT", "ACTIVE", "EXTENDED", "EXPIRED", "MAX_TIME_REACHED"))).thenReturn(false);
-        when(streetRepository.findById(streetId)).thenReturn(Optional.of(street));
-        when(zoneRepository.findById(zoneId)).thenReturn(Optional.of(zone));
         var quote = mockQuote(true, "RULES_RESOLVED");
         when(rules.evaluateForZone(any(), any(), any(), any())).thenReturn(quote);
 
@@ -178,12 +177,11 @@ class ParkingSessionServiceTest {
 
     @Test
     void shouldRejectSessionWhenParkingCalendarIsNotOperational() {
+        stubLockedCatalogRelations();
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
         when(vehicleRepository.findByIdForUpdate(vehicleId)).thenReturn(Optional.of(vehicle));
         when(parkingSpaceRepository.findById(parkingSpaceId)).thenReturn(Optional.of(parkingSpace));
         when(parkingSessionRepository.existsByParkingSpaceIdAndStatusIn(parkingSpaceId, List.of("PENDING_PAYMENT", "ACTIVE", "EXTENDED", "EXPIRED", "MAX_TIME_REACHED"))).thenReturn(false);
-        when(streetRepository.findById(streetId)).thenReturn(Optional.of(street));
-        when(zoneRepository.findById(zoneId)).thenReturn(Optional.of(zone));
         when(rules.evaluateForZone(any(), any(), any(), any())).thenReturn(mockQuote(false, "OUTSIDE_OPERATION_HOURS"));
 
         IllegalArgumentException exception = assertThrows(
@@ -245,6 +243,7 @@ class ParkingSessionServiceTest {
 
     @Test
     void shouldRejectOccupiedParkingSpace() {
+        stubLockedCatalogRelations();
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
         when(vehicleRepository.findByIdForUpdate(vehicleId)).thenReturn(Optional.of(vehicle));
         when(parkingSpaceRepository.findById(parkingSpaceId)).thenReturn(Optional.of(parkingSpace));
@@ -257,13 +256,12 @@ class ParkingSessionServiceTest {
 
     @Test
     void shouldRejectTariffOutsideValidity() {
+        stubLockedCatalogRelations();
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
         when(vehicleRepository.findByIdForUpdate(vehicleId)).thenReturn(Optional.of(vehicle));
         when(parkingSpaceRepository.findById(parkingSpaceId)).thenReturn(Optional.of(parkingSpace));
         when(parkingSessionRepository.existsByParkingSpaceIdAndStatusIn(parkingSpaceId,
                 List.of("PENDING_PAYMENT", "ACTIVE", "EXTENDED", "EXPIRED", "MAX_TIME_REACHED"))).thenReturn(false);
-        when(streetRepository.findById(streetId)).thenReturn(Optional.of(street));
-        when(zoneRepository.findById(zoneId)).thenReturn(Optional.of(zone));
         tariff.setValidTo(OffsetDateTime.now().minusDays(1));
         when(rules.evaluateForZone(any(), any(), any(), any())).thenReturn(mockQuote(false, "NO_ACTIVE_TARIFF"));
         assertThrows(IllegalArgumentException.class,
@@ -323,6 +321,13 @@ class ParkingSessionServiceTest {
                 java.time.Instant.now().atZone(java.time.ZoneOffset.UTC), operational, operational, false, null,
                 "TEST", 30, 240, 10, "USD", new BigDecimal("0.25"), 60, null, 60, 60L,
                 java.time.Instant.now().plusSeconds(3600), operational, reason, tariffId);
+    }
+
+    private void stubLockedCatalogRelations() {
+        lenient().when(zoneRepository.findByIdForUpdate(zoneId)).thenReturn(Optional.of(zone));
+        lenient().when(streetRepository.findById(streetId)).thenReturn(Optional.of(street));
+        lenient().when(streetRepository.findByIdForUpdate(streetId)).thenReturn(Optional.of(street));
+        lenient().when(parkingSpaceRepository.findByIdForUpdate(parkingSpaceId)).thenReturn(Optional.of(parkingSpace));
     }
 
 }

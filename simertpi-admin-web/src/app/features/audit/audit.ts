@@ -1,6 +1,7 @@
 import { DatePipe } from '@angular/common';
 import { Component, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { ActivatedRoute } from '@angular/router';
 import { AuditApi, AuditRecord } from './audit-api';
 import { PortalError, normalizeError } from '../../core/http/portal-error';
 import { DataState } from '../../shared/ui/data-state';
@@ -25,6 +26,7 @@ export class Audit {
   readonly filters = this.builder.nonNullable.group({
     action: ['', [Validators.maxLength(120)]],
     resourceType: ['', [Validators.maxLength(80)]],
+    resourceId: ['', [Validators.maxLength(36)]],
     result: [''],
     correlationId: ['', [Validators.maxLength(128)]],
     from: [''],
@@ -32,6 +34,8 @@ export class Audit {
   });
 
   constructor() {
+    const query = inject(ActivatedRoute).snapshot.queryParamMap;
+    this.filters.patchValue({ resourceType: query.get('resourceType') ?? '', resourceId: query.get('resourceId') ?? '' });
     this.load();
   }
 
@@ -53,6 +57,7 @@ export class Audit {
       .search({
         action: values.action,
         resourceType: values.resourceType,
+        resourceId: values.resourceId || undefined,
         result: values.result || undefined,
         correlationId: values.correlationId,
         from: this.toIso(values.from),
@@ -86,6 +91,7 @@ export class Audit {
     this.filters.reset({
       action: '',
       resourceType: '',
+      resourceId: '',
       result: '',
       correlationId: '',
       from: '',

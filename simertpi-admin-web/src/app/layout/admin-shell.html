@@ -37,10 +37,10 @@
               <button
                 class="nav-item nav-disclosure"
                 type="button"
-                [class.active]="isTariffsActive()"
+                [class.active]="isNavigationActive(item.label)"
                 [attr.aria-label]="item.label"
-                [attr.aria-expanded]="tariffsMenuExpanded()"
-                aria-controls="tariffs-navigation"
+                [attr.aria-expanded]="isNavigationExpanded(item.label)"
+                [attr.aria-controls]="item.label === 'Tarifas y horarios' ? 'tariffs-navigation' : 'zones-navigation'"
                 [attr.aria-describedby]="
                   tooltip()?.key === item.label ? 'navigation-tooltip' : null
                 "
@@ -48,14 +48,14 @@
                 (focus)="showTooltip($event, item.label)"
                 (mouseleave)="scheduleHide($event)"
                 (blur)="scheduleHide()"
-                (click)="toggleTariffsMenu()"
+                (click)="toggleNavigationMenu(item.label)"
               >
                 <app-icon class="nav-icon" [name]="item.icon" />
                 <span class="nav-label">{{ item.label }}</span>
-                <span class="nav-disclosure-mark" aria-hidden="true">{{ tariffsMenuExpanded() ? '−' : '+' }}</span>
+                <span class="nav-disclosure-mark" aria-hidden="true">{{ isNavigationExpanded(item.label) ? '−' : '+' }}</span>
               </button>
-              @if (tariffsMenuExpanded()) {
-                <div class="nav-submenu" id="tariffs-navigation" aria-label="Opciones de Tarifas y horarios">
+              @if (isNavigationExpanded(item.label)) {
+                <div class="nav-submenu" [id]="item.label === 'Tarifas y horarios' ? 'tariffs-navigation' : 'zones-navigation'" [attr.aria-label]="'Opciones de ' + item.label">
                   @for (child of children; track child.path) {
                     <a
                       class="nav-subitem"

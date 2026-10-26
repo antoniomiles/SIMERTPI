@@ -213,8 +213,22 @@ public class ParkingSessionService {
             throw new IllegalArgumentException("Vehicle is inactive");
         }
 
-        ParkingSpace parkingSpace = parkingSpaceRepository.findById(parkingSpaceId)
+        ParkingSpace initialSpace = parkingSpaceRepository.findById(parkingSpaceId)
                 .orElseThrow(() -> new ResourceNotFoundException("Parking space not found"));
+
+        // Keep the same parent-to-child lock order used by administrative deactivation.
+        // This serializes session starts with disabling a zone, street, or space.
+        Street initialStreet = streetRepository.findById(initialSpace.getStreetId())
+                .orElseThrow(() -> new ResourceNotFoundException("Street not found"));
+        Zone zone = zoneRepository.findByIdForUpdate(initialStreet.getZoneId())
+                .orElseThrow(() -> new ResourceNotFoundException("Zone not found"));
+        Street street = streetRepository.findByIdForUpdate(initialStreet.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Street not found"));
+        ParkingSpace parkingSpace = parkingSpaceRepository.findByIdForUpdate(parkingSpaceId)
+                .orElseThrow(() -> new ResourceNotFoundException("Parking space not found"));
+        if (!parkingSpace.getStreetId().equals(street.getId()) || !street.getZoneId().equals(zone.getId())) {
+            throw new ec.gob.simertpi.api.ParkingConflictException("PARKING_CATALOG_CHANGED");
+        }
 
         // Serialize a same-plate/same-space request with any session closure and
         // with requests made through another account holding the same plate.
@@ -246,15 +260,10 @@ public class ParkingSessionService {
             throw new ec.gob.simertpi.api.ParkingConflictException("SPACE_UNAVAILABLE");
         }
 
-        Street street = streetRepository.findById(parkingSpace.getStreetId())
-                .orElseThrow(() -> new ResourceNotFoundException("Street not found"));
-
         if (!street.isActive()) {
             throw new IllegalArgumentException("Parking street is inactive");
         }
 
-        Zone zone = zoneRepository.findById(street.getZoneId())
-                .orElseThrow(() -> new ResourceNotFoundException("Zone not found"));
         if (!zone.isActive()) {
             throw new IllegalArgumentException("Parking zone is inactive");
         }

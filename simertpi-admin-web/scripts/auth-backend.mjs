@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 const backend=resolve('../simertpi-backend');const stop=resolve(backend,'target/admin-browser.stop');
 if(existsSync(stop))unlinkSync(stop);
 const args=['--batch-mode','--no-transfer-progress','-Dtest=AdminBrowserHarness','-Dsimertpi.admin-browser-harness=true','test'];
+if(process.env.SIMERTPI_ADMIN_BROWSER_CATALOG_ONLY==='true')args.splice(args.length-1,0,'-Dsimertpi.admin-browser-harness.catalog-only=true');
 const child=process.platform==='win32'?spawn('cmd.exe',['/d','/s','/c','mvn.cmd '+args.join(' ')],{cwd:backend,stdio:'inherit',windowsHide:true}):spawn('mvn',args,{cwd:backend,stdio:'inherit'});
 function finish(){try{writeFileSync(stop,'stop');}catch{} }
 process.on('SIGTERM',finish);process.on('SIGINT',finish);

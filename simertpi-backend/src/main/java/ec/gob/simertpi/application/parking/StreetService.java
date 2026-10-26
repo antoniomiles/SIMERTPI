@@ -47,22 +47,25 @@ public class StreetService {
     }
 
     @Transactional
-    @Audited(action = "CONFIGURATION_STREET_CREATED", resourceType = "CONFIGURATION")
+    @Audited(action = "CONFIGURATION_STREET_CREATED", resourceType = "PARKING_STREET")
     public Street create(
             UUID zoneId,
             String code,
             String name,
             String description) {
 
-        if (!zoneRepository.existsById(zoneId)) {
-            throw new IllegalArgumentException("La zona no existe");
+        var zone = zoneRepository.findByIdForUpdate(zoneId)
+                .orElseThrow(() -> new ec.gob.simertpi.api.ResourceNotFoundException("La zona no existe"));
+        if (!zone.isActive()) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT,
+                    "No se puede registrar una calle en una zona deshabilitada");
         }
 
         if (streetRepository.existsByZoneIdAndCode(zoneId, code)) {
             throw new IllegalArgumentException("El codigo de la calle ya existe en esta zona");
         }
 
-        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
 
         Street street = new Street();
         street.setId(UUID.randomUUID());

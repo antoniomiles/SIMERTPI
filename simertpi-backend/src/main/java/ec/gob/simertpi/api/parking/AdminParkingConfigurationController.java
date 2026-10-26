@@ -8,6 +8,8 @@ import ec.gob.simertpi.api.ResourceNotFoundException;
 import ec.gob.simertpi.application.parking.AdminParkingConfigurationService;
 import ec.gob.simertpi.application.parking.TariffChangeHistoryService;
 import ec.gob.simertpi.application.parking.ParkingSpaceService;
+import ec.gob.simertpi.application.parking.AdminParkingCatalogService;
+import ec.gob.simertpi.application.parking.AdminCatalogQueryService;
 import ec.gob.simertpi.application.parking.StreetService;
 import ec.gob.simertpi.application.parking.ZoneService;
 import ec.gob.simertpi.domain.parking.entity.ParkingSpace;
@@ -34,9 +36,11 @@ public class AdminParkingConfigurationController {
     private final ZoneService zones;
     private final StreetService streets;
     private final ParkingSpaceService spaces;
+    private final AdminParkingCatalogService catalog;
+    private final AdminCatalogQueryService catalogQuery;
     public AdminParkingConfigurationController(AdminParkingConfigurationService service, ZoneService zones,
-            StreetService streets, ParkingSpaceService spaces) {
-        this.service = service; this.zones = zones; this.streets = streets; this.spaces = spaces;
+            StreetService streets, ParkingSpaceService spaces, AdminParkingCatalogService catalog, AdminCatalogQueryService catalogQuery) {
+        this.service = service; this.zones = zones; this.streets = streets; this.spaces = spaces; this.catalog = catalog; this.catalogQuery=catalogQuery;
     }
 
     @GetMapping("/zones")
@@ -45,10 +49,40 @@ public class AdminParkingConfigurationController {
                 .map(this::toResponse).toList());
     }
 
+    @GetMapping("/catalog/zones")
+    public ResponseEntity<AdminCatalogQueryService.Page<AdminCatalogQueryService.ZoneRow>> catalogZones(
+            @RequestParam(required=false) String q, @RequestParam(required=false) Boolean active,
+            @RequestParam(defaultValue="0") int page, @RequestParam(defaultValue="25") int size) {
+        return noStore(catalogQuery.zones(q, active, page, size));
+    }
+
+    @GetMapping("/catalog/streets")
+    public ResponseEntity<AdminCatalogQueryService.Page<AdminCatalogQueryService.StreetRow>> catalogStreets(
+            @RequestParam(required=false) String q, @RequestParam(required=false) UUID zoneId,
+            @RequestParam(required=false) Boolean active, @RequestParam(defaultValue="0") int page,
+            @RequestParam(defaultValue="25") int size) {
+        return noStore(catalogQuery.streets(q, zoneId, active, page, size));
+    }
+
+    @GetMapping("/catalog/spaces")
+    public ResponseEntity<AdminCatalogQueryService.Page<AdminCatalogQueryService.SpaceRow>> catalogSpaces(
+            @RequestParam(required=false) String q, @RequestParam(required=false) UUID zoneId,
+            @RequestParam(required=false) UUID streetId, @RequestParam(required=false) Boolean active,
+            @RequestParam(required=false) String operational, @RequestParam(required=false) Boolean georeferenced,
+            @RequestParam(defaultValue="0") int page, @RequestParam(defaultValue="25") int size) {
+        return noStore(catalogQuery.spaces(q, zoneId, streetId, active, operational, georeferenced, page, size));
+    }
+
     @PostMapping("/zones")
     public ResponseEntity<ZoneResponse> createZone(@Valid @RequestBody CreateZoneRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore())
                 .body(toResponse(zones.create(request.code(), request.name(), request.description())));
+    }
+
+    @PutMapping("/zones/{zoneId}")
+    public ResponseEntity<ZoneResponse> updateZone(@PathVariable UUID zoneId,
+            @Valid @RequestBody AdminCatalogUpdateRequests.ZoneUpdate request) {
+        return noStore(toResponse(catalog.updateZone(zoneId, request)));
     }
 
     @GetMapping("/zones/{zoneId}/streets")
@@ -63,6 +97,12 @@ public class AdminParkingConfigurationController {
         if (!parent.isActive()) throw new ResponseStatusException(HttpStatus.CONFLICT, "No se puede registrar una calle en una zona deshabilitada");
         return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore())
                 .body(toResponse(streets.create(zoneId, request.code(), request.name(), request.description())));
+    }
+
+    @PutMapping("/streets/{streetId}")
+    public ResponseEntity<StreetResponse> updateStreet(@PathVariable UUID streetId,
+            @Valid @RequestBody AdminCatalogUpdateRequests.StreetUpdate request) {
+        return noStore(toResponse(catalog.updateStreet(streetId, request)));
     }
 
     @GetMapping("/streets/{streetId}/spaces")
@@ -81,6 +121,12 @@ public class AdminParkingConfigurationController {
         ParkingSpace created = spaces.create(streetId, request.code(), request.qrCode(), request.spaceNumber(),
                 request.latitude(), request.longitude(), request.spaceType());
         return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore()).body(toResponse(created));
+    }
+
+    @PutMapping("/spaces/{spaceId}")
+    public ResponseEntity<ParkingSpaceResponse> updateSpace(@PathVariable UUID spaceId,
+            @Valid @RequestBody AdminCatalogUpdateRequests.SpaceUpdate request) {
+        return noStore(toResponse(catalog.updateSpace(spaceId, request)));
     }
 
     @GetMapping("/billing-day-calendars")

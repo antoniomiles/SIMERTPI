@@ -16,6 +16,7 @@ export interface AuditRecord {
 export interface AuditFilters {
   action?: string;
   resourceType?: string;
+  resourceId?: string;
   result?: string;
   correlationId?: string;
   from?: string;
@@ -30,7 +31,7 @@ export class AuditApi {
 
   search(filters: AuditFilters) {
     let params = new HttpParams().set('limit', filters.limit).set('offset', filters.offset);
-    for (const key of ['action', 'resourceType', 'result', 'correlationId'] as const) {
+    for (const key of ['action', 'resourceType', 'resourceId', 'result', 'correlationId'] as const) {
       const value = filters[key]?.trim();
       if (value) params = params.set(key, value);
     }

@@ -1,4 +1,5 @@
 import { inject, Injectable } from '@angular/core';
+import { HttpParams } from '@angular/common/http';
 import { ApiClient } from '../../core/http/api-client';
 
 export interface ParkingZone {
@@ -57,6 +58,15 @@ export interface CreateParkingSpace {
   spaceType?: string;
 }
 
+export interface CatalogPage<T> { page: number; size: number; totalElements: number; totalPages: number; content: T[]; }
+export interface CatalogFilters { q?: string; active?: boolean | null; zoneId?: string; streetId?: string; operational?: string; georeferenced?: boolean | null; page: number; size: number; }
+export interface ZoneCatalog extends ParkingZone { streetCount: number; spaceCount: number; activeSpaceCount: number; }
+export interface StreetCatalog extends ParkingStreet { zoneCode: string; zoneName: string; spaceCount: number; }
+export interface SpaceCatalog extends ParkingSpace { zoneId: string; zoneCode: string; zoneName: string; streetCode: string; streetName: string; operationalStatus: 'AVAILABLE' | 'OCCUPIED' | 'DISABLED'; }
+export type UpdateZone = Omit<CreateZone, never> & { active: boolean; expectedUpdatedAt: string };
+export type UpdateStreet = Omit<CreateStreet, never> & { active: boolean; expectedUpdatedAt: string };
+export type UpdateParkingSpace = CreateParkingSpace & { active: boolean; expectedUpdatedAt: string };
+
 @Injectable({ providedIn: 'root' })
 export class ZonesApi {
   private readonly api = inject(ApiClient);
@@ -65,9 +75,20 @@ export class ZonesApi {
     return this.api.get<ParkingZone[]>('admin/parking/zones');
   }
 
+  catalogZones(filters: CatalogFilters) {
+    return this.api.get<CatalogPage<ZoneCatalog>>('admin/parking/catalog/zones', { params: this.params(filters) });
+  }
+  catalogStreets(filters: CatalogFilters) {
+    return this.api.get<CatalogPage<StreetCatalog>>('admin/parking/catalog/streets', { params: this.params(filters) });
+  }
+  catalogSpaces(filters: CatalogFilters) {
+    return this.api.get<CatalogPage<SpaceCatalog>>('admin/parking/catalog/spaces', { params: this.params(filters) });
+  }
+
   createZone(body: CreateZone) {
     return this.api.post<ParkingZone>('admin/parking/zones', body);
   }
+  updateZone(id: string, body: UpdateZone) { return this.api.put<ParkingZone>(`admin/parking/zones/${encodeURIComponent(id)}`, body); }
 
   listStreets(zoneId: string) {
     return this.api.get<ParkingStreet[]>(`admin/parking/zones/${encodeURIComponent(zoneId)}/streets`);
@@ -79,6 +100,7 @@ export class ZonesApi {
       body,
     );
   }
+  updateStreet(id: string, body: UpdateStreet) { return this.api.put<ParkingStreet>(`admin/parking/streets/${encodeURIComponent(id)}`, body); }
 
   listSpaces(streetId: string) {
     return this.api.get<ParkingSpace[]>(
@@ -91,5 +113,17 @@ export class ZonesApi {
       `admin/parking/streets/${encodeURIComponent(streetId)}/spaces`,
       body,
     );
+  }
+  updateSpace(id: string, body: UpdateParkingSpace) { return this.api.put<ParkingSpace>(`admin/parking/spaces/${encodeURIComponent(id)}`, body); }
+
+  private params(filters: CatalogFilters) {
+    let params = new HttpParams().set('page', filters.page).set('size', filters.size);
+    if (filters.q?.trim()) params = params.set('q', filters.q.trim());
+    if (filters.active !== null && filters.active !== undefined) params = params.set('active', filters.active);
+    if (filters.zoneId) params = params.set('zoneId', filters.zoneId);
+    if (filters.streetId) params = params.set('streetId', filters.streetId);
+    if (filters.operational) params = params.set('operational', filters.operational);
+    if (filters.georeferenced !== null && filters.georeferenced !== undefined) params = params.set('georeferenced', filters.georeferenced);
+    return params;
   }
 }

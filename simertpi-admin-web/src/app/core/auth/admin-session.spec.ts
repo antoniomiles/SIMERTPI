@@ -159,6 +159,9 @@ describe('Real administrative session client', () => {
     expect(safeReturnUrl('/admin/personal')).toBe('/admin/personal');
     expect(safeReturnUrl('/admin/access')).toBe('/admin/access');
     expect(safeReturnUrl('/admin/map')).toBe('/admin/map');
+    expect(safeReturnUrl('/admin/zones')).toBe('/admin/zones');
+    expect(safeReturnUrl('/admin/streets')).toBe('/admin/streets');
+    expect(safeReturnUrl('/admin/spaces')).toBe('/admin/spaces');
     expect(safeReturnUrl('/admin/payments')).toBe('/admin/payments');
     expect(safeReturnUrl('/admin/reports')).toBe('/admin/reports');
     expect(safeReturnUrl('/admin/tariffs')).toBe('/admin/tariffs');

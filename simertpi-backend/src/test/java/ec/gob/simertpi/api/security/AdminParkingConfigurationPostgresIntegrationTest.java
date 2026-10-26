@@ -14,11 +14,13 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import java.util.UUID;
+import java.time.OffsetDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -140,9 +142,96 @@ class AdminParkingConfigurationPostgresIntegrationTest extends AbstractPostgresI
                 zoneId)).isZero();
     }
 
+    @Test
+    void paginatedCatalogIsAdminOnlyAndUpdatesUseOptimisticVersionAndAudit() throws Exception {
+        mvc.perform(get("/api/v1/admin/parking/catalog/zones").secure(true)).andExpect(status().isUnauthorized());
+        String suffix=UUID.randomUUID().toString().substring(0,8);
+        MvcResult created=postJson("/api/v1/admin/parking/zones", "{\"code\":\"QA-PAGE-"+suffix+"\",\"name\":\"Zona paginada\"}")
+                .andExpect(status().isCreated()).andReturn();
+        UUID id=UUID.fromString(json(created,"id"));
+        mvc.perform(get("/api/v1/admin/parking/catalog/zones").secure(true).cookie(sessionCookie)
+                        .param("q",suffix).param("page","0").param("size","10"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].id").value(id.toString()))
+                .andExpect(result->assertThat(result.getResponse().getHeader("Cache-Control")).contains("no-store"));
+        String expected=json(created,"updatedAt");
+        mvc.perform(put("/api/v1/admin/parking/zones/"+id).secure(true).cookie(sessionCookie,csrfCookie)
+                        .header("X-XSRF-TOKEN",csrfCookie.getValue()).contentType("application/json")
+                        .content("{\"code\":\"QA-PAGE-"+suffix+"\",\"name\":\"Zona editada\",\"active\":true,\"expectedUpdatedAt\":\""+expected+"\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.name").value("Zona editada"));
+        assertThat(jdbc.queryForObject("SELECT name FROM parking.zones WHERE id=?",String.class,id)).isEqualTo("Zona editada");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM audit.functional_audit_log WHERE action='CONFIGURATION_ZONE_UPDATED' AND resource_id=? AND result='SUCCESS'",Integer.class,id)).isEqualTo(1);
+        mvc.perform(put("/api/v1/admin/parking/zones/"+id).secure(true).cookie(sessionCookie,csrfCookie)
+                        .header("X-XSRF-TOKEN",csrfCookie.getValue()).contentType("application/json")
+                        .content("{\"code\":\"QA-PAGE-"+suffix+"\",\"name\":\"Cambios obsoletos\",\"active\":true,\"expectedUpdatedAt\":\""+expected+"\"}"))
+                .andExpect(status().isConflict());
+        assertThat(jdbc.queryForObject("SELECT name FROM parking.zones WHERE id=?",String.class,id)).isEqualTo("Zona editada");
+    }
+
+    @Test
+    void paginatedSpaceCatalogOrdersDistinctRowsUsingSelectedSortExpressions() throws Exception {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        MvcResult zone = postJson("/api/v1/admin/parking/zones",
+                "{\"code\":\"QA-SPAGE-" + suffix + "\",\"name\":\"Zona espacios\"}")
+                .andExpect(status().isCreated()).andReturn();
+        UUID zoneId = UUID.fromString(json(zone, "id"));
+        MvcResult street = postJson("/api/v1/admin/parking/zones/" + zoneId + "/streets",
+                "{\"code\":\"QA-SPAGE-ST-" + suffix + "\",\"name\":\"Calle espacios\"}")
+                .andExpect(status().isCreated()).andReturn();
+        UUID streetId = UUID.fromString(json(street, "id"));
+        MvcResult space = postJson("/api/v1/admin/parking/streets/" + streetId + "/spaces",
+                "{\"code\":\"QA-SPAGE-P-" + suffix + "\",\"qrCode\":\"QA-SPAGE-QR-" + suffix
+                        + "\",\"spaceNumber\":\"01\"}")
+                .andExpect(status().isCreated()).andReturn();
+        UUID spaceId = UUID.fromString(json(space, "id"));
+
+        mvc.perform(get("/api/v1/admin/parking/catalog/spaces").secure(true).cookie(sessionCookie)
+                        .param("zoneId", zoneId.toString()).param("page", "0").param("size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].id").value(spaceId.toString()))
+                .andExpect(jsonPath("$.content[0].operationalStatus").value("AVAILABLE"));
+    }
+
+    @Test
+    void disablingZoneWithOpenSessionIsRejectedWithoutPartialChanges() throws Exception {
+        String suffix=UUID.randomUUID().toString().substring(0,8);
+        MvcResult z=postJson("/api/v1/admin/parking/zones", "{\"code\":\"QA-OPEN-"+suffix+"\",\"name\":\"Zona abierta\"}").andExpect(status().isCreated()).andReturn();
+        UUID zoneId=UUID.fromString(json(z,"id"));
+        MvcResult st=postJson("/api/v1/admin/parking/zones/"+zoneId+"/streets", "{\"code\":\"S\",\"name\":\"Calle\"}").andExpect(status().isCreated()).andReturn();
+        UUID streetId=UUID.fromString(json(st,"id"));
+        MvcResult sp=postJson("/api/v1/admin/parking/streets/"+streetId+"/spaces", "{\"code\":\"QA-SPACE-"+suffix+"\",\"qrCode\":\"QA-QR-"+suffix+"\",\"spaceNumber\":\"1\"}").andExpect(status().isCreated()).andReturn();
+        UUID spaceId=UUID.fromString(json(sp,"id"));
+        jdbc.update("INSERT INTO identity.vehicles(id,user_id,plate,active) VALUES (?,?,?,TRUE)",UUID.randomUUID(),adminId,"QA"+suffix.substring(0,6));
+        UUID vehicleId=jdbc.queryForObject("SELECT id FROM identity.vehicles WHERE user_id=? AND plate=?",UUID.class,adminId,"QA"+suffix.substring(0,6));
+        OffsetDateTime now=OffsetDateTime.now();
+        jdbc.update("INSERT INTO parking.parking_sessions(id,user_id,vehicle_id,parking_space_id,started_at,expected_end_at,status,total_amount) VALUES (?,?,?,?,?,?,?,0)",UUID.randomUUID(),adminId,vehicleId,spaceId,now,now.plusHours(1),"ACTIVE");
+        mvc.perform(put("/api/v1/admin/parking/zones/"+zoneId).secure(true).cookie(sessionCookie,csrfCookie)
+                        .header("X-XSRF-TOKEN",csrfCookie.getValue()).contentType("application/json")
+                        .content("{\"code\":\"QA-OPEN-"+suffix+"\",\"name\":\"Zona abierta\",\"active\":false,\"expectedUpdatedAt\":\""+json(z,"updatedAt")+"\"}"))
+                .andExpect(status().isConflict());
+        assertThat(jdbc.queryForObject("SELECT active FROM parking.zones WHERE id=?",Boolean.class,zoneId)).isTrue();
+        assertThat(jdbc.queryForObject("SELECT status FROM parking.parking_sessions WHERE parking_space_id=?",String.class,spaceId)).isEqualTo("ACTIVE");
+        mvc.perform(put("/api/v1/admin/parking/streets/"+streetId).secure(true).cookie(sessionCookie,csrfCookie)
+                        .header("X-XSRF-TOKEN",csrfCookie.getValue()).contentType("application/json")
+                        .content("{\"code\":\"S\",\"name\":\"Calle\",\"active\":false,\"expectedUpdatedAt\":\""+json(st,"updatedAt")+"\"}"))
+                .andExpect(status().isConflict());
+        mvc.perform(put("/api/v1/admin/parking/spaces/"+spaceId).secure(true).cookie(sessionCookie,csrfCookie)
+                        .header("X-XSRF-TOKEN",csrfCookie.getValue()).contentType("application/json")
+                        .content("{\"code\":\"QA-SPACE-"+suffix+"\",\"qrCode\":\"QA-QR-"+suffix+"\",\"spaceNumber\":\"1\",\"spaceType\":\"STANDARD\",\"active\":false,\"expectedUpdatedAt\":\""+json(sp,"updatedAt")+"\"}"))
+                .andExpect(status().isConflict());
+        assertThat(jdbc.queryForObject("SELECT active FROM parking.streets WHERE id=?",Boolean.class,streetId)).isTrue();
+        assertThat(jdbc.queryForObject("SELECT active FROM parking.parking_spaces WHERE id=?",Boolean.class,spaceId)).isTrue();
+    }
+
     private org.springframework.test.web.servlet.ResultActions postJson(String path, String body) throws Exception {
         return mvc.perform(post(path).secure(true).cookie(sessionCookie, csrfCookie)
                 .header("X-XSRF-TOKEN", csrfCookie.getValue())
+                .contentType("application/json").content(body));
+    }
+
+    private org.springframework.test.web.servlet.ResultActions putJson(String path,String body) throws Exception {
+        return mvc.perform(put(path).secure(true).cookie(sessionCookie,csrfCookie).header("X-XSRF-TOKEN",csrfCookie.getValue())
                 .contentType("application/json").content(body));
     }
 

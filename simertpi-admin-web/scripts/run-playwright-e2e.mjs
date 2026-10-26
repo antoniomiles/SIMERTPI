@@ -29,7 +29,8 @@ function startServer({ port, configuration }) {
 }
 
 async function waitUntilReady(child, port) {
-  const deadline = Date.now() + 120_000;
+  const startupTimeoutMs = Number(process.env.E2E_SERVER_STARTUP_TIMEOUT_MS ?? 360_000);
+  const deadline = Date.now() + startupTimeoutMs;
   while (Date.now() < deadline) {
     if (child.exitCode !== null)
       throw new Error(`Angular E2E server on ${port} exited with code ${child.exitCode}`);

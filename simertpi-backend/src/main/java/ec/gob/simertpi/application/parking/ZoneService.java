@@ -37,14 +37,14 @@ public class ZoneService {
     }
 
     @Transactional
-    @Audited(action = "CONFIGURATION_ZONE_CREATED", resourceType = "CONFIGURATION")
+    @Audited(action = "CONFIGURATION_ZONE_CREATED", resourceType = "PARKING_ZONE")
     public Zone create(String code, String name, String description) {
 
         if (zoneRepository.existsByCode(code)) {
             throw new IllegalArgumentException("El código de la zona ya existe");
         }
 
-        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
 
         Zone zone = new Zone();
         zone.setId(UUID.randomUUID());

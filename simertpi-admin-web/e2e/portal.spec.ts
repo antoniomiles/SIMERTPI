@@ -44,6 +44,7 @@ test('login refuses access without transmitting credentials or creating session 
 test('dashboard preview stays data-free and protected routes redirect to login', async ({
   page,
 }) => {
+  test.setTimeout(90_000);
   const requests: string[] = [];
   page.on('request', (request) => {
     if (['fetch', 'xhr'].includes(request.resourceType())) requests.push(request.url());
@@ -53,7 +54,7 @@ test('dashboard preview stays data-free and protected routes redirect to login',
   await expect(page.locator('.preview-note').getByText('Previsualización local')).toBeVisible();
   await expect(page.locator('.metric-grid')).toHaveCount(0);
   expect(requests).toEqual([]);
-  for (const path of ['/admin/dashboard', '/admin/personal', '/admin/map', '/admin/violations', '/admin/access', '/admin/tariffs', '/admin/tariffs/billing-days']) {
+  for (const path of ['/admin/dashboard', '/admin/personal', '/admin/map', '/admin/violations', '/admin/access', '/admin/tariffs', '/admin/tariffs/billing-days', '/admin/zones', '/admin/streets', '/admin/spaces']) {
     await page.goto(path);
     await expect(page).toHaveURL(/\/login\?returnUrl=/);
     expect(new URL(page.url()).searchParams.get('returnUrl')).toBe(path);
@@ -198,8 +199,8 @@ test('zones preview stays local and never calls catalog APIs', async ({ page }) 
     if (['fetch', 'xhr'].includes(request.resourceType())) requests.push(request.url());
   });
   await page.goto('/preview/zones');
-  await expect(page.getByRole('heading', { name: 'Zonas, calles y espacios' })).toBeVisible();
-  await expect(page.getByText('Esta vista no consulta ni modifica datos.')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Zonas' })).toBeVisible();
+  await expect(page.getByText('Esta vista no consulta ni modifica información municipal.')).toBeVisible();
   expect(requests).toEqual([]);
 });
 

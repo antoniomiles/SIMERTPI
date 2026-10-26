@@ -67,7 +67,7 @@ export interface EffectiveConfiguration {
   zones: EffectiveZone[];
 }
 export interface EffectiveTariff {
-  id: string; code: string; name: string; currency: string; amount: string;
+  id: string; code: string; name: string; currency: string; amount: string | number;
   durationMinutes: number; minMinutes: number; maxContinuousMinutes: number;
   gracePeriodMinutes: number; roundingMode: string; validFrom: string; validTo: string | null;
   normativeReference: string | null;

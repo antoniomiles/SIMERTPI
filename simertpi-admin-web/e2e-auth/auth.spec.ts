@@ -31,8 +31,24 @@ test('unsafe redirects are discarded after a real login',async({page})=>{
  await page.getByRole('button',{name:'Cerrar sesión',exact:true}).click();
 });
 test('unauthenticated deep link and real expiration return to login',async({page})=>{
+ test.setTimeout(7 * 60 * 1000);
+ let lastAuthenticatedRequestAt = Date.now();
+ page.on('response', response => {
+  const path = new URL(response.url()).pathname;
+  if (path.startsWith('/api/v1/admin/') && !['/api/v1/admin/auth/csrf','/api/v1/admin/auth/login'].includes(path)) lastAuthenticatedRequestAt = Date.now();
+ });
  await page.goto('/admin/personal');await expect(page).toHaveURL(/login\?returnUrl=/);
- await page.getByLabel('Usuario',{exact:true}).fill('qa.admin');await page.getByLabel('Contraseña',{exact:true}).fill(password);await page.getByRole('button',{name:'Iniciar sesión'}).click();await expect(page).toHaveURL(/admin\/personal$/);
- await expect(page).toHaveURL(/login\?reason=expired/,{timeout:30000});await expect(page.getByRole('alert')).toContainText('sesión ha expirado');
+ const loginResponse = page.waitForResponse(response => response.url().includes('/api/v1/admin/auth/login') && response.request().method()==='POST');
+ await page.locator('#username').fill('qa.admin');await page.locator('#password').fill(password);await page.getByRole('button',{name:/Iniciar/}).click();
+ const login = await loginResponse;expect(login.status()).toBe(200);
+ const identity = await login.json() as {sessionExpiresAt:string};
+ const ttlMs = Date.parse(identity.sessionExpiresAt) - Date.now();
+ expect(ttlMs).toBeGreaterThan(4 * 60 * 1000);
+ expect(ttlMs).toBeLessThanOrEqual(5 * 60 * 1000 + 5_000);
+ await expect(page).toHaveURL(/admin\/personal$/);
+ await expect(page).toHaveURL(/login\?reason=expired/,{timeout:5 * 60 * 1000 + 10_000});
+ await expect(page.getByRole('alert')).toContainText('expirado');
+ const backendIdleExpiry = lastAuthenticatedRequestAt + 5 * 60 * 1000 + 1_500;
+ if (backendIdleExpiry > Date.now()) await page.waitForTimeout(backendIdleExpiry - Date.now());
  expect((await page.request.get('/api/v1/admin/auth/me')).status()).toBe(401);
 });

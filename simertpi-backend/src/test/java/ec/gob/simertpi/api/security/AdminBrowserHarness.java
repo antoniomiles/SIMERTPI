@@ -33,6 +33,7 @@ class AdminBrowserHarness extends AbstractPostgresIntegrationTest {
     generalZone,"E2E-GENERAL","E2E General",endNowZone,"E2E-END-NOW","E2E Finalización inmediata",
     endScheduledZone,"E2E-END-SCHEDULED","E2E Finalización programada",scheduledZone,"E2E-SCHEDULED","E2E Programada",
     calendarEndZone,"E2E-CALENDAR-END","E2E Calendario a finalizar");
+  jdbc.update("INSERT INTO parking.zones(id,code,name,active) VALUES (?,?,?,TRUE)", UUID.randomUUID(),"E2E-CATALOG","E2E Catálogo");
   OffsetDateTime now=OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
   insertTariff(UUID.randomUUID(),"E2E-TAR-GENERAL","E2E Tarifa general",null,"E2E-GENERAL-REF",now.minusDays(2),now.plusDays(60));
   insertTariff(UUID.randomUUID(),"E2E-TAR-END-NOW","E2E Tarifa finalización inmediata",endNowZone,"E2E-END-NOW-REF",now.minusDays(2),null);
@@ -56,6 +57,10 @@ class AdminBrowserHarness extends AbstractPostgresIntegrationTest {
  }
 
  private void verifyBrowserWritesPersisted() {
+  if (Boolean.getBoolean("simertpi.admin-browser-harness.catalog-only")) {
+   verifyCatalogWritesPersisted();
+   return;
+  }
   org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.tariffs WHERE code='E2E-TAR-GENERAL-V2' AND amount=0.30 AND valid_to='2030-12-23T03:06:00Z'::timestamptz",Integer.class)).isEqualTo(1);
   org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.tariffs WHERE code='E2E-TAR-END-NOW' AND valid_to IS NOT NULL",Integer.class)).isEqualTo(1);
   org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.tariffs WHERE code='E2E-TAR-END-SCHEDULED' AND valid_to IS NOT NULL AND valid_to > CURRENT_TIMESTAMP",Integer.class)).isEqualTo(1);
@@ -67,5 +72,12 @@ class AdminBrowserHarness extends AbstractPostgresIntegrationTest {
   org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.billing_day_calendars WHERE normative_reference='E2E-CAL-SCHEDULED-V2' AND active=FALSE AND cancellation_reason='Cancelación E2E PostgreSQL'",Integer.class)).isEqualTo(1);
   org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.billing_day_calendar_history WHERE reason LIKE 'E2E %'",Integer.class)).isGreaterThanOrEqualTo(4);
   org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.billing_day_calendars WHERE normative_reference='E2E-CAL-END' AND valid_to IS NOT NULL AND valid_to >= CURRENT_DATE",Integer.class)).isEqualTo(1);
+ }
+
+ private void verifyCatalogWritesPersisted() {
+  org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.zones WHERE code='E2E-CATALOG-V2' AND name='E2E Zona actualizada' AND active",Integer.class)).isEqualTo(1);
+  org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.streets st JOIN parking.zones z ON z.id=st.zone_id WHERE z.code='E2E-CATALOG-V2' AND st.code='E2E-STREET-V2' AND st.name='E2E Calle actualizada' AND st.active",Integer.class)).isEqualTo(1);
+  org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.parking_spaces sp JOIN parking.streets st ON st.id=sp.street_id JOIN parking.zones z ON z.id=st.zone_id WHERE z.code='E2E-CATALOG-V2' AND st.code='E2E-STREET-V2' AND sp.code='E2E-SPACE-V2' AND sp.qr_code='E2E-QR-V2' AND sp.space_number='02' AND sp.active",Integer.class)).isEqualTo(1);
+  org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT count(*) FROM audit.functional_audit_log WHERE resource_type IN ('PARKING_ZONE','PARKING_STREET','PARKING_SPACE') AND action IN ('CONFIGURATION_ZONE_CREATED','CONFIGURATION_STREET_CREATED','CONFIGURATION_PARKING_SPACE_CREATED','CONFIGURATION_ZONE_UPDATED','CONFIGURATION_STREET_UPDATED','CONFIGURATION_PARKING_SPACE_UPDATED') AND result='SUCCESS'",Integer.class)).isGreaterThanOrEqualTo(6);
  }
 }

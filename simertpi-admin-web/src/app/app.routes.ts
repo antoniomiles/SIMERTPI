@@ -28,7 +28,16 @@ const pages: Routes = [
   },
   {
     path: 'zones',
-    title: 'Zonas, calles y espacios | SIMERTPI',
+    title: 'Zonas | SIMERTPI',
+    data: { catalogView: 'zones' },
+    loadComponent: () => import('./features/zones/zones').then((m) => m.Zones),
+  },
+  {
+    path: 'streets', title: 'Calles y tramos | SIMERTPI', data: { catalogView: 'streets' },
+    loadComponent: () => import('./features/zones/zones').then((m) => m.Zones),
+  },
+  {
+    path: 'spaces', title: 'Espacios | SIMERTPI', data: { catalogView: 'spaces' },
     loadComponent: () => import('./features/zones/zones').then((m) => m.Zones),
   },
   {
