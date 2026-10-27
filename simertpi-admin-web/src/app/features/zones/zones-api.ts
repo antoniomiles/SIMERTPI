@@ -51,7 +51,6 @@ export interface CreateStreet {
 
 export interface CreateParkingSpace {
   code: string;
-  qrCode: string;
   spaceNumber: string;
   latitude?: number;
   longitude?: number;
@@ -62,10 +61,14 @@ export interface CatalogPage<T> { page: number; size: number; totalElements: num
 export interface CatalogFilters { q?: string; active?: boolean | null; zoneId?: string; streetId?: string; operational?: string; georeferenced?: boolean | null; page: number; size: number; }
 export interface ZoneCatalog extends ParkingZone { streetCount: number; spaceCount: number; activeSpaceCount: number; }
 export interface StreetCatalog extends ParkingStreet { zoneCode: string; zoneName: string; spaceCount: number; }
-export interface SpaceCatalog extends ParkingSpace { zoneId: string; zoneCode: string; zoneName: string; streetCode: string; streetName: string; operationalStatus: 'AVAILABLE' | 'OCCUPIED' | 'DISABLED'; }
+export type ParkingMapStatus = 'ACTIVE' | 'ENDING_SOON' | 'EXPIRED' | 'MAX_TIME_REACHED' | 'NO_ACTIVE_SESSION' | 'DISABLED' | 'PAYMENT_PENDING' | 'UNKNOWN';
+export interface SpaceCatalog extends ParkingSpace { zoneId: string; zoneCode: string; zoneName: string; streetCode: string; streetName: string; operationalStatus: 'AVAILABLE' | 'OCCUPIED' | 'DISABLED'; mapStatus: ParkingMapStatus; }
 export type UpdateZone = Omit<CreateZone, never> & { active: boolean; expectedUpdatedAt: string };
 export type UpdateStreet = Omit<CreateStreet, never> & { active: boolean; expectedUpdatedAt: string };
-export type UpdateParkingSpace = CreateParkingSpace & { active: boolean; expectedUpdatedAt: string };
+export type UpdateParkingSpace = Omit<CreateParkingSpace, 'qrCode'> & { active: boolean; expectedUpdatedAt: string };
+export interface MapMarker extends Pick<SpaceCatalog, 'id'|'code'|'spaceNumber'|'zoneId'|'zoneCode'|'zoneName'|'streetId'|'streetCode'|'streetName'|'active'|'operationalStatus'|'mapStatus'|'latitude'|'longitude'> { }
+export interface MapCoverage { totalSpaces: number; georeferencedSpaces: number; pendingGeoreference: number; evaluatedAt: string; refreshIntervalSeconds: number; markers: MapMarker[]; }
+export interface NearbySpace { code: string; spaceNumber: string; distanceMeters: number; }
 
 @Injectable({ providedIn: 'root' })
 export class ZonesApi {
@@ -83,6 +86,17 @@ export class ZonesApi {
   }
   catalogSpaces(filters: CatalogFilters) {
     return this.api.get<CatalogPage<SpaceCatalog>>('admin/parking/catalog/spaces', { params: this.params(filters) });
+  }
+  mapCoverage(zoneId?: string, streetId?: string) {
+    let params = new HttpParams().set('limit', '1000');
+    if (zoneId) params=params.set('zoneId',zoneId);
+    if (streetId) params=params.set('streetId',streetId);
+    return this.api.get<MapCoverage>('admin/parking/catalog/map', { params });
+  }
+  nearby(latitude:number,longitude:number,excludeId?:string) {
+    let params=new HttpParams().set('latitude',latitude).set('longitude',longitude).set('radiusMeters',3);
+    if(excludeId)params=params.set('excludeId',excludeId);
+    return this.api.get<NearbySpace[]>('admin/parking/catalog/spaces/nearby',{params});
   }
 
   createZone(body: CreateZone) {

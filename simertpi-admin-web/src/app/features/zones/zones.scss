@@ -1,1 +1,15 @@
 :host { display: block; }
+.catalog-mobile-module-heading, .catalog-mobile-nav { display: none; }
+.qr-dialog { width: min(520px, calc(100vw - 24px)); max-height: 90dvh; overflow: auto; padding: 20px; border: 1px solid var(--border); border-radius: 12px; color: var(--ink); box-shadow: 0 24px 70px #18231d38; }
+.qr-dialog::backdrop { background: #17221dcc; backdrop-filter: blur(2px); }
+.qr-dialog-image { display: block; width: min(280px, 80vw); height: auto; margin: 16px auto; padding: 10px; background: #fff; border: 1px solid var(--border); border-radius: 10px; }
+@media (max-width: 520px) { .qr-dialog { width: calc(100vw - 16px); padding: 14px; } }
+@media (max-width: 960px) {
+  .catalog-mobile-module-heading { display: flex; align-items: center; gap: 10px; margin: 10px -8px 6px; padding: 10px 14px; min-height: 42px; border-radius: 6px; background: #0b6b3a; color: #fff; font-size: 13px; }
+  .catalog-mobile-module-heading app-icon { width: 18px; height: 18px; }
+  .catalog-mobile-module-heading strong { flex: 1; }
+  .catalog-mobile-nav { display: flex; gap: 4px; margin: 0 -8px 12px; padding: 4px 8px 7px 20px; overflow-x: auto; border-bottom: 1px solid #e0e7f0; background: #fff; }
+  .catalog-mobile-nav button { flex: 0 0 auto; min-height: 36px; padding: 7px 12px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: #0b6b3a; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .catalog-mobile-nav button.active { border-color: #b8d8c2; background: #e9f5ed; color: #0b6b3a; }
+  .catalog-mobile-nav button:focus-visible { outline: 2px solid #0b6b3a; outline-offset: 2px; }
+}

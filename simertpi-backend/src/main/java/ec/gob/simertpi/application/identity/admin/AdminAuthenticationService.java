@@ -55,7 +55,7 @@ public class AdminAuthenticationService {
    if(!allowed(user))throw invalid();
    establish(user);
    if(validToken(previous))jdbc.update("UPDATE identity.admin_web_sessions SET revoked_at=COALESCE(revoked_at,CURRENT_TIMESTAMP) WHERE token_hash=?",hash(previous));
-   OffsetDateTime now=now(),absolute=now.plus(absoluteTtl),idle=now.plus(idleTtl);
+   OffsetDateTime now=now(),absolute=databasePrecision(now.plus(absoluteTtl)),idle=databasePrecision(now.plus(idleTtl));
    byte[] bytes=new byte[32];random.nextBytes(bytes);String token=Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);Arrays.fill(bytes,(byte)0);
    UUID id=UUID.randomUUID();
    jdbc.update("INSERT INTO identity.admin_web_sessions(id,user_id,token_hash,security_stamp,created_at,absolute_expires_at,idle_expires_at) VALUES (?,?,?,?,?,?,?)",id,user.getId(),hash(token),stamp(user),now,absolute,idle);
@@ -82,7 +82,7 @@ public class AdminAuthenticationService {
    if(expired)throw new AdminSessionExpiredAuthenticationException();
    throw invalid();
   }
-  OffsetDateTime idle=now.plus(idleTtl);if(idle.isAfter(session.absolute()))idle=session.absolute();
+  OffsetDateTime idle=databasePrecision(now.plus(idleTtl));if(idle.isAfter(session.absolute()))idle=session.absolute();
   jdbc.update("UPDATE identity.admin_web_sessions SET idle_expires_at=? WHERE id=?",idle,session.id());
   establish(user);
   return identity(user,idle,session.absolute());
@@ -109,4 +109,5 @@ public class AdminAuthenticationService {
  public static boolean validToken(String value){return value!=null&&value.matches("[A-Za-z0-9_-]{43}");}
  private static BadCredentialsException invalid(){return new BadCredentialsException("Authentication required");}
  private static OffsetDateTime now(){return OffsetDateTime.now(ZoneOffset.UTC);}
+ private static OffsetDateTime databasePrecision(OffsetDateTime value){return value.truncatedTo(java.time.temporal.ChronoUnit.MICROS);}
 }

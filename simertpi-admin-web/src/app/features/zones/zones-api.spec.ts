@@ -44,11 +44,21 @@ describe('Administrative parking catalog API', () => {
     expect(street.request.body).not.toHaveProperty('zoneId');
     street.flush({ id: 'street-1' });
 
-    api.createSpace('street-1', { code: 'P-01', qrCode: 'QR-01', spaceNumber: '01' }).subscribe();
+    api.createSpace('street-1', { code: 'P-01', spaceNumber: '01' }).subscribe();
     http.expectOne('/api/v1/admin/auth/csrf').flush(null, { status: 204, statusText: 'No Content' });
     const space = http.expectOne('/api/v1/admin/parking/streets/street-1/spaces');
-    expect(space.request.body).toEqual({ code: 'P-01', qrCode: 'QR-01', spaceNumber: '01' });
+    expect(space.request.body).toEqual({ code: 'P-01', spaceNumber: '01' });
     expect(space.request.body).not.toHaveProperty('streetId');
     space.flush({ id: 'space-1' });
+  });
+
+  it('queries persisted georeferenced spaces and nearby warnings through protected administrative GETs',()=>{
+    const api=TestBed.inject(ZonesApi);const http=TestBed.inject(HttpTestingController);
+    api.mapCoverage('zone-1','street-1').subscribe();
+    const map=http.expectOne('/api/v1/admin/parking/catalog/map?limit=1000&zoneId=zone-1&streetId=street-1');
+    expect(map.request.method).toBe('GET');map.flush({totalSpaces:1,georeferencedSpaces:1,pendingGeoreference:0,evaluatedAt:'2026-10-25T12:00:00Z',refreshIntervalSeconds:60,markers:[]});
+    api.nearby(-3.67,-79.65).subscribe();
+    const nearby=http.expectOne(r=>r.url==='/api/v1/admin/parking/catalog/spaces/nearby');
+    expect(nearby.request.params.get('radiusMeters')).toBe('3');nearby.flush([]);
   });
 });

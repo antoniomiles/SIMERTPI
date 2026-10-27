@@ -1,7 +1,7 @@
-import { HttpErrorResponse, HttpInterceptorFn } from '@angular/common/http';
+import { HttpErrorResponse, HttpInterceptorFn, HttpResponse } from '@angular/common/http';
 import { DOCUMENT, inject } from '@angular/core';
 import { Router } from '@angular/router';
-import { catchError, filter, Observable, retry, switchMap, throwError, timeout, timer } from 'rxjs';
+import { catchError, filter, Observable, retry, switchMap, tap, throwError, timeout, timer } from 'rxjs';
 import { PORTAL_CONFIG } from '../config/portal-config';
 import { AdminSessionState } from '../auth/admin-session-state';
 import { normalizeError, PortalError } from './portal-error';
@@ -60,6 +60,10 @@ export const apiInterceptor: HttpInterceptorFn = (request, next) => {
       : next(credentialed);
   return response.pipe(
     timeout(csrfPreflight ? ADMIN_CSRF_PREFLIGHT_TIMEOUT_MS : requestTimeoutMs(target.pathname)),
+    tap((event) => {
+      if (event instanceof HttpResponse && event.status < 500
+          && !ADMIN_AUTH_PATHS.has(target.pathname)) state.noteAuthenticatedRequest();
+    }),
     catchError((error: unknown) => {
       if (error instanceof HttpErrorResponse && error.status === 401) {
         state.clear();

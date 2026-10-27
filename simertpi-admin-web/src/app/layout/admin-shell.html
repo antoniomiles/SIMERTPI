@@ -1,7 +1,7 @@
 <button class="skip-link" type="button" (click)="skipToMain()">
   Saltar al contenido principal
 </button>
-<div class="portal-layout" [class.is-collapsed]="isCollapsed()">
+<div class="portal-layout" [class.is-collapsed]="isCollapsed()" [class.catalog-mode]="isZonesActive()">
   <aside
     class="sidebar"
     id="sidebar"
@@ -153,6 +153,7 @@
   }
   <div class="main-column" [attr.inert]="compact() && opened() ? '' : null">
     <header class="topbar">
+      @if (isZonesActive() && !compact()) { <app-brand class="catalog-desktop-brand" [compact]="true" /> }
       <div class="topbar-leading">
         <button
           #menuButton
@@ -173,6 +174,7 @@
         >
           <app-icon [name]="compact() ? 'menu' : isCollapsed() ? 'panelOpen' : 'panelClose'" />
         </button>
+        @if (isZonesActive() && compact()) { <app-brand class="catalog-mobile-brand" [compact]="true" /> }
         <span class="topbar-title"
           >Portal administrativo <span class="topbar-divider">/</span
           ><span class="topbar-place">Piñas, Ecuador</span></span

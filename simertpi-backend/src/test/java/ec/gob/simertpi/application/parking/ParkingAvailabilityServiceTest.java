@@ -28,6 +28,24 @@ class ParkingAvailabilityServiceTest {
         assertThat(java.util.Arrays.stream(ParkingAvailabilityService.Availability.class.getRecordComponents())
                 .map(java.lang.reflect.RecordComponent::getName)).doesNotContain("userId","vehicleId","sessionId","paymentId","plate");
     }
+    @Test void mapProjectionUsesBackendTimeAndConfiguredThresholdWithoutCallingExpiredSpacesFree() {
+        assertThat(map("ACTIVE",NOW.plusSeconds(601),true)).isEqualTo("ACTIVE");
+        assertThat(map("ACTIVE",NOW.plusSeconds(600),true)).isEqualTo("ENDING_SOON");
+        assertThat(map("EXTENDED",NOW.minusSeconds(1),true)).isEqualTo("EXPIRED");
+        assertThat(map("EXPIRED",NOW.minusSeconds(30),true)).isEqualTo("EXPIRED");
+        assertThat(map("MAX_TIME_REACHED",NOW.minusSeconds(30),true)).isEqualTo("MAX_TIME_REACHED");
+        assertThat(map("EXPIRED",NOW.plusSeconds(30),true)).isEqualTo("UNKNOWN");
+        assertThat(map("MAX_TIME_REACHED",NOW.plusSeconds(30),true)).isEqualTo("UNKNOWN");
+        assertThat(map("PENDING_PAYMENT",NOW.plusSeconds(30),true)).isEqualTo("PAYMENT_PENDING");
+        assertThat(map("PENDING_PAYMENT",NOW.minusSeconds(30),true)).isEqualTo("PAYMENT_PENDING");
+        assertThat(map(null,null,true)).isEqualTo("NO_ACTIVE_SESSION");
+        assertThat(map("ACTIVE",NOW.plusSeconds(60),false)).isEqualTo("DISABLED");
+        assertThat(map("PENDING_PAYMENT",NOW.minusSeconds(30),false)).isEqualTo("DISABLED");
+        assertThat(map("ACTIVE",null,true)).isEqualTo("UNKNOWN");
+    }
+    private static String map(String state,Instant end,boolean enabled) {
+        return ParkingAvailabilityService.mapStatus(enabled,state,end==null?null:end.atOffset(ZoneOffset.UTC),NOW,600);
+    }
     private static ParkingAvailabilityService.Availability project(String state,boolean enabled,long seconds) {
         return ParkingAvailabilityService.project(UUID.randomUUID(),UUID.randomUUID(),UUID.randomUUID(),"FIXTURE",enabled,enabled,
                 state,NOW.plusSeconds(seconds).atOffset(ZoneOffset.ofHours(-5)),null,null,NOW,600);

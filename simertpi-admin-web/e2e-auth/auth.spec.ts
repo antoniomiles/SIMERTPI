@@ -31,24 +31,32 @@ test('unsafe redirects are discarded after a real login',async({page})=>{
  await page.getByRole('button',{name:'Cerrar sesión',exact:true}).click();
 });
 test('unauthenticated deep link and real expiration return to login',async({page})=>{
+ const testStartedAt = Date.now();
  test.setTimeout(7 * 60 * 1000);
  let lastAuthenticatedRequestAt = Date.now();
  page.on('response', response => {
   const path = new URL(response.url()).pathname;
-  if (path.startsWith('/api/v1/admin/') && !['/api/v1/admin/auth/csrf','/api/v1/admin/auth/login'].includes(path)) lastAuthenticatedRequestAt = Date.now();
+  if (path.startsWith('/api/v1/admin/') && response.status() < 400
+      && !['/api/v1/admin/auth/csrf','/api/v1/admin/auth/login','/api/v1/admin/auth/logout'].includes(path))
+    lastAuthenticatedRequestAt = Date.now();
  });
  await page.goto('/admin/personal');await expect(page).toHaveURL(/login\?returnUrl=/);
- const loginResponse = page.waitForResponse(response => response.url().includes('/api/v1/admin/auth/login') && response.request().method()==='POST');
+ const sessionStartAt = Date.now();
  await page.locator('#username').fill('qa.admin');await page.locator('#password').fill(password);await page.getByRole('button',{name:/Iniciar/}).click();
- const login = await loginResponse;expect(login.status()).toBe(200);
- const identity = await login.json() as {sessionExpiresAt:string};
- const ttlMs = Date.parse(identity.sessionExpiresAt) - Date.now();
- expect(ttlMs).toBeGreaterThan(4 * 60 * 1000);
- expect(ttlMs).toBeLessThanOrEqual(5 * 60 * 1000 + 5_000);
  await expect(page).toHaveURL(/admin\/personal$/);
- await expect(page).toHaveURL(/login\?reason=expired/,{timeout:5 * 60 * 1000 + 10_000});
+ await expect.poll(() => {
+  const url = new URL(page.url());
+  return url.pathname === '/login' && url.searchParams.get('reason') === 'expired';
+ }, {timeout:5 * 60 * 1000 + 10_000}).toBe(true);
+ const idleDurationMs = Date.now() - sessionStartAt;
+ expect(idleDurationMs).toBeGreaterThan(4 * 60 * 1000 + 45_000);
+ expect(idleDurationMs).toBeLessThanOrEqual(5 * 60 * 1000 + 15_000);
  await expect(page.getByRole('alert')).toContainText('expirado');
- const backendIdleExpiry = lastAuthenticatedRequestAt + 5 * 60 * 1000 + 1_500;
- if (backendIdleExpiry > Date.now()) await page.waitForTimeout(backendIdleExpiry - Date.now());
  expect((await page.request.get('/api/v1/admin/auth/me')).status()).toBe(401);
+ const backendIdleExpiry = lastAuthenticatedRequestAt + 5 * 60 * 1000 + 1_500;
+ // The browser countdown starts at login; the backend idle window can start
+ // later when the last protected page request completes. Bound the test by
+ // that observed deadline instead of shortening either real five-minute TTL.
+ test.setTimeout(Math.max(test.info().timeout, backendIdleExpiry - testStartedAt + 15_000));
+ if (backendIdleExpiry > Date.now()) await page.waitForTimeout(backendIdleExpiry - Date.now());
 });

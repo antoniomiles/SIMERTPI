@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
-import { ActivatedRoute } from '@angular/router';
+import { HttpErrorResponse } from '@angular/common/http';
+import { ActivatedRoute, Router } from '@angular/router';
 import { of, throwError } from 'rxjs';
 import { ZonesApi } from '../zones/zones-api';
 import { MapCoverage } from './map-coverage';
@@ -70,6 +71,7 @@ describe('Administrative map georeferencing coverage', () => {
     listZones: ReturnType<typeof vi.fn>;
     listStreets: ReturnType<typeof vi.fn>;
     listSpaces: ReturnType<typeof vi.fn>;
+    mapCoverage: ReturnType<typeof vi.fn>;
   };
   let preview = false;
 
@@ -79,11 +81,13 @@ describe('Administrative map georeferencing coverage', () => {
       listZones: vi.fn().mockReturnValue(of([zone])),
       listStreets: vi.fn().mockReturnValue(of([street])),
       listSpaces: vi.fn().mockReturnValue(of(spaces)),
+      mapCoverage: vi.fn().mockReturnValue(of({totalSpaces:0,georeferencedSpaces:0,pendingGeoreference:0,evaluatedAt:'2026-10-19T00:00:00Z',refreshIntervalSeconds:60,markers:[]})),
     };
     await TestBed.configureTestingModule({
       imports: [MapCoverage],
       providers: [
         { provide: ZonesApi, useValue: api },
+        { provide: Router, useValue: { navigate: vi.fn() } },
         {
           provide: ActivatedRoute,
           useFactory: () => ({
@@ -102,6 +106,7 @@ describe('Administrative map georeferencing coverage', () => {
     expect(api.listZones).toHaveBeenCalledOnce();
     expect(api.listStreets).toHaveBeenCalledWith(zone.id);
     expect(api.listSpaces).toHaveBeenCalledWith(street.id);
+    expect(api.mapCoverage).toHaveBeenCalledWith(zone.id,undefined);
     expect(fixture.componentInstance.completePairs()).toBe(1);
     expect(fixture.componentInstance.missingPairs()).toBe(2);
     expect(fixture.componentInstance.enabledSpaces()).toBe(2);
@@ -149,5 +154,47 @@ describe('Administrative map georeferencing coverage', () => {
 
     expect(fixture.componentInstance.zonesState()).toBe('error');
     expect(fixture.nativeElement.textContent).toContain('No se pudieron cargar las zonas');
+  });
+
+  it('refreshes map status every 30 seconds, clears stale data on a request failure and recovers on the next poll', async () => {
+    const fresh = {totalSpaces:1,georeferencedSpaces:0,pendingGeoreference:1,evaluatedAt:'2026-10-19T00:00:00Z',refreshIntervalSeconds:60,markers:[]};
+    api.mapCoverage.mockReset().mockReturnValueOnce(of(fresh)).mockReturnValueOnce(throwError(()=>new HttpErrorResponse({status:0,statusText:'Network Error'}))).mockReturnValueOnce(of({...fresh,evaluatedAt:'2026-10-19T00:01:00Z'}));
+    vi.useFakeTimers();
+    try {
+      const fixture = TestBed.createComponent(MapCoverage);
+      fixture.detectChanges();
+      expect(api.mapCoverage).toHaveBeenCalledTimes(1);
+      expect(fixture.componentInstance.mapData()?.evaluatedAt).toBe(fresh.evaluatedAt);
+      await vi.advanceTimersByTimeAsync(60_000);
+      fixture.detectChanges();
+      expect(api.mapCoverage).toHaveBeenCalledTimes(2);
+      expect(fixture.componentInstance.mapData()).toBeNull();
+      expect(fixture.componentInstance.mapError()).toContain('No se pudo conectar');
+      await vi.advanceTimersByTimeAsync(60_000);
+      fixture.detectChanges();
+      expect(api.mapCoverage).toHaveBeenCalledTimes(3);
+      expect(fixture.componentInstance.mapData()?.evaluatedAt).toBe('2026-10-19T00:01:00Z');
+      expect(fixture.componentInstance.mapError()).toBe('');
+      fixture.destroy();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('formats the server evaluation timestamp in Ecuador and explains each operational marker state', () => {
+    const fixture = TestBed.createComponent(MapCoverage);fixture.detectChanges();
+    const page=fixture.componentInstance;
+    expect(page.mapUpdatedAt()).toContain('18 oct 2026');
+    expect(page.mapStatusLabel('NO_ACTIVE_SESSION')).toContain('no confirma disponibilidad física');
+    expect(page.mapStatusLabel('EXPIRED')).toContain('sigue ocupado');
+    expect(page.mapStatusLabel('PAYMENT_PENDING')).toContain('Pago pendiente');
+    expect(page.mapStatusLabel('MAX_TIME_REACHED')).toContain('Tiempo máximo alcanzado');
+  });
+
+  it('loads the whole selected zone first and narrows the map to a street only after that filter is selected', () => {
+    const fixture=TestBed.createComponent(MapCoverage);fixture.detectChanges();const page=fixture.componentInstance;
+    expect(api.mapCoverage).toHaveBeenLastCalledWith(zone.id,undefined);
+    page.selectMapStreet(street.id);
+    expect(api.mapCoverage).toHaveBeenLastCalledWith(zone.id,street.id);
+    page.selectMapStreet('');
+    expect(api.mapCoverage).toHaveBeenLastCalledWith(zone.id,undefined);
   });
 });

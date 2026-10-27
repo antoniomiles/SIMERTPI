@@ -18,11 +18,11 @@
 <section class="geography-note" aria-labelledby="geography-note-title">
   <app-icon name="map" />
   <div>
-    <h2 id="geography-note-title">Vista geográfica pendiente de validación municipal</h2>
+      <h2 id="geography-note-title">Ubicaciones registradas, pendientes de validación municipal</h2>
     <p>
-      El sistema registra coordenadas opcionales en los espacios, pero no conserva su fuente, fecha
-      de levantamiento ni aprobación municipal. Por eso esta pantalla no dibuja puntos en un mapa ni
-      presenta ubicaciones como verificadas.
+      El mapa muestra únicamente pares de coordenadas completos guardados en los espacios. El sistema
+      no conserva su fuente, fecha de levantamiento ni aprobación municipal; su visualización no
+      certifica que la ubicación haya sido validada por el municipio.
     </p>
     <p>
       La ubicación es un dato de configuración del espacio; no representa disponibilidad física ni
@@ -57,30 +57,87 @@
   />
 } @else {
   <section class="selection-panel" aria-label="Selección de zona y calle">
-    <label>
-      <span>Zona</span>
-      <select [value]="selectedZoneId()" (change)="selectZone($any($event.target).value)">
+    <div class="selection-field">
+      <label for="coverage-zone-select">Zona</label>
+      <select id="coverage-zone-select" [value]="selectedZoneId()" (change)="selectZone($any($event.target).value)">
         @for (zone of zones(); track zone.id) {
           <option [value]="zone.id">
             {{ zone.code }} · {{ zone.name }}{{ zone.active ? '' : ' · Deshabilitada' }}
           </option>
         }
       </select>
-    </label>
+    </div>
     @if (streetsState() === 'ready') {
-      <label>
-        <span>Calle</span>
-        <select [value]="selectedStreetId()" (change)="selectStreet($any($event.target).value)">
+      <div class="selection-field">
+        <label for="coverage-street-select">Calle</label>
+        <select id="coverage-street-select" [value]="selectedMapStreetId()" (change)="selectMapStreet($any($event.target).value)">
+          <option value="">Todas las calles de la zona</option>
           @for (street of streets(); track street.id) {
             <option [value]="street.id">
               {{ street.code }} · {{ street.name }}{{ street.active ? '' : ' · Deshabilitada' }}
             </option>
           }
         </select>
-      </label>
+      </div>
     }
   </section>
 
+  <section class="records-panel live-map-panel" aria-labelledby="live-map-title">
+    <div class="section-heading map-heading">
+      <div><h2 id="live-map-title">Ubicaciones georreferenciadas</h2><p>El mapa solo representa coordenadas guardadas en espacios existentes.</p></div>
+      <button class="map-action" type="button" (click)="centerMapResults()" [disabled]="!mapData()?.georeferencedSpaces">Centrar resultados</button>
+    </div>
+    @if (mapError()) { <p role="alert" class="range-warning">{{ mapError() }}</p> }
+    @if (mapError()) { <button class="map-action" type="button" (click)="retryMapData()">Reintentar consulta</button> }
+    @if (mapLoading()) { <p class="tile-state" role="status">Consultando el estado operativo con el servidor…</p> }
+    <div class="map-legend" aria-label="Leyenda del estado operativo del mapa">
+      <span><i class="legend-dot active"></i>Sesión vigente <b>{{ mapStatusCounts().ACTIVE }}</b></span>
+      <span><i class="legend-dot ending-soon"></i>Próxima a vencer <b>{{ mapStatusCounts().ENDING_SOON }}</b></span>
+      <span><i class="legend-dot expired"></i>Tiempo vencido; sigue ocupado <b>{{ mapStatusCounts().EXPIRED }}</b></span>
+      <span><i class="legend-dot max-time-reached"></i>Tiempo máximo alcanzado <b>{{ mapStatusCounts().MAX_TIME_REACHED }}</b></span>
+      <span><i class="legend-dot no-session"></i>Sin sesión activa registrada <b>{{ mapStatusCounts().NO_ACTIVE_SESSION }}</b></span>
+      <span><i class="legend-dot disabled"></i>Deshabilitado <b>{{ mapStatusCounts().DISABLED }}</b></span>
+      <span><i class="legend-dot payment-pending"></i>Pago pendiente <b>{{ mapStatusCounts().PAYMENT_PENDING }}</b></span>
+      <span><i class="legend-dot unknown"></i>Estado no disponible <b>{{ mapStatusCounts().UNKNOWN }}</b></span>
+      <small>Sin sesión activa no confirma disponibilidad física. El servidor calcula el estado.</small>
+    </div>
+    @if (mapData()?.georeferencedSpaces && tilesState() === 'loading') { <p class="tile-state" role="status">Cargando cartografía…</p> }
+    @if (mapData()?.georeferencedSpaces && tilesState() === 'error') { <p class="tile-state tile-error" role="alert">No se pudieron cargar las teselas del mapa. Comprueba la conexión. <button class="map-action" type="button" (click)="retryMapTiles()">Reintentar mapa</button></p> }
+    @if (mapData()?.georeferencedSpaces && tilesState() === 'partial') { <p class="tile-state tile-error" role="status">El mapa cargó parcialmente; algunas teselas no respondieron. <button class="map-action" type="button" (click)="retryMapTiles()">Reintentar teselas</button></p> }
+    @if (mapData(); as coverage) {
+      <div class="summary-grid">
+        <article><span>Espacios en el ámbito</span><strong>{{ coverage.totalSpaces }}</strong></article>
+        <article><span>Con coordenadas</span><strong>{{ coverage.georeferencedSpaces }}</strong></article>
+        <article><span>Pendientes</span><strong>{{ coverage.pendingGeoreference }}</strong></article>
+      </div>
+      <p class="map-update-time" aria-live="polite">Estado consultado por el servidor: {{ mapUpdatedAt() }} (hora de Ecuador). Actualización automática cada {{ coverage.refreshIntervalSeconds }} segundos.</p>
+      @if (mapRefreshing()) { <p class="tile-state" role="status">Actualizando los estados desde el servidor…</p> }
+      @if (coverage.georeferencedSpaces === 0) {
+        <app-data-state title="No hay espacios georreferenciados" description="No se dibujan ubicaciones aproximadas. Los espacios pendientes aparecen en el resumen." />
+      } @else {
+        <div class="live-map-layout">
+          <app-parking-map [markers]="coverage.markers" [selectedMarkerId]="selectedMarker()?.id ?? ''" [refreshKey]="mapRefreshKey()" [fitRequest]="mapFitKey()" (tilesStateChange)="mapTileStateChanged($event)" (markerSelected)="selectMarker($event)" />
+          <aside class="map-selection" aria-live="polite">
+            @if (selectedMarker(); as marker) {
+              <h3>{{ marker.spaceNumber }} · {{ marker.code }}</h3>
+              <p>{{ marker.zoneCode }} · {{ marker.zoneName }}</p>
+              <p>{{ marker.streetCode }} · {{ marker.streetName }}</p>
+              <p><span class="state-chip" [attr.data-state]="marker.mapStatus">{{ mapStatusLabel(marker.mapStatus) }}</span></p>
+              <p>{{ marker.mapStatus === 'DISABLED' ? 'Deshabilitado administrativamente' : 'Habilitado administrativamente' }}</p>
+              <button class="button secondary compact" type="button" (click)="viewMarker(marker)">Ver detalle del espacio</button>
+              <a [href]="googleMapsUrl(marker)" target="_blank" rel="noopener">Abrir coordenadas en Google Maps</a>
+            } @else { <p>Seleccione un marcador o un espacio del listado para consultar los datos registrados.</p> }
+          </aside>
+        </div>
+      }
+      <ul class="map-marker-list" aria-label="Espacios georreferenciados en el ámbito">
+        @for (marker of coverage.markers; track marker.id) {
+          <li [attr.data-marker-id]="marker.id"><button type="button" [class.selected]="selectedMarker()?.id === marker.id" (click)="selectMarker(marker)"><strong>{{ marker.spaceNumber }} · {{ marker.code }}</strong><span>{{ marker.zoneCode }} · {{ marker.streetCode }} · {{ marker.active ? 'Habilitado' : 'Deshabilitado' }} · {{ mapStatusLabel(marker.mapStatus) }}</span></button></li>
+        }
+      </ul>
+      <p class="map-attribution">Mapa &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>. Los espacios sin coordenadas permanecen fuera del mapa.</p>
+    }
+  </section>
   @if (errorMessage() && streetsState() === 'error') {
     <app-data-state
       kind="error"

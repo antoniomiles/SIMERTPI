@@ -21,7 +21,8 @@ public class ParkingAvailabilityService {
     }
     public record Availability(UUID parkingSpaceId, UUID streetId, UUID zoneId, String spaceCode,
             boolean active, String operationalStatus, boolean selectable, OffsetDateTime expectedEndAt,
-            Long remainingSeconds, BigDecimal latitude, BigDecimal longitude, Instant evaluatedAt, long endingSoonSeconds) { }
+            Long remainingSeconds, BigDecimal latitude, BigDecimal longitude, Instant evaluatedAt,
+            long endingSoonSeconds, String mapStatus) { }
     @Transactional(readOnly=true)
     public List<Availability> list() {
         Instant now = Instant.now();
@@ -56,6 +57,26 @@ public class ParkingAvailabilityService {
         if (enabled && List.of("ACTIVE","EXTENDED").contains(state == null ? "" : state)
                 && remaining != null && remaining > 0 && remaining <= threshold) status="ENDING_SOON";
         return new Availability(id,street,zone,code,active,status,"AVAILABLE".equals(status),
-                revealTime ? end : null,remaining,lat,lon,now,threshold);
+                revealTime ? end : null,remaining,lat,lon,now,threshold,
+                mapStatus(enabled,state,end,now,threshold));
+    }
+
+    /** Map-only visual projection; never changes occupancy or control decisions. Uses server time and the configured reminder threshold. */
+    public static String mapStatus(boolean enabled, String state, OffsetDateTime end, Instant now, long threshold) {
+        // Precedence is intentional: administrative disablement > pending payment > session time/status > no active session.
+        if (!enabled) return "DISABLED";
+        if (state == null) return "NO_ACTIVE_SESSION";
+        if ("PENDING_PAYMENT".equals(state)) return "PAYMENT_PENDING";
+        if (List.of("ACTIVE", "EXTENDED").contains(state)) {
+            if (end == null) return "UNKNOWN";
+            long remaining = Duration.between(now, end.toInstant()).getSeconds();
+            if (remaining <= 0) return "EXPIRED";
+            return remaining <= threshold ? "ENDING_SOON" : "ACTIVE";
+        }
+        if ("MAX_TIME_REACHED".equals(state))
+            return end == null || !end.toInstant().isAfter(now) ? "MAX_TIME_REACHED" : "UNKNOWN";
+        if ("EXPIRED".equals(state))
+            return end == null || !end.toInstant().isAfter(now) ? "EXPIRED" : "UNKNOWN";
+        return "UNKNOWN";
     }
 }

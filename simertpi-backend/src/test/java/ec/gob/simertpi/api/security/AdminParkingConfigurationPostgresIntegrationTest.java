@@ -14,9 +14,13 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import java.util.UUID;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
 import java.time.OffsetDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -190,7 +194,141 @@ class AdminParkingConfigurationPostgresIntegrationTest extends AbstractPostgresI
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.content[0].id").value(spaceId.toString()))
-                .andExpect(jsonPath("$.content[0].operationalStatus").value("AVAILABLE"));
+                .andExpect(jsonPath("$.content[0].operationalStatus").value("AVAILABLE"))
+                .andExpect(jsonPath("$.content[0].mapStatus").value("NO_ACTIVE_SESSION"));
+    }
+
+    @Test
+    void administrativeSpaceGeneratesStableQrAndRejectsDuplicateCoordinatesWhileMapReadsPersistedPoints() throws Exception {
+        String suffix=UUID.randomUUID().toString().substring(0,8);
+        MvcResult zone=postJson("/api/v1/admin/parking/zones","{\"code\":\"QA-MAP-Z-"+suffix+"\",\"name\":\"Zona mapa sintética\"}").andExpect(status().isCreated()).andReturn();
+        UUID zoneId=UUID.fromString(json(zone,"id"));
+        MvcResult street=postJson("/api/v1/admin/parking/zones/"+zoneId+"/streets","{\"code\":\"QA-MAP-S-"+suffix+"\",\"name\":\"Calle mapa sintética\"}").andExpect(status().isCreated()).andReturn();
+        UUID streetId=UUID.fromString(json(street,"id"));
+        String body="{\"code\":\"QA-MAP-P-"+suffix+"\",\"qrCode\":\"CLIENT-SUPPLIED-SHOULD-BE-IGNORED\",\"spaceNumber\":\"01\",\"latitude\":-3.672,\"longitude\":-79.652}";
+        MvcResult created=postJson("/api/v1/admin/parking/streets/"+streetId+"/spaces",body).andExpect(status().isCreated()).andReturn();
+        UUID id=UUID.fromString(json(created,"id"));
+        String qr=json(created,"qrCode");
+        assertThat(qr).isEqualTo("SIMERTPI:SPACE:"+id);
+        assertThat(jdbc.queryForObject("SELECT qr_code FROM parking.parking_spaces WHERE id=?",String.class,id)).isEqualTo(qr);
+        mvc.perform(get("/api/v1/parking-spaces/qr/"+org.springframework.web.util.UriUtils.encodePathSegment(qr,java.nio.charset.StandardCharsets.UTF_8)).secure(true))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.id").value(id.toString())).andExpect(jsonPath("$.qrCode").value(qr));
+
+        mvc.perform(get("/api/v1/admin/parking/catalog/map").secure(true)).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/admin/parking/catalog/map").secure(true).cookie(sessionCookie).param("zoneId",zoneId.toString()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalSpaces").value(1))
+                .andExpect(jsonPath("$.georeferencedSpaces").value(1)).andExpect(jsonPath("$.markers[0].id").value(id.toString()))
+                .andExpect(jsonPath("$.markers[0].operationalStatus").value("AVAILABLE"))
+                .andExpect(jsonPath("$.markers[0].mapStatus").value("NO_ACTIVE_SESSION"))
+                .andExpect(jsonPath("$.evaluatedAt").exists()).andExpect(jsonPath("$.refreshIntervalSeconds").value(60));
+        mvc.perform(get("/api/v1/admin/parking/catalog/spaces/nearby").secure(true).cookie(sessionCookie)
+                        .param("latitude","-3.672").param("longitude","-79.652").param("radiusMeters","3"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].code").value("QA-MAP-P-"+suffix));
+
+        String duplicate="{\"code\":\"QA-MAP-DUP-"+suffix+"\",\"spaceNumber\":\"02\",\"latitude\":-3.6720000,\"longitude\":-79.6520000}";
+        mvc.perform(post("/api/v1/admin/parking/streets/"+streetId+"/spaces").secure(true).cookie(sessionCookie,csrfCookie)
+                        .header("X-XSRF-TOKEN",csrfCookie.getValue()).contentType("application/json").content(duplicate))
+                .andExpect(status().isConflict());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.parking_spaces WHERE code LIKE 'QA-MAP-DUP-%'",Integer.class)).isZero();
+
+        String update="{\"code\":\"QA-MAP-P-"+suffix+"\",\"spaceNumber\":\"01\",\"latitude\":-3.672,\"longitude\":-79.652,\"spaceType\":\"STANDARD\",\"active\":true,\"expectedUpdatedAt\":\""+json(created,"updatedAt")+"\"}";
+        mvc.perform(put("/api/v1/admin/parking/spaces/"+id).secure(true).cookie(sessionCookie,csrfCookie)
+                        .header("X-XSRF-TOKEN",csrfCookie.getValue()).contentType("application/json").content(update))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.qrCode").value(qr));
+        assertThat(jdbc.queryForObject("SELECT qr_code FROM parking.parking_spaces WHERE id=?",String.class,id)).isEqualTo(qr);
+    }
+
+    @Test
+    void mapAndSpaceCatalogShareServerEvaluatedSessionLifecycleOnPostgres() throws Exception {
+        String suffix=UUID.randomUUID().toString().substring(0,8);
+        MvcResult z=postJson("/api/v1/admin/parking/zones","{\"code\":\"QA-MAP-STATE-Z-"+suffix+"\",\"name\":\"Zona estados mapa\"}").andExpect(status().isCreated()).andReturn();
+        UUID zoneId=UUID.fromString(json(z,"id"));
+        MvcResult st=postJson("/api/v1/admin/parking/zones/"+zoneId+"/streets","{\"code\":\"QA-MAP-STATE-S-"+suffix+"\",\"name\":\"Calle estados mapa\"}").andExpect(status().isCreated()).andReturn();
+        UUID streetId=UUID.fromString(json(st,"id"));
+        double latitude=-3.671+(Integer.parseInt(suffix.substring(0,4),16)%1000)*0.000001d;
+        double longitude=-79.651+(Integer.parseInt(suffix.substring(4,8),16)%1000)*0.000001d;
+        String coordinates=String.format(java.util.Locale.ROOT,"\"latitude\":%.6f,\"longitude\":%.6f",latitude,longitude);
+        MvcResult sp=postJson("/api/v1/admin/parking/streets/"+streetId+"/spaces","{\"code\":\"QA-MAP-STATE-P-"+suffix+"\",\"spaceNumber\":\"01\","+coordinates+"}").andExpect(status().isCreated()).andReturn();
+        UUID spaceId=UUID.fromString(json(sp,"id")); UUID vehicleId=UUID.randomUUID(); UUID sessionId=UUID.randomUUID();
+        jdbc.update("INSERT INTO identity.vehicles(id,user_id,plate,active) VALUES (?,?,?,TRUE)",vehicleId,adminId,"MST"+suffix.substring(0,6));
+        OffsetDateTime now=OffsetDateTime.now();
+        jdbc.update("INSERT INTO parking.parking_sessions(id,user_id,vehicle_id,parking_space_id,started_at,expected_end_at,status,total_amount) VALUES (?,?,?,?,?,?,?,0)",sessionId,adminId,vehicleId,spaceId,now.minusMinutes(30),now.plusHours(1),"ACTIVE");
+        assertMapAndCatalogState(zoneId,streetId,spaceId,"ACTIVE");
+
+        jdbc.update("UPDATE parking.parking_sessions SET status='PENDING_PAYMENT',expected_end_at=CURRENT_TIMESTAMP-INTERVAL '1 second' WHERE id=?",sessionId);
+        assertMapAndCatalogState(zoneId,streetId,spaceId,"PAYMENT_PENDING");
+        jdbc.update("UPDATE parking.parking_sessions SET status='ACTIVE',expected_end_at=CURRENT_TIMESTAMP+INTERVAL '1 hour' WHERE id=?",sessionId);
+        assertMapAndCatalogState(zoneId,streetId,spaceId,"ACTIVE");
+
+        jdbc.update("UPDATE parking.parking_sessions SET expected_end_at=CURRENT_TIMESTAMP + INTERVAL '30 seconds' WHERE id=?",sessionId);
+        assertMapAndCatalogState(zoneId,streetId,spaceId,"ENDING_SOON");
+
+        jdbc.update("UPDATE parking.parking_sessions SET expected_end_at=CURRENT_TIMESTAMP - INTERVAL '1 second' WHERE id=?",sessionId);
+        assertMapAndCatalogState(zoneId,streetId,spaceId,"EXPIRED");
+
+        jdbc.update("UPDATE parking.parking_sessions SET status='MAX_TIME_REACHED' WHERE id=?",sessionId);
+        assertMapAndCatalogState(zoneId,streetId,spaceId,"MAX_TIME_REACHED");
+
+        jdbc.update("UPDATE parking.parking_spaces SET active=FALSE WHERE id=?",spaceId);
+        assertMapAndCatalogState(zoneId,streetId,spaceId,"DISABLED");
+        jdbc.update("UPDATE parking.parking_spaces SET active=TRUE WHERE id=?",spaceId);
+
+        jdbc.update("UPDATE parking.parking_sessions SET status='COMPLETED',ended_at=CURRENT_TIMESTAMP WHERE id=?",sessionId);
+        assertMapAndCatalogState(zoneId,streetId,spaceId,"NO_ACTIVE_SESSION");
+
+        jdbc.update("UPDATE parking.parking_spaces SET active=FALSE WHERE id=?",spaceId);
+        assertMapAndCatalogState(zoneId,streetId,spaceId,"DISABLED");
+    }
+
+    private void assertMapAndCatalogState(UUID zoneId,UUID streetId,UUID spaceId,String expected) throws Exception {
+        mvc.perform(get("/api/v1/admin/parking/catalog/map").secure(true).cookie(sessionCookie)
+                        .param("zoneId",zoneId.toString()).param("streetId",streetId.toString()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.markers[0].mapStatus").value(expected));
+        mvc.perform(get("/api/v1/admin/parking/catalog/spaces").secure(true).cookie(sessionCookie)
+                        .param("zoneId",zoneId.toString()).param("streetId",streetId.toString()).param("size","10"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.content[0].id").value(spaceId.toString()))
+                .andExpect(jsonPath("$.content[0].mapStatus").value(expected));
+    }
+
+    @Test
+    void coordinatePairConstraintRejectsDuplicatesUnderConcurrencyButAllowsNearbySpaces() throws Exception {
+        String suffix=UUID.randomUUID().toString().substring(0,8);
+        MvcResult zone=postJson("/api/v1/admin/parking/zones","{\"code\":\"QA-COORD-Z-"+suffix+"\",\"name\":\"Zona coordenadas\"}").andExpect(status().isCreated()).andReturn();
+        UUID zoneId=UUID.fromString(json(zone,"id"));
+        MvcResult street=postJson("/api/v1/admin/parking/zones/"+zoneId+"/streets","{\"code\":\"QA-COORD-S-"+suffix+"\",\"name\":\"Calle coordenadas\"}").andExpect(status().isCreated()).andReturn();
+        UUID streetId=UUID.fromString(json(street,"id"));
+
+        postJson("/api/v1/admin/parking/streets/"+streetId+"/spaces",
+                "{\"code\":\"QA-COORD-BASE-"+suffix+"\",\"spaceNumber\":\"01\",\"latitude\":-3.67,\"longitude\":-79.65}")
+                .andExpect(status().isCreated());
+        postJson("/api/v1/admin/parking/streets/"+streetId+"/spaces",
+                "{\"code\":\"QA-COORD-NEAR-"+suffix+"\",\"spaceNumber\":\"02\",\"latitude\":-3.670005,\"longitude\":-79.65}")
+                .andExpect(status().isCreated());
+        mvc.perform(get("/api/v1/admin/parking/catalog/spaces/nearby").secure(true).cookie(sessionCookie)
+                        .param("latitude","-3.67").param("longitude","-79.65").param("radiusMeters","3"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(2));
+
+        assertThatThrownBy(() -> jdbc.update("INSERT INTO parking.parking_spaces(id,street_id,code,qr_code,space_number,latitude,longitude) VALUES (?,?,?,?,?,?,?)",
+                UUID.randomUUID(),streetId,"QA-COORD-SQL-DUP-"+suffix,"QA-COORD-SQL-QR-"+suffix,"99",-3.67,-79.65))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+
+        var executor=Executors.newFixedThreadPool(2);
+        var ready=new CountDownLatch(2);var start=new CountDownLatch(1);
+        var nextNumber=new java.util.concurrent.atomic.AtomicInteger(3);
+        try {
+            var request=(java.util.concurrent.Callable<Integer>)()->{
+                ready.countDown();start.await();
+                int number=nextNumber.getAndIncrement();String code="QA-COORD-RACE-"+suffix+"-"+number;
+                String body="{\"code\":\""+code+"\",\"spaceNumber\":\""+number+"\",\"latitude\":-3.671,\"longitude\":-79.651}";
+                return mvc.perform(post("/api/v1/admin/parking/streets/"+streetId+"/spaces").secure(true).cookie(sessionCookie,csrfCookie)
+                        .header("X-XSRF-TOKEN",csrfCookie.getValue()).contentType("application/json").content(body))
+                        .andReturn().getResponse().getStatus();
+            };
+            var first=executor.submit(request);var second=executor.submit(request);
+            assertThat(ready.await(5,java.util.concurrent.TimeUnit.SECONDS)).isTrue();start.countDown();
+            assertThat(List.of(first.get(),second.get())).containsExactlyInAnyOrder(201,409);
+        } finally { executor.shutdownNow(); }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.parking_spaces WHERE latitude=-3.671 AND longitude=-79.651",Integer.class)).isEqualTo(1);
     }
 
     @Test

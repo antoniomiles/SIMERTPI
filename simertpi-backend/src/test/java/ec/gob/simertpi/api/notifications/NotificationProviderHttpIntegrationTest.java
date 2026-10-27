@@ -152,7 +152,7 @@ class NotificationProviderHttpIntegrationTest extends ec.gob.simertpi.testsuppor
    jdbc.update("DELETE FROM parking.parking_spaces WHERE id=?",space);jdbc.update("DELETE FROM parking.streets WHERE id=?",street);jdbc.update("DELETE FROM parking.zones WHERE id=?",zone);jdbc.update("DELETE FROM identity.vehicles WHERE id=?",vehicle);
   }
  }
-  @Test void flywayValidatesCurrentSchema(){flyway.validate();assertThat(flyway.info().current().getVersion().toString()).isEqualTo("47");}
+  @Test void flywayValidatesCurrentSchema(){flyway.validate();assertThat(flyway.info().current().getVersion().toString()).isEqualTo("48");}
 
  @Test void approvedExtensionCreatesOneLogicalInboxItemAndPerDevicePushes(){
   device("ANDROID");device("IOS");UUID source=UUID.randomUUID();OffsetDateTime now=OffsetDateTime.now(); UUID outbox=outbox("PARKING_EXTENSION_CONFIRMED",source);

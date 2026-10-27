@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -77,18 +78,33 @@ public class AdminParkingCatalogService {
         ParkingSpace space = spaces.findByIdForUpdate(id).orElseThrow(() -> new ResourceNotFoundException("El espacio no existe"));
         checkVersion(space.getUpdatedAt(), request.expectedUpdatedAt());
         if (!space.getCode().equals(request.code()) && spaces.existsByCodeAndIdNot(request.code(), id)) conflict("El código del espacio ya existe.");
-        if (!space.getQrCode().equals(request.qrCode()) && spaces.existsByQrCodeAndIdNot(request.qrCode(), id)) conflict("El código QR ya existe.");
         if (!space.getSpaceNumber().equals(request.spaceNumber()) && spaces.existsByStreetIdAndSpaceNumberAndIdNot(space.getStreetId(), request.spaceNumber(), id)) conflict("El número ya existe en esta calle.");
+        if (request.latitude() != null) {
+            spaces.findFirstByLatitudeAndLongitudeAndIdNot(request.latitude(), request.longitude(), id)
+                    .ifPresent(other -> conflict("Estas coordenadas ya están registradas en el espacio " + other.getCode() + "."));
+        }
         if (space.isActive() && !request.active() && openSessionsInSpace(id) > 0)
             conflict("No se puede deshabilitar el espacio mientras tenga una sesión operativa abierta.");
-        Map<String, Object> before = Map.of("code", space.getCode(), "spaceNumber", space.getSpaceNumber(), "active", space.isActive());
-        space.setCode(request.code().trim()); space.setQrCode(request.qrCode().trim());
+        Map<String, Object> before = Map.of("code", space.getCode(), "spaceNumber", space.getSpaceNumber(), "active", space.isActive(),
+                "latitude", String.valueOf(space.getLatitude()), "longitude", String.valueOf(space.getLongitude()), "spaceType", space.getSpaceType());
+        space.setCode(request.code().trim());
         space.setSpaceNumber(request.spaceNumber().trim()); space.setLatitude(request.latitude()); space.setLongitude(request.longitude());
         space.setSpaceType(blankToDefault(request.spaceType(), "STANDARD")); space.setActive(request.active());
         space.setUpdatedAt(nextTime(space.getUpdatedAt()));
-        ParkingSpace saved = spaces.saveAndFlush(space);
+        ParkingSpace saved;
+        try {
+            saved = spaces.saveAndFlush(space);
+        } catch (DataIntegrityViolationException exception) {
+            String detail = exception.getMostSpecificCause().getMessage();
+            if (detail != null && detail.contains("uq_parking_spaces_coordinates")) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Estas coordenadas ya están registradas en otro espacio. Revise la ubicación seleccionada.", exception);
+            }
+            throw exception;
+        }
         audit.success("CONFIGURATION_PARKING_SPACE_UPDATED", "PARKING_SPACE", saved.getId(), null,
-                Map.of("before", compact(before), "after", compact(Map.of("code", saved.getCode(), "spaceNumber", saved.getSpaceNumber(), "active", saved.isActive()))));
+                Map.of("before", compact(before), "after", compact(Map.of("code", saved.getCode(), "spaceNumber", saved.getSpaceNumber(), "active", saved.isActive(),
+                        "latitude", String.valueOf(saved.getLatitude()), "longitude", String.valueOf(saved.getLongitude()), "spaceType", saved.getSpaceType()))));
         return saved;
     }
 

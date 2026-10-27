@@ -15,7 +15,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest(properties={"logging.level.root=WARN","spring.jpa.show-sql=false"})
+@SpringBootTest(properties={"logging.level.root=WARN","spring.jpa.show-sql=false","simertpi.admin-auth.idle-ttl=5m","simertpi.admin-auth.absolute-ttl=15m"})
 @AutoConfigureMockMvc
 class AdminAuthPostgresIntegrationTest extends AbstractPostgresIntegrationTest {
  @Autowired MockMvc mvc;@Autowired JdbcTemplate jdbc;@Autowired PasswordEncoder encoder;
@@ -38,6 +38,22 @@ class AdminAuthPostgresIntegrationTest extends AbstractPostgresIntegrationTest {
   assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM identity.admin_web_sessions WHERE user_id=? AND token_hash=?",Integer.class,adminId,AdminAuthenticationService.hash(session.getValue()))).isEqualTo(1);
   mvc.perform(get("/api/v1/admin/auth/me").secure(true).cookie(session)).andExpect(status().isOk()).andExpect(jsonPath("$.username").value(admin)).andExpect(header().string("Cache-Control","no-store"));
   assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit.functional_audit_log WHERE action='ADMIN_LOGIN' AND actor_id=? AND result='SUCCESS'",Integer.class,adminId)).isEqualTo(1);
+ }
+ @Test void meRenewsTheFiveMinuteIdleDeadlineAndReturnsThePersistedServerDeadline()throws Exception{
+  var result=login(admin,PASSWORD,csrf());assertThat(result.getResponse().getStatus()).isEqualTo(200);
+  Cookie session=cookie(result,AdminAuthenticationService.COOKIE);
+  var mapper=new com.fasterxml.jackson.databind.ObjectMapper();
+  var loginIdentity=mapper.readTree(result.getResponse().getContentAsString());
+  var storedAtLogin=jdbc.queryForObject("SELECT idle_expires_at FROM identity.admin_web_sessions WHERE token_hash=?",java.time.OffsetDateTime.class,AdminAuthenticationService.hash(session.getValue()));
+  assertThat(java.time.OffsetDateTime.parse(loginIdentity.get("sessionExpiresAt").asText()).truncatedTo(java.time.temporal.ChronoUnit.MICROS)).isEqualTo(storedAtLogin);
+
+  var me=mvc.perform(get("/api/v1/admin/auth/me").secure(true).cookie(session)).andExpect(status().isOk()).andReturn();
+  var meIdentity=mapper.readTree(me.getResponse().getContentAsString());
+  var storedAfterMe=jdbc.queryForObject("SELECT idle_expires_at FROM identity.admin_web_sessions WHERE token_hash=?",java.time.OffsetDateTime.class,AdminAuthenticationService.hash(session.getValue()));
+  assertThat(java.time.OffsetDateTime.parse(meIdentity.get("sessionExpiresAt").asText()).truncatedTo(java.time.temporal.ChronoUnit.MICROS)).isEqualTo(storedAfterMe);
+  assertThat(storedAfterMe).isAfter(storedAtLogin);
+  var remaining=java.time.Duration.between(java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC),storedAfterMe);
+  assertThat(remaining).isLessThanOrEqualTo(java.time.Duration.ofMinutes(5)).isGreaterThan(java.time.Duration.ofMinutes(4).plusSeconds(50));
  }
  @Test void invalidPasswordDisabledCitizenAndInspectorRejectedAndAudited()throws Exception {
   for(String name:List.of(citizen,inspector,disabled))assertThat(login(name,PASSWORD,csrf()).getResponse().getStatus()).isEqualTo(401);

@@ -41,7 +41,8 @@ export function createPortalServer({root, upstream, allowLoopback = false, authT
     if(response.statusCode===502||response.statusCode===504){
      logger.warn(`event=admin_proxy_upstream_response timestamp=${new Date().toISOString()} method=${req.method} route=${normalizeRoute(pathname)} status=${response.statusCode} result=FAILURE reason=UPSTREAM_HTTP_RESPONSE correlationId=${correlationId} durationMs=${Date.now()-started} upstreamCorrelationPresent=${/^[A-Za-z0-9._:-]{1,128}$/.test(response.headers['x-correlation-id']??'')}`);
     }
-    const outgoing={...response.headers,'cache-control':'no-store','pragma':'no-cache','x-correlation-id':correlationId};
+    const isMapTile=req.method==='GET'&&/^\/api\/v1\/admin\/parking\/catalog\/map\/tiles\/\d+\/\d+\/\d+$/.test(pathname);
+    const outgoing={...response.headers,...(isMapTile?{}:{'cache-control':'no-store','pragma':'no-cache'}),'x-correlation-id':correlationId};
     for(const name of ['connection','keep-alive','transfer-encoding','upgrade'])delete outgoing[name];
     // Never cache API results, including failures. Set-Cookie is forwarded as separate headers.
     res.writeHead(response.statusCode??502,outgoing);

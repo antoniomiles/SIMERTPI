@@ -3,6 +3,7 @@ package ec.gob.simertpi.api.parking;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -21,9 +22,10 @@ public final class AdminCatalogUpdateRequests {
             @NotNull Boolean active, @NotNull OffsetDateTime expectedUpdatedAt) { }
 
     public record SpaceUpdate(@NotBlank @Size(max = 50) String code,
-            @NotBlank @Size(max = 255) String qrCode, @NotBlank @Size(max = 20) String spaceNumber,
-            @DecimalMin("-90.0") @DecimalMax("90.0") BigDecimal latitude,
-            @DecimalMin("-180.0") @DecimalMax("180.0") BigDecimal longitude,
+            @Size(max = 255) String qrCode,
+            @NotBlank @Size(max = 20) String spaceNumber,
+            @DecimalMin("-90.0") @DecimalMax("90.0") @Digits(integer = 3, fraction = 7) BigDecimal latitude,
+            @DecimalMin("-180.0") @DecimalMax("180.0") @Digits(integer = 3, fraction = 7) BigDecimal longitude,
             @Size(max = 30) String spaceType, @NotNull Boolean active,
             @NotNull OffsetDateTime expectedUpdatedAt) {
         @AssertTrue(message = "La latitud y la longitud deben informarse juntas")

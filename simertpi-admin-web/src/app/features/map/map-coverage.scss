@@ -36,7 +36,7 @@
 .geography-note app-icon {
   width: 1.7rem;
   height: 1.7rem;
-  color: #020562;
+  color: #0b6b3a;
 }
 .geography-note h2,
 .section-heading h2 {
@@ -54,7 +54,7 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1rem;
 }
-.selection-panel label,
+.selection-panel .selection-field,
 .filters label {
   display: grid;
   gap: 0.35rem;
@@ -96,7 +96,7 @@
 }
 .summary-grid strong {
   font-size: 1.65rem;
-  color: #020562;
+  color: #0b6b3a;
 }
 .range-warning {
   padding: 0.75rem 1rem;

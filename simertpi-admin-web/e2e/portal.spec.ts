@@ -104,7 +104,7 @@ test('map coverage preview does not query the backend or draw sample locations',
   await page.goto('/preview/map');
   await expect(page.getByRole('heading', { name: 'Mapa de estacionamientos' })).toBeVisible();
   await expect(
-    page.getByRole('heading', { name: 'Vista geográfica pendiente de validación municipal' }),
+    page.getByRole('heading', { name: /Ubicaciones registradas, pendientes de validaci/ }),
   ).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Previsualización sin datos' })).toBeVisible();
   await expect(page.locator('[data-map-marker]')).toHaveCount(0);

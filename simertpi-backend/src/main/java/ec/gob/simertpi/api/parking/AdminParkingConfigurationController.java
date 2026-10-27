@@ -73,6 +73,20 @@ public class AdminParkingConfigurationController {
         return noStore(catalogQuery.spaces(q, zoneId, streetId, active, operational, georeferenced, page, size));
     }
 
+    @GetMapping("/catalog/map")
+    public ResponseEntity<AdminCatalogQueryService.MapCoverage> catalogMap(
+            @RequestParam(required=false) UUID zoneId, @RequestParam(required=false) UUID streetId,
+            @RequestParam(defaultValue="1000") int limit) {
+        return noStore(catalogQuery.mapCoverage(zoneId, streetId, limit));
+    }
+
+    @GetMapping("/catalog/spaces/nearby")
+    public ResponseEntity<List<AdminCatalogQueryService.NearbySpace>> nearbySpaces(
+            @RequestParam java.math.BigDecimal latitude, @RequestParam java.math.BigDecimal longitude,
+            @RequestParam(required=false) UUID excludeId, @RequestParam(defaultValue="3") double radiusMeters) {
+        return noStore(catalogQuery.nearby(latitude, longitude, excludeId, radiusMeters));
+    }
+
     @PostMapping("/zones")
     public ResponseEntity<ZoneResponse> createZone(@Valid @RequestBody CreateZoneRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore())
@@ -118,7 +132,8 @@ public class AdminParkingConfigurationController {
         if (!parent.isActive()) throw new ResponseStatusException(HttpStatus.CONFLICT, "No se puede registrar un espacio en una calle deshabilitada");
         Zone zone = zones.findById(parent.getZoneId()).orElseThrow(() -> new ResourceNotFoundException("La zona no existe"));
         if (!zone.isActive()) throw new ResponseStatusException(HttpStatus.CONFLICT, "No se puede registrar un espacio en una zona deshabilitada");
-        ParkingSpace created = spaces.create(streetId, request.code(), request.qrCode(), request.spaceNumber(),
+        // Administrative QR identities are server-generated from the newly assigned UUID.
+        ParkingSpace created = spaces.create(streetId, request.code(), null, request.spaceNumber(),
                 request.latitude(), request.longitude(), request.spaceType());
         return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore()).body(toResponse(created));
     }

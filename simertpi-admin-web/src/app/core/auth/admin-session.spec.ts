@@ -7,6 +7,7 @@ import {
 } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter, Router } from '@angular/router';
+import { HttpClient } from '@angular/common/http';
 import { AdminSession } from './admin-session';
 import { AdminIdentity, safeReturnUrl } from './admin-session-state';
 import { PORTAL_CONFIG } from '../config/portal-config';
@@ -118,6 +119,39 @@ describe('Real administrative session client', () => {
     http.expectOne('/api/v1/admin/auth/me').flush(identity());
     expect(session.identity()?.username).toBe('fixture.admin');
   });
+  it('synchronizes the local idle deadline after ordinary authenticated API activity', () => {
+    vi.useFakeTimers();
+    const client = TestBed.inject(HttpClient);
+    succeed();
+    vi.advanceTimersByTime(30_001);
+    client.get('/api/v1/admin/parking/zones').subscribe();
+    http.expectOne('/api/v1/admin/parking/zones').flush([]);
+    const renewal = http.expectOne('/api/v1/admin/auth/me');
+    expect(renewal.request.method).toBe('GET');
+    renewal.flush(identity(120));
+    expect(session.authenticated()).toBe(true);
+    vi.advanceTimersByTime(120_001);
+    http.expectNone('/api/v1/admin/auth/me');
+    expect(session.authenticated()).toBe(false);
+  });
+  it('uses the server Date header to account for client clock skew without extending server TTL', () => {
+    vi.useFakeTimers();
+    const serverNow = Date.now();
+    vi.setSystemTime(serverNow + 120_000);
+    session.signIn('fixture.admin', 'unit-test-only').subscribe();
+    http.expectOne('/api/v1/admin/auth/csrf').flush(null, {
+      status: 204, statusText: 'No Content', headers: { Date: new Date(serverNow).toUTCString() },
+    });
+    http.expectOne('/api/v1/admin/auth/login').flush({
+      ...identity(), sessionExpiresAt: new Date(serverNow + 60_000).toISOString(),
+      absoluteExpiresAt: new Date(serverNow + 3_600_000).toISOString(),
+    }, { headers: { Date: new Date(serverNow).toUTCString() } });
+    expect(session.authenticated()).toBe(true);
+    // HTTP Date is second-precision, so allow its bounded <1s quantization.
+    vi.advanceTimersByTime(62_000);
+    http.expectNone('/api/v1/admin/auth/me');
+    expect(session.authenticated()).toBe(false);
+  });
   it('does not accept citizen or expired identities', () => {
     session.restore().subscribe((ok) => expect(ok).toBe(false));
     http.expectOne('/api/v1/admin/auth/me').flush({ ...identity(), roles: ['CITIZEN'] });
@@ -143,7 +177,7 @@ describe('Real administrative session client', () => {
       .flush('unavailable', { status: 503, statusText: 'Unavailable' });
     expect(session.authenticated()).toBe(true);
   });
-  it('expires the frontend view and safely returns to login', () => {
+  it('expires an idle session without a timer-driven renewal request', () => {
     vi.useFakeTimers();
     const router = TestBed.inject(Router);
     vi.spyOn(router, 'url', 'get').mockReturnValue('/admin/dashboard');
@@ -152,6 +186,7 @@ describe('Real administrative session client', () => {
     http.expectOne('/api/v1/admin/auth/csrf').flush(null);
     http.expectOne('/api/v1/admin/auth/login').flush(identity(1));
     vi.advanceTimersByTime(1001);
+    http.expectNone('/api/v1/admin/auth/me');
     expect(session.authenticated()).toBe(false);
     expect(navigate).toHaveBeenCalledWith(['/login'], { queryParams: { reason: 'expired' } });
   });
