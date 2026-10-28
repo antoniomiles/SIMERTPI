@@ -161,7 +161,52 @@
             @if (detail.notifiedAt) { <div><dt>Notificada</dt><dd>{{ detail.notifiedAt | date: 'medium': '-0500' }} hora Ecuador</dd></div> }
             @if (detail.paidAt) { <div><dt>Estado pagado registrado</dt><dd>{{ detail.paidAt | date: 'medium': '-0500' }} hora Ecuador</dd></div> }
           </dl>
-          <p class="helper">El detalle no expone narrativas personales, coordenadas, datos del propietario, ni metadatos internos de archivos.</p>
+          <section class="evidence-section" aria-labelledby="evidence-heading">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">ARCHIVOS VINCULADOS</p>
+                <h3 id="evidence-heading">Evidencias ({{ detail.evidenceCount }})</h3>
+              </div>
+              @if (evidenceState() === 'error') {
+                <button class="button secondary" type="button" (click)="loadEvidence(detail.id)">Reintentar</button>
+              }
+            </div>
+            @if (evidenceState() === 'loading') {
+              <p role="status">Consultando evidencias…</p>
+            } @else if (evidenceState() === 'error') {
+              <p class="field-error" role="alert">{{ evidenceError() }}</p>
+            } @else if (evidenceState() === 'ready' && evidence().length === 0) {
+              <p class="helper">No hay archivos adjuntos a este registro.</p>
+            } @else if (evidenceState() === 'ready') {
+              <ul class="evidence-list">
+                @for (item of evidence(); track item.id) {
+                  <li>
+                    <div class="evidence-meta">
+                      <strong>{{ evidenceTypeLabel(item) }}</strong>
+                      <span>{{ evidenceDownloadLabel(item) }}</span>
+                      <small>{{ fileSizeLabel(item.fileSize) }} · registrada {{ item.createdAt | date: 'medium': '-0500' }} (hora Ecuador)</small>
+                      @if (item.capturedAt) {
+                        <small>Hora de captura informada por el dispositivo: {{ item.capturedAt | date: 'medium': '-0500' }} (hora Ecuador)</small>
+                      }
+                    </div>
+                    <button class="button secondary download-button" type="button"
+                      (click)="downloadEvidence(item)"
+                      [disabled]="downloadingEvidenceId() !== null"
+                      [attr.aria-label]="'Descargar ' + evidenceDownloadLabel(item)">
+                      {{ downloadingEvidenceId() === item.id ? 'Descargando…' : 'Descargar' }}
+                    </button>
+                  </li>
+                }
+              </ul>
+              @if (evidenceDownloadMessage()) {
+                <p class="success-message" role="status">{{ evidenceDownloadMessage() }}</p>
+              }
+              @if (evidenceError()) {
+                <p class="field-error" role="alert">{{ evidenceError() }}</p>
+              }
+            }
+          </section>
+          <p class="helper">Vista administrativa de solo consulta. Los tipos y estados se muestran como fueron registrados; esta pantalla no determina infracciones, sanciones ni multas.</p>
         }
       </section>
     }

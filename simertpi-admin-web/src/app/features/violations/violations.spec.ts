@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute } from '@angular/router';
 import { of, throwError } from 'rxjs';
 import { PortalError } from '../../core/http/portal-error';
-import { AdminViolation, AdminViolationPage, ViolationsApi } from './violations-api';
+import { AdminEvidence, AdminViolation, AdminViolationPage, ViolationsApi } from './violations-api';
 import { Violations } from './violations';
 
 const row: AdminViolation = {
@@ -34,12 +34,33 @@ const page: AdminViolationPage = {
   first: true,
   last: true,
 };
+const evidence: AdminEvidence = {
+  id: 'evidence-001',
+  violationId: row.id,
+  evidenceType: 'PHOTO',
+  contentType: 'image/jpeg',
+  fileSize: 2048,
+  capturedAt: '2026-10-19T14:00:00Z',
+  latitude: null,
+  longitude: null,
+  createdAt: '2026-10-19T14:01:00Z',
+};
 
 describe('Administrative violations view', () => {
-  let api: { search: ReturnType<typeof vi.fn>; detail: ReturnType<typeof vi.fn> };
+  let api: {
+    search: ReturnType<typeof vi.fn>;
+    detail: ReturnType<typeof vi.fn>;
+    evidence: ReturnType<typeof vi.fn>;
+    downloadEvidence: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(async () => {
-    api = { search: vi.fn().mockReturnValue(of(page)), detail: vi.fn().mockReturnValue(of(row)) };
+    api = {
+      search: vi.fn().mockReturnValue(of(page)),
+      detail: vi.fn().mockReturnValue(of(row)),
+      evidence: vi.fn().mockReturnValue(of([evidence])),
+      downloadEvidence: vi.fn().mockReturnValue(of(new Blob(['image']))),
+    };
     await TestBed.configureTestingModule({
       imports: [Violations],
       providers: [
@@ -65,13 +86,23 @@ describe('Administrative violations view', () => {
     const fixture = TestBed.createComponent(Violations);
     fixture.detectChanges();
     fixture.componentInstance.filters.setValue({
-      q: 'ABC-123', plate: 'ABC-123', zone: 'Z-1', status: 'OPEN',
-      from: '2026-10-19', to: '2026-10-19',
+      q: 'ABC-123',
+      plate: 'ABC-123',
+      zone: 'Z-1',
+      status: 'OPEN',
+      from: '2026-10-19',
+      to: '2026-10-19',
     });
     fixture.componentInstance.load(0);
     expect(api.search).toHaveBeenLastCalledWith({
-      page: 0, size: 25, q: 'ABC-123', plate: 'ABC-123', zone: 'Z-1', status: 'OPEN',
-      from: '2026-10-19', to: '2026-10-19',
+      page: 0,
+      size: 25,
+      q: 'ABC-123',
+      plate: 'ABC-123',
+      zone: 'Z-1',
+      status: 'OPEN',
+      from: '2026-10-19',
+      to: '2026-10-19',
     });
   });
 
@@ -106,6 +137,47 @@ describe('Administrative violations view', () => {
     expect(fixture.nativeElement.textContent).toContain('DETALLE MINIMIZADO');
     expect(fixture.nativeElement.textContent).not.toContain('private violation narrative');
     expect(fixture.nativeElement.textContent).not.toContain('Valor de multa');
+    expect(api.evidence).toHaveBeenCalledWith(row.id);
+    expect(fixture.nativeElement.textContent).toContain('Evidencia evidence');
+    expect(fixture.nativeElement.textContent).toContain('Fotografía JPEG');
+  });
+
+  it('reports an evidence query failure without hiding the violation detail', () => {
+    api.evidence.mockReturnValueOnce(
+      throwError(() => new PortalError('unavailable', 'No se pudo consultar la evidencia.')),
+    );
+    const fixture = TestBed.createComponent(Violations);
+    fixture.detectChanges();
+    fixture.componentInstance.openDetail(row);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.detailState()).toBe('idle');
+    expect(fixture.componentInstance.evidenceState()).toBe('error');
+    expect(fixture.nativeElement.textContent).toContain('No se pudo consultar la evidencia.');
+    expect(fixture.nativeElement.textContent).toContain(row.inspectionId);
+  });
+
+  it('requests evidence downloads only after an explicit administrator action', () => {
+    const fixture = TestBed.createComponent(Violations);
+    fixture.detectChanges();
+    expect(api.downloadEvidence).not.toHaveBeenCalled();
+    fixture.componentInstance.openDetail(row);
+    fixture.detectChanges();
+    expect(api.downloadEvidence).not.toHaveBeenCalled();
+    const createUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:admin-evidence');
+    const revokeUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => undefined);
+    fixture.componentInstance.downloadEvidence(evidence);
+    fixture.detectChanges();
+    expect(api.downloadEvidence).toHaveBeenCalledWith(evidence.id);
+    expect(createUrl).toHaveBeenCalledOnce();
+    expect(click).toHaveBeenCalledOnce();
+    expect(fixture.nativeElement.textContent).toContain('Descarga de evidencia iniciada.');
+    fixture.destroy();
+    createUrl.mockRestore();
+    revokeUrl.mockRestore();
+    click.mockRestore();
   });
 
   it('keeps local preview disconnected from enforcement records', () => {

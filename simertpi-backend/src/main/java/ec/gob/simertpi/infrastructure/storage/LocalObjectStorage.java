@@ -3,7 +3,6 @@ package ec.gob.simertpi.infrastructure.storage;
 import ec.gob.simertpi.application.enforcement.storage.ObjectStorage;
 import ec.gob.simertpi.api.InvalidRequestException;
 import ec.gob.simertpi.api.ResourceNotFoundException;
-import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -12,7 +11,6 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.regex.Pattern;
 
-@Component
 public class LocalObjectStorage implements ObjectStorage {
     private static final Pattern KEY_PATTERN = Pattern.compile("violations/[0-9a-fA-F-]{36}/[0-9a-f]{64}\\.(jpg|png|pdf)");
     private final EvidenceStorageProperties properties;

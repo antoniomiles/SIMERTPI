@@ -40,9 +40,17 @@ export class AdminSessionState {
   }
 }
 export function safeReturnUrl(value: string | null): string {
-  if (value === null || value.includes('\\') || value.includes('%') || value.includes('?') || value.includes('#'))
+  if (
+    value === null ||
+    value.includes('\\') ||
+    value.includes('%') ||
+    value.includes('?') ||
+    value.includes('#')
+  )
     return '/admin/dashboard';
-  return /^\/admin\/(?:dashboard|map|personal|access|audit|zones|streets|spaces|parking-sessions|violations|payments|reports|tariffs(?:\/(?:billing-days|holidays|hours|history))?)$/.test(value)
+  return /^\/admin\/(?:dashboard|map|personal|access|audit|zones|streets|spaces|parking-sessions|inspections|violations|payments|reports|tariffs(?:\/(?:billing-days|holidays|hours|history))?)$/.test(
+    value,
+  )
     ? value
     : '/admin/dashboard';
 }

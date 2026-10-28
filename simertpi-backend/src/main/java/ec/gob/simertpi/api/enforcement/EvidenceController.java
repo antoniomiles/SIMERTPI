@@ -5,6 +5,7 @@ import ec.gob.simertpi.api.enforcement.dto.EvidenceResponse;
 import ec.gob.simertpi.application.enforcement.EvidenceService;
 import ec.gob.simertpi.application.enforcement.EnforcementIdempotencyService;
 import ec.gob.simertpi.domain.enforcement.entity.Evidence;
+import org.springframework.http.CacheControl;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -73,6 +74,7 @@ public class EvidenceController {
             }
         };
         return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
                 .contentType(MediaType.parseMediaType(object.contentType()))
                 .contentLength(object.size())
                 .header(HttpHeaders.CONTENT_DISPOSITION,

@@ -218,6 +218,7 @@ class EnforcementHttpPostgresIntegrationTest extends ec.gob.simertpi.testsupport
         assertThat(java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
                 .digest(downloaded.getBody()))).isEqualTo(persistedEvidence.getSha256Hash());
         assertThat(downloaded.getHeaders().getFirst("X-Content-Type-Options")).isEqualTo("nosniff");
+        assertThat(downloaded.getHeaders().getCacheControl()).contains("no-store");
         ResponseEntity<String> citizenDownload = restTemplate.exchange(url("/api/v1/evidence/" + evidenceId + "/content"),
                 HttpMethod.GET, basicAuth(fixture.citizenName), String.class);
         assertThat(citizenDownload.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
@@ -304,9 +305,10 @@ class EnforcementHttpPostgresIntegrationTest extends ec.gob.simertpi.testsupport
         assertThat(b.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(objectMapper.readTree(a.getBody()).get("id")).isEqualTo(objectMapper.readTree(b.getBody()).get("id"));
         assertThat(evidence.findByViolationId(violationId)).hasSize(1);
-        try (var files = java.nio.file.Files.walk(STORAGE_DIRECTORY.resolve("violations/" + violationId))) {
-            assertThat(files.filter(java.nio.file.Files::isRegularFile).count()).isEqualTo(1);
-        }
+        UUID evidenceId = UUID.fromString(objectMapper.readTree(a.getBody()).get("id").asText());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM enforcement.evidence_content WHERE violation_id = ?", Long.class, violationId)).isEqualTo(1L);
+        assertThat(jdbc.queryForObject("SELECT evidence_id FROM enforcement.evidence_content WHERE violation_id = ?", UUID.class, violationId)).isEqualTo(evidenceId);
+        assertThat(java.nio.file.Files.exists(STORAGE_DIRECTORY.resolve("violations/" + violationId))).isFalse();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM audit.functional_audit_log WHERE actor_id = ? AND action = 'EVIDENCE_CREATED' AND result = 'SUCCESS'", Long.class, fixture.inspectorId)).isEqualTo(1);
     }
 
@@ -370,9 +372,10 @@ class EnforcementHttpPostgresIntegrationTest extends ec.gob.simertpi.testsupport
         assertThat(jdbc.queryForObject("SELECT count(*) FROM audit.functional_audit_log WHERE action = 'EVIDENCE_CREATED' AND resource_id = ? AND result = 'SUCCESS' AND correlation_id = ?", Long.class, id, "cp9-" + fixture.tag)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT actor_id FROM audit.functional_audit_log WHERE action = 'EVIDENCE_CREATED' AND resource_id = ?", UUID.class, id)).isEqualTo(fixture.inspectorId);
         assertThat(jdbc.queryForObject("SELECT metadata::text FROM audit.functional_audit_log WHERE action = 'EVIDENCE_CREATED' AND resource_id = ?", String.class, id)).doesNotContain("storageKey", "violations/", STORAGE_DIRECTORY.toString());
-        try (var paths = java.nio.file.Files.walk(STORAGE_DIRECTORY.resolve("violations/" + violationId))) {
-            assertThat(paths.filter(java.nio.file.Files::isRegularFile).count()).isEqualTo(1);
-        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM enforcement.evidence_content WHERE violation_id = ?", Long.class, violationId)).isEqualTo(1L);
+        assertThat(jdbc.queryForObject("SELECT evidence_id FROM enforcement.evidence_content WHERE violation_id = ?", UUID.class, violationId)).isEqualTo(id);
+        assertThat(jdbc.queryForObject("SELECT content FROM enforcement.evidence_content WHERE evidence_id = ?", byte[].class, id)).containsExactly(bytes);
+        assertThat(java.nio.file.Files.exists(STORAGE_DIRECTORY.resolve("violations/" + violationId))).isFalse();
         var otherUpload = uploadEvidence(fixture.otherInspectorName, "OTHER-" + fixture.tag, violationId, bytes, "photo.jpg");
         assertThat(otherUpload.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(uploadEvidence(null, "ANON-" + fixture.tag, violationId, bytes, "photo.jpg").getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);

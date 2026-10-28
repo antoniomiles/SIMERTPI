@@ -33,11 +33,15 @@ const pages: Routes = [
     loadComponent: () => import('./features/zones/zones').then((m) => m.Zones),
   },
   {
-    path: 'streets', title: 'Calles y tramos | SIMERTPI', data: { catalogView: 'streets' },
+    path: 'streets',
+    title: 'Calles y tramos | SIMERTPI',
+    data: { catalogView: 'streets' },
     loadComponent: () => import('./features/zones/zones').then((m) => m.Zones),
   },
   {
-    path: 'spaces', title: 'Espacios | SIMERTPI', data: { catalogView: 'spaces' },
+    path: 'spaces',
+    title: 'Espacios | SIMERTPI',
+    data: { catalogView: 'spaces' },
     loadComponent: () => import('./features/zones/zones').then((m) => m.Zones),
   },
   {
@@ -54,6 +58,11 @@ const pages: Routes = [
     path: 'violations',
     title: 'Infracciones | SIMERTPI',
     loadComponent: () => import('./features/violations/violations').then((m) => m.Violations),
+  },
+  {
+    path: 'inspections',
+    title: 'Inspecciones | SIMERTPI',
+    loadComponent: () => import('./features/inspections/inspections').then((m) => m.Inspections),
   },
   {
     path: 'payments',

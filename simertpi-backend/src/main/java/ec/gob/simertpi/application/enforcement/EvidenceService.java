@@ -99,7 +99,7 @@ public class EvidenceService {
         } catch (IOException storageFailure) {
             throw new IllegalStateException("Evidence storage operation failed", storageFailure);
         }
-        registerRollbackCleanup(key);
+        if (!storage.usesCallerTransaction()) registerRollbackCleanup(key);
 
         Evidence evidence = new Evidence();
         evidence.setId(UUID.randomUUID());
@@ -116,12 +116,15 @@ public class EvidenceService {
         evidence.setCreatedAt(OffsetDateTime.now());
         try {
             Evidence saved = evidenceRepository.save(evidence);
+            storage.associateEvidence(key, saved.getId());
             audit.success("EVIDENCE_CREATED", "EVIDENCE", saved.getId(), null,
                     java.util.Map.of("violationId", violationId, "contentType", file.contentType(), "fileSize", file.size()));
             return saved;
         } catch (RuntimeException failure) {
-            if (!TransactionSynchronizationManager.isSynchronizationActive()) deleteQuietly(key);
+            if (!storage.usesCallerTransaction() && !TransactionSynchronizationManager.isSynchronizationActive()) deleteQuietly(key);
             throw failure;
+        } catch (IOException storageFailure) {
+            throw new IllegalStateException("Evidence storage operation failed", storageFailure);
         }
     }
 
@@ -161,6 +164,7 @@ public class EvidenceService {
     }
 
     @Transactional(readOnly = true)
+    @ec.gob.simertpi.application.audit.Audited(action = "EVIDENCE_LISTED", resourceType = "VIOLATION", resourceIdArgument = 1)
     public List<Evidence> findByViolationId(String username, UUID violationId) {
         Violation violation = violations.findById(violationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Violation not found"));

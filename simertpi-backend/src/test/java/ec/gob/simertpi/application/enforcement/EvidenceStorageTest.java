@@ -117,6 +117,23 @@ class EvidenceStorageTest {
         TransactionSynchronizationManager.initSynchronization(); upload(jpeg()); complete(TransactionSynchronization.STATUS_COMMITTED);
         assertThat(local.exists(key())).isTrue();
     }
+    @Test void committedEvidenceIsReadableWithRecreatedStorageProviderOnSameBasePath() throws Exception {
+        Evidence saved = upload(jpeg());
+        when(repository.findById(saved.getId())).thenReturn(Optional.of(saved));
+
+        // A replacement adapter can read committed bytes when configured with the
+        // same base path; durable survival still depends on the deployment mount.
+        ObjectStorage restartedStorage = new LocalObjectStorage(properties);
+        EvidenceService restartedService = new EvidenceService(repository, violations, authorization,
+                restartedStorage, properties, audit);
+
+        try (var downloaded = restartedService.download("inspector", saved.getId()).object()) {
+            assertThat(downloaded.stream().readAllBytes()).containsExactly(JPEG);
+            assertThat(java.util.HexFormat.of().formatHex(
+                    java.security.MessageDigest.getInstance("SHA-256").digest(JPEG)))
+                    .isEqualTo(saved.getSha256Hash());
+        }
+    }
     @Test void unknownTransactionOutcomeRetainsObjectForReconciliation() throws Exception {
         TransactionSynchronizationManager.initSynchronization(); upload(jpeg()); complete(TransactionSynchronization.STATUS_UNKNOWN);
         assertThat(local.exists(key())).isTrue();

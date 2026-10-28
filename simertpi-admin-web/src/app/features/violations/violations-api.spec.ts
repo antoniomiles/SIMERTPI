@@ -7,24 +7,34 @@ import { environment } from '../../../environments/environment';
 import { ViolationsApi } from './violations-api';
 
 describe('Administrative violations API', () => {
-  beforeEach(() => TestBed.configureTestingModule({
-    providers: [
-      provideHttpClient(withInterceptors([apiInterceptor])),
-      provideHttpClientTesting(),
-      { provide: PORTAL_CONFIG, useValue: { ...environment, administrativeApiEnabled: true } },
-    ],
-  }));
+  beforeEach(() =>
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(withInterceptors([apiInterceptor])),
+        provideHttpClientTesting(),
+        { provide: PORTAL_CONFIG, useValue: { ...environment, administrativeApiEnabled: true } },
+      ],
+    }),
+  );
 
   afterEach(() => TestBed.inject(HttpTestingController).verify());
 
   it('sends bounded filters through the existing same-origin admin client', () => {
-    TestBed.inject(ViolationsApi).search({
-      page: 2, size: 25, status: 'OPEN', plate: 'ABC-123', zone: 'Z-1',
-      q: 'space 4', from: '2026-10-01', to: '2026-10-19',
-    }).subscribe();
+    TestBed.inject(ViolationsApi)
+      .search({
+        page: 2,
+        size: 25,
+        status: 'OPEN',
+        plate: 'ABC-123',
+        zone: 'Z-1',
+        q: 'space 4',
+        from: '2026-10-01',
+        to: '2026-10-19',
+      })
+      .subscribe();
 
     const request = TestBed.inject(HttpTestingController).expectOne(
-      item => item.url === '/api/v1/admin/violations',
+      (item) => item.url === '/api/v1/admin/violations',
     );
     expect(request.request.method).toBe('GET');
     expect(request.request.withCredentials).toBe(true);
@@ -36,7 +46,15 @@ describe('Administrative violations API', () => {
     expect(request.request.params.get('q')).toBe('space 4');
     expect(request.request.params.get('from')).toBe('2026-10-01');
     expect(request.request.params.get('to')).toBe('2026-10-19');
-    request.flush({ items: [], page: 2, size: 25, totalElements: 0, totalPages: 0, first: false, last: true });
+    request.flush({
+      items: [],
+      page: 2,
+      size: 25,
+      totalElements: 0,
+      totalPages: 0,
+      first: false,
+      last: true,
+    });
   });
 
   it('fetches detail by encoded identifier through the same-origin client', () => {
@@ -47,5 +65,26 @@ describe('Administrative violations API', () => {
     );
     expect(request.request.method).toBe('GET');
     request.flush({});
+  });
+
+  it('loads evidence metadata through the read-only admin endpoint', () => {
+    TestBed.inject(ViolationsApi).evidence('violation-001').subscribe();
+    const request = TestBed.inject(HttpTestingController).expectOne(
+      '/api/v1/admin/violations/violation-001/evidence',
+    );
+    expect(request.request.method).toBe('GET');
+    expect(request.request.withCredentials).toBe(true);
+    request.flush([]);
+  });
+
+  it('downloads evidence only through the bounded admin content endpoint', () => {
+    TestBed.inject(ViolationsApi).downloadEvidence('evidence-001').subscribe();
+    const request = TestBed.inject(HttpTestingController).expectOne(
+      '/api/v1/admin/evidence/evidence-001/content',
+    );
+    expect(request.request.method).toBe('GET');
+    expect(request.request.withCredentials).toBe(true);
+    expect(request.request.responseType).toBe('blob');
+    request.flush(new Blob(['fixture'], { type: 'image/jpeg' }));
   });
 });

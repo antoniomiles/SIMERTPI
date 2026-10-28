@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/config/municipal_app_config.dart';
+import '../../enforcement/data/inspector_enforcement_api.dart';
+import '../../enforcement/presentation/inspector_workspace_page.dart';
+import '../data/municipal_auth_api.dart';
+import '../data/municipal_token_store.dart';
 import '../domain/municipal_session.dart';
 import 'municipal_auth_controller.dart';
 
@@ -62,6 +67,34 @@ class MunicipalHomePage extends StatelessWidget {
                   const SizedBox(height: 8),
                   Text(
                     'Acceso válido hasta ${session.accessExpiresAt.toLocal()}',
+                  ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      key: const Key('open-inspector-workspace'),
+                      onPressed: session.identity.canInspect
+                          ? () {
+                              final api = InspectorEnforcementApi(
+                                config: MunicipalAppConfig.fromEnvironment(),
+                                tokenStore: SecureMunicipalTokenStore(),
+                                transport: IoMunicipalHttpTransport(),
+                              );
+                              Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => InspectorWorkspacePage(
+                                    inspectorId: session.identity.id,
+                                    repository: api,
+                                    onSessionExpired: () =>
+                                        controller.signOut(),
+                                  ),
+                                ),
+                              );
+                            }
+                          : null,
+                      icon: const Icon(Icons.fact_check_outlined),
+                      label: const Text('Inspecciones'),
+                    ),
                   ),
                 ],
               ),

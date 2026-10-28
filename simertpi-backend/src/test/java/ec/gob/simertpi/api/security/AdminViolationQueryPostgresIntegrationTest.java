@@ -4,15 +4,16 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import ec.gob.simertpi.testsupport.AbstractPostgresIntegrationTest;
 import ec.gob.simertpi.testsupport.AdminSessionTestSupport;
+import ec.gob.simertpi.application.enforcement.storage.ObjectStorage;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -22,6 +23,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 
 @SpringBootTest(properties = {"logging.level.root=WARN", "spring.jpa.show-sql=false"})
 @AutoConfigureMockMvc
@@ -33,6 +35,7 @@ class AdminViolationQueryPostgresIntegrationTest extends AbstractPostgresIntegra
     @Autowired JdbcTemplate jdbc;
     @Autowired PasswordEncoder encoder;
     @Autowired ObjectMapper json;
+    @Autowired ObjectStorage evidenceStorage;
 
     private String adminUsername;
     private AdminSessionTestSupport.Session adminSession;
@@ -112,6 +115,110 @@ class AdminViolationQueryPostgresIntegrationTest extends AbstractPostgresIntegra
         mvc.perform(get("/api/v1/admin/violations").secure(true)
                         .cookie(AdminSessionTestSupport.sessionCookie(adminSession)))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void administratorCanReviewMinimalEvidenceMetadataAndDownloadAuditedContent() throws Exception {
+        Fixture fixture = fixture("OPEN", "2026-10-19T05:00:00Z", "EVIDENCE");
+        UUID evidenceId = jdbc.queryForObject(
+                "SELECT id FROM enforcement.evidence WHERE violation_id=?", UUID.class, fixture.violationId());
+        byte[] content = new byte[]{(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10, 1, 2, 3};
+        String hash = java.util.HexFormat.of().formatHex(
+                java.security.MessageDigest.getInstance("SHA-256").digest(content));
+        String key = "violations/" + fixture.violationId() + "/" + hash + ".png";
+        try {
+            assertThat(evidenceStorage.putIfAbsent(key, content, "image/png")).isTrue();
+            jdbc.update("UPDATE enforcement.evidence SET storage_key=?, original_filename='proof.png', content_type='image/png', file_size=?, sha256_hash=? WHERE id=?",
+                    key, content.length, hash, evidenceId);
+
+            mvc.perform(get("/api/v1/admin/violations/" + fixture.violationId() + "/evidence").secure(true))
+                    .andExpect(status().isUnauthorized());
+            mvc.perform(get("/api/v1/admin/violations/" + fixture.violationId() + "/evidence").secure(true)
+                            .with(user(fixture.inspectorUsername()).authorities(
+                                    new org.springframework.security.core.authority.SimpleGrantedAuthority("INSPECTOR"))))
+                    .andExpect(status().isUnauthorized());
+
+            MvcResult metadata = mvc.perform(get("/api/v1/admin/violations/" + fixture.violationId() + "/evidence").secure(true)
+                            .cookie(AdminSessionTestSupport.sessionCookie(adminSession)))
+                    .andExpect(status().isOk())
+                    .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")))
+                    .andReturn();
+            JsonNode item = json.readTree(metadata.getResponse().getContentAsString()).get(0);
+            assertThat(item.path("id").asText()).isEqualTo(evidenceId.toString());
+            assertThat(item.path("violationId").asText()).isEqualTo(fixture.violationId().toString());
+            assertThat(item.path("evidenceType").asText()).isEqualTo("PHOTO");
+            for (String excluded : new String[]{"storageKey", "sha256Hash", "originalFilename"}) {
+                assertThat(item.has(excluded)).as("metadata excludes %s", excluded).isFalse();
+            }
+            assertThat(countAudit("EVIDENCE_LISTED")).isEqualTo(1L);
+
+            MvcResult downloaded = mvc.perform(get("/api/v1/admin/evidence/" + evidenceId + "/content").secure(true)
+                            .cookie(AdminSessionTestSupport.sessionCookie(adminSession)))
+                    .andExpect(status().isOk())
+                    .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")))
+                    .andExpect(header().string("Content-Type", "image/png"))
+                    .andExpect(header().string("X-Content-Type-Options", "nosniff"))
+                    .andExpect(header().string("Content-Disposition", org.hamcrest.Matchers.containsString("proof.png")))
+                    .andReturn();
+            assertThat(downloaded.getResponse().getContentAsByteArray()).containsExactly(content);
+            assertThat(countAudit("EVIDENCE_DOWNLOADED")).isEqualTo(1L);
+        } finally {
+            evidenceStorage.delete(key);
+        }
+    }
+
+    @Test
+    void administratorCanSearchAndViewInspectionsWithoutCreatingViolations() throws Exception {
+        Fixture fixture = fixture("OPEN", "2026-10-19T05:00:00Z", "INSPECTION");
+        UUID inspectionId = jdbc.queryForObject("SELECT inspection_id FROM enforcement.violations WHERE id=?",
+                UUID.class, fixture.violationId());
+        jdbc.update("DELETE FROM enforcement.violations WHERE id=?", fixture.violationId());
+
+        mvc.perform(get("/api/v1/admin/inspections").secure(true))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/admin/inspections").secure(true)
+                        .with(user(fixture.inspectorUsername()).authorities(
+                                new org.springframework.security.core.authority.SimpleGrantedAuthority("INSPECTOR"))))
+                .andExpect(status().isUnauthorized());
+
+        MvcResult result = mvc.perform(get("/api/v1/admin/inspections").secure(true)
+                        .cookie(AdminSessionTestSupport.sessionCookie(adminSession))
+                        .param("plate", fixture.plate()).param("result", "violation")
+                        .param("zone", fixture.zoneCode()).param("from", "2026-10-19").param("to", "2026-10-19"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")))
+                .andReturn();
+        JsonNode page = json.readTree(result.getResponse().getContentAsString());
+        assertThat(page.path("totalElements").asLong()).isEqualTo(1L);
+        JsonNode row = page.path("items").get(0);
+        assertThat(row.path("id").asText()).isEqualTo(inspectionId.toString());
+        assertThat(row.path("plate").asText()).isEqualTo(fixture.plate());
+        assertThat(row.path("violationId").isNull()).isTrue();
+        assertThat(row.has("notes")).isFalse();
+        assertThat(row.has("latitude")).isFalse();
+        assertThat(row.has("vehicleId")).isFalse();
+
+        MvcResult detail = mvc.perform(get("/api/v1/admin/inspections/" + inspectionId).secure(true)
+                        .cookie(AdminSessionTestSupport.sessionCookie(adminSession)))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")))
+                .andReturn();
+        JsonNode detailJson = json.readTree(detail.getResponse().getContentAsString());
+        assertThat(detailJson.path("id").asText()).isEqualTo(inspectionId.toString());
+        assertThat(detailJson.path("notes").asText()).isEqualTo("private inspection note");
+        assertThat(detailJson.path("createdAt").asText()).isNotBlank();
+        assertThat(detailJson.path("latitude").decimalValue()).isEqualByComparingTo("-3.0");
+        assertThat(detailJson.path("longitude").decimalValue()).isEqualByComparingTo("-79.0");
+        assertThat(detailJson.path("violationId").isNull()).isTrue();
+        for (String excluded : new String[]{"vehicleId", "ownerEmail", "fineAmount", "description", "storageKey"}) {
+            assertThat(detailJson.has(excluded)).as("detail excludes %s", excluded).isFalse();
+        }
+        assertThat(countAudit("ADMIN_INSPECTIONS_SEARCHED")).isEqualTo(1L);
+        assertThat(countAudit("ADMIN_INSPECTION_VIEWED")).isEqualTo(1L);
+
+        mvc.perform(post("/api/v1/admin/inspections").secure(true)
+                        .cookie(AdminSessionTestSupport.sessionCookie(adminSession)))
+                .andExpect(status().isForbidden());
     }
 
     @Test

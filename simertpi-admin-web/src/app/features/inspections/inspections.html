@@ -1,0 +1,231 @@
+<app-page-heading
+  eyebrow="OPERACIÓN / CONTROL MUNICIPAL"
+  title="Inspecciones"
+  description="Consulta de inspecciones registradas por el personal autorizado."
+>
+  <span class="tag">Solo lectura</span>
+</app-page-heading>
+
+@if (preview) {
+  <section class="preview-note card" role="note">
+    <strong>Previsualización local</strong>
+    <p>
+      La vista previa no consulta datos del sistema. Para revisar inspecciones se requiere una
+      sesión administrativa autorizada.
+    </p>
+  </section>
+} @else {
+  <section class="filters card" aria-labelledby="inspection-filters-title">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">CONSULTA ADMINISTRATIVA</p>
+        <h2 id="inspection-filters-title">Buscar inspecciones</h2>
+      </div>
+    </div>
+    <form [formGroup]="filters" (ngSubmit)="applyFilters()">
+      <div class="filter-grid">
+        <div class="field">
+          <label for="inspection-plate">Placa</label
+          ><input id="inspection-plate" formControlName="plate" maxlength="10" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label for="inspection-result">Resultado registrado</label
+          ><select id="inspection-result" formControlName="result">
+            <option value="">Todos los resultados</option>
+            <option value="VALID">Válida</option>
+            <option value="EXPIRED">Sesión reportada como vencida</option>
+            <option value="NO_PAYMENT">Sin pago observado</option>
+            <option value="VIOLATION">Otro hecho observado</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="inspection-zone">Zona</label
+          ><input id="inspection-zone" formControlName="zone" maxlength="100" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label for="inspection-from">Observada desde</label
+          ><input id="inspection-from" type="date" formControlName="from" />
+        </div>
+        <div class="field">
+          <label for="inspection-to">Observada hasta</label
+          ><input id="inspection-to" type="date" formControlName="to" />
+        </div>
+      </div>
+      <div class="filter-actions">
+        <button class="button primary" type="submit">Buscar</button
+        ><button class="button secondary" type="button" (click)="clearFilters()">Limpiar</button>
+      </div>
+    </form>
+  </section>
+  <p class="data-note" role="note">
+    Se muestran los resultados como fueron registrados. El vencimiento de una sesión no genera por
+    sí mismo una infracción ni una sanción.
+  </p>
+  @if (state() === 'loading') {
+    <app-data-state
+      kind="loading"
+      title="Cargando inspecciones"
+      description="Consultando registros paginados."
+    />
+  } @else if (state() === 'error') {
+    <app-data-state
+      kind="error"
+      title="No se pudieron cargar las inspecciones"
+      [description]="errorMessage()"
+      ><button class="button secondary" type="button" (click)="load()">
+        Reintentar
+      </button></app-data-state
+    >
+  } @else if (state() === 'empty') {
+    <app-data-state
+      kind="empty"
+      title="No hay inspecciones para mostrar"
+      description="No se encontraron registros con los filtros seleccionados."
+    />
+  } @else if (result(); as data) {
+    <section class="results card" aria-label="Inspecciones registradas" aria-live="polite">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">REGISTROS DEL SISTEMA</p>
+          <h2>Inspecciones</h2>
+        </div>
+        <span class="tag">{{ data.totalElements }} resultados</span>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Fecha / placa</th>
+              <th>Resultado</th>
+              <th>Ubicación</th>
+              <th>Inspector</th>
+              <th>Seguimiento</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of data.items; track row.id) {
+              <tr>
+                <td>
+                  {{ formatDate(row.observedAt) }} <small>hora Ecuador</small
+                  ><strong>{{ row.plate || 'Placa no registrada' }}</strong
+                  ><small class="identifier">{{ row.id }}</small>
+                </td>
+                <td>
+                  <span class="status-tag">{{ resultLabel(row.result) }}</span>
+                </td>
+                <td>
+                  <strong>{{ location(row) }}</strong
+                  ><small>{{ row.spaceCode }} · {{ row.spaceNumber }}</small>
+                </td>
+                <td>{{ row.inspectorUsername }}</td>
+                <td>
+                  @if (row.violationId) {
+                    <span>Posible infracción registrada</span>
+                    <small class="identifier">{{ row.violationId }}</small>
+                  } @else {
+                    <span class="helper">Sin infracción vinculada</span>
+                  }
+                </td>
+                <td>
+                  <button
+                    class="button secondary"
+                    type="button"
+                    (click)="openDetail(row)"
+                    [attr.aria-label]="'Ver inspección ' + row.id"
+                  >
+                    Ver detalle
+                  </button>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      <nav class="pagination" aria-label="Paginación de inspecciones">
+        <span
+          >Página {{ data.totalPages ? data.page + 1 : 0 }} de {{ data.totalPages }} ·
+          {{ data.totalElements }} registros</span
+        >
+        <div>
+          <button
+            class="button secondary"
+            type="button"
+            (click)="previous()"
+            [disabled]="data.first"
+          >
+            Anterior</button
+          ><button class="button secondary" type="button" (click)="next()" [disabled]="data.last">
+            Siguiente
+          </button>
+        </div>
+      </nav>
+    </section>
+    @if (selected(); as row) {
+      <section class="detail-panel card" aria-live="polite">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">DETALLE DE INSPECCIÓN</p>
+            <h2>{{ row.id }}</h2>
+          </div>
+          <button class="button secondary" type="button" (click)="closeDetail()">
+            Cerrar detalle
+          </button>
+        </div>
+        @if (detailLoading()) {
+          <app-data-state
+            kind="loading"
+            title="Cargando detalle"
+            description="Consultando el registro administrativo."
+          />
+        } @else if (detailError()) {
+          <p role="alert" class="field-error">{{ detailError() }}</p>
+          <button class="button secondary" (click)="openDetail(row)">Reintentar</button>
+        } @else if (detail(); as item) {
+          <dl class="detail-grid">
+            <div>
+              <dt>Fecha observada</dt>
+              <dd>{{ formatDate(item.observedAt) }} (hora Ecuador)</dd>
+            </div>
+            <div>
+              <dt>Resultado</dt>
+              <dd>
+                <span class="status-tag">{{ resultLabel(item.result) }}</span>
+              </dd>
+            </div>
+            <div>
+              <dt>Placa observada</dt>
+              <dd>{{ item.plate || 'No registrada' }}</dd>
+            </div>
+            <div>
+              <dt>Ubicación</dt>
+              <dd>{{ location(item) }} · {{ item.spaceCode }} · {{ item.spaceNumber }}</dd>
+            </div>
+            <div>
+              <dt>Inspector</dt>
+              <dd>{{ item.inspectorUsername }}</dd>
+            </div>
+            <div>
+              <dt>Coordenadas</dt>
+              <dd>
+                {{
+                  item.latitude === null || item.longitude === null
+                    ? 'No registradas'
+                    : item.latitude + ', ' + item.longitude
+                }}
+              </dd>
+            </div>
+            <div>
+              <dt>Notas de inspección</dt>
+              <dd>{{ item.notes || 'Sin notas registradas' }}</dd>
+            </div>
+            <div>
+              <dt>Creada</dt>
+              <dd>{{ formatDate(item.createdAt) }} (hora Ecuador)</dd>
+            </div>
+          </dl>
+        }
+      </section>
+    }
+  }
+}

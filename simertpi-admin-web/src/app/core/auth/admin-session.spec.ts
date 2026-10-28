@@ -34,7 +34,10 @@ describe('Real administrative session client', () => {
         provideRouter([]),
         provideHttpClient(
           withInterceptors([apiInterceptor]),
-          withXsrfConfiguration({ cookieName: '__Host-SIMERTPI_ADMIN_XSRF', headerName: 'X-XSRF-TOKEN' }),
+          withXsrfConfiguration({
+            cookieName: '__Host-SIMERTPI_ADMIN_XSRF',
+            headerName: 'X-XSRF-TOKEN',
+          }),
         ),
         provideHttpClientTesting(),
         { provide: HttpXsrfTokenExtractor, useValue: { getToken: () => xsrfToken } },
@@ -76,7 +79,9 @@ describe('Real administrative session client', () => {
   it('uses the cookie refreshed by preflight when signing in after the previous session expired', () => {
     xsrfToken = 'token-before-rotation';
     session.restore().subscribe((ok) => expect(ok).toBe(false));
-    http.expectOne('/api/v1/admin/auth/me').flush(null, { status: 401, statusText: 'Unauthorized' });
+    http
+      .expectOne('/api/v1/admin/auth/me')
+      .flush(null, { status: 401, statusText: 'Unauthorized' });
 
     session.signIn('fixture.admin', 'unit-test-only').subscribe();
     const csrf = http.expectOne('/api/v1/admin/auth/csrf');
@@ -89,12 +94,18 @@ describe('Real administrative session client', () => {
   });
   it('recovers login after a transient CSRF gateway response without repeating the login POST', async () => {
     session.restore().subscribe((ok) => expect(ok).toBe(false));
-    http.expectOne('/api/v1/admin/auth/me').flush(null, { status: 401, statusText: 'Unauthorized' });
+    http
+      .expectOne('/api/v1/admin/auth/me')
+      .flush(null, { status: 401, statusText: 'Unauthorized' });
 
     session.signIn('fixture.admin', 'unit-test-only').subscribe();
-    http.expectOne('/api/v1/admin/auth/csrf').flush(null, { status: 502, statusText: 'Bad Gateway' });
-    (await vi.waitFor(() => http.expectOne('/api/v1/admin/auth/csrf')))
-      .flush(null, { status: 204, statusText: 'No Content' });
+    http
+      .expectOne('/api/v1/admin/auth/csrf')
+      .flush(null, { status: 502, statusText: 'Bad Gateway' });
+    (await vi.waitFor(() => http.expectOne('/api/v1/admin/auth/csrf'))).flush(null, {
+      status: 204,
+      statusText: 'No Content',
+    });
     const login = http.expectOne('/api/v1/admin/auth/login');
     expect(login.request.method).toBe('POST');
     expect(login.request.headers.get('X-XSRF-TOKEN')).toBe('test-csrf-token');
@@ -104,13 +115,19 @@ describe('Real administrative session client', () => {
   });
   it('does not retry login POST and allows a later user-initiated attempt', () => {
     session.signIn('fixture.admin', 'unit-test-only').subscribe({ error: () => {} });
-    http.expectOne('/api/v1/admin/auth/csrf').flush(null, { status: 204, statusText: 'No Content' });
-    http.expectOne('/api/v1/admin/auth/login').flush(null, { status: 503, statusText: 'Unavailable' });
+    http
+      .expectOne('/api/v1/admin/auth/csrf')
+      .flush(null, { status: 204, statusText: 'No Content' });
+    http
+      .expectOne('/api/v1/admin/auth/login')
+      .flush(null, { status: 503, statusText: 'Unavailable' });
     http.expectNone('/api/v1/admin/auth/login');
     expect(session.authenticated()).toBe(false);
 
     session.signIn('fixture.admin', 'unit-test-only').subscribe();
-    http.expectOne('/api/v1/admin/auth/csrf').flush(null, { status: 204, statusText: 'No Content' });
+    http
+      .expectOne('/api/v1/admin/auth/csrf')
+      .flush(null, { status: 204, statusText: 'No Content' });
     http.expectOne('/api/v1/admin/auth/login').flush(identity());
     expect(session.authenticated()).toBe(true);
   });
@@ -140,12 +157,18 @@ describe('Real administrative session client', () => {
     vi.setSystemTime(serverNow + 120_000);
     session.signIn('fixture.admin', 'unit-test-only').subscribe();
     http.expectOne('/api/v1/admin/auth/csrf').flush(null, {
-      status: 204, statusText: 'No Content', headers: { Date: new Date(serverNow).toUTCString() },
+      status: 204,
+      statusText: 'No Content',
+      headers: { Date: new Date(serverNow).toUTCString() },
     });
-    http.expectOne('/api/v1/admin/auth/login').flush({
-      ...identity(), sessionExpiresAt: new Date(serverNow + 60_000).toISOString(),
-      absoluteExpiresAt: new Date(serverNow + 3_600_000).toISOString(),
-    }, { headers: { Date: new Date(serverNow).toUTCString() } });
+    http.expectOne('/api/v1/admin/auth/login').flush(
+      {
+        ...identity(),
+        sessionExpiresAt: new Date(serverNow + 60_000).toISOString(),
+        absoluteExpiresAt: new Date(serverNow + 3_600_000).toISOString(),
+      },
+      { headers: { Date: new Date(serverNow).toUTCString() } },
+    );
     expect(session.authenticated()).toBe(true);
     // HTTP Date is second-precision, so allow its bounded <1s quantization.
     vi.advanceTimersByTime(62_000);
@@ -195,6 +218,7 @@ describe('Real administrative session client', () => {
     expect(safeReturnUrl('/admin/access')).toBe('/admin/access');
     expect(safeReturnUrl('/admin/map')).toBe('/admin/map');
     expect(safeReturnUrl('/admin/zones')).toBe('/admin/zones');
+    expect(safeReturnUrl('/admin/inspections')).toBe('/admin/inspections');
     expect(safeReturnUrl('/admin/streets')).toBe('/admin/streets');
     expect(safeReturnUrl('/admin/spaces')).toBe('/admin/spaces');
     expect(safeReturnUrl('/admin/payments')).toBe('/admin/payments');

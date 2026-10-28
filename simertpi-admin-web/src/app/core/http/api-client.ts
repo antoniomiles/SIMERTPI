@@ -9,6 +9,9 @@ export class ApiClient {
   get<T>(path: string, options: { params?: HttpParams } = {}) {
     return this.http.get<T>(this.url(path), options);
   }
+  getBlob(path: string) {
+    return this.http.get(this.url(path), { responseType: 'blob', withCredentials: true });
+  }
   post<T>(path: string, body: unknown) {
     return this.http.post<T>(this.url(path), body);
   }

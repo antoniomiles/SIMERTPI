@@ -4,6 +4,18 @@ import { ApiClient } from '../../core/http/api-client';
 
 export type ViolationStatus = 'OPEN' | 'NOTIFIED' | 'PAID' | 'CANCELLED' | 'DISPUTED';
 
+export interface AdminEvidence {
+  id: string;
+  violationId: string;
+  evidenceType: 'PHOTO' | 'DOCUMENT' | string;
+  contentType: string;
+  fileSize: number;
+  capturedAt: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  createdAt: string;
+}
+
 export interface AdminViolation {
   id: string;
   plate: string | null;
@@ -61,5 +73,15 @@ export class ViolationsApi {
 
   detail(id: string) {
     return this.api.get<AdminViolation>(`admin/violations/${encodeURIComponent(id)}`);
+  }
+
+  evidence(violationId: string) {
+    return this.api.get<AdminEvidence[]>(
+      `admin/violations/${encodeURIComponent(violationId)}/evidence`,
+    );
+  }
+
+  downloadEvidence(evidenceId: string) {
+    return this.api.getBlob(`admin/evidence/${encodeURIComponent(evidenceId)}/content`);
   }
 }

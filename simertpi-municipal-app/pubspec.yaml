@@ -8,6 +8,8 @@ environment:
 
 dependencies:
   flutter_secure_storage: ^11.2.0
+  image_picker: 1.2.3
+  mobile_scanner: 7.4.2
   flutter:
     sdk: flutter
 
@@ -15,6 +17,17 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+
+# Keep the existing Flutter 3.38-compatible toolchain. Newer federated
+# image_picker implementations raise the minimum SDK even though this app has
+# no iOS target. These versions satisfy image_picker 1.2.3's declared ranges;
+# The Android pin predates its newer Flutter floor and large-image subsampling
+# fix; capture dimensions/quality remain bounded before upload.
+dependency_overrides:
+  file_selector_macos: 0.9.5+1
+  image_picker_android: 0.8.13+17
+  image_picker_ios: 0.8.13+7
+  image_picker_platform_interface: 2.11.1
 
 flutter:
   uses-material-design: true

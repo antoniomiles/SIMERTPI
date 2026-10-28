@@ -24,13 +24,24 @@ export const NAVIGATION: readonly NavigationGroup[] = [
       { label: 'Mapa de estacionamientos', icon: 'map', path: 'map' },
       { label: 'Estacionamientos y sesiones', icon: 'sessions', path: 'parking-sessions' },
       {
-        label: 'Zonas y espacios', icon: 'spaces', children: [
+        label: 'Zonas y espacios',
+        icon: 'spaces',
+        children: [
           { label: 'Zonas', description: 'Administración y consulta de zonas.', path: 'zones' },
-          { label: 'Calles y tramos', description: 'Calles registradas por zona; el modelo actual no separa tramos.', path: 'streets' },
-          { label: 'Espacios', description: 'Espacios, estado administrativo y cobertura geográfica registrada.', path: 'spaces' },
+          {
+            label: 'Calles y tramos',
+            description: 'Calles registradas por zona; el modelo actual no separa tramos.',
+            path: 'streets',
+          },
+          {
+            label: 'Espacios',
+            description: 'Espacios, estado administrativo y cobertura geográfica registrada.',
+            path: 'spaces',
+          },
         ],
       },
       { label: 'Infracciones', icon: 'violation', path: 'violations' },
+      { label: 'Inspecciones', icon: 'inspectors', path: 'inspections' },
       { label: 'Inspectores', icon: 'inspectors' },
     ],
   },
@@ -51,11 +62,33 @@ export const NAVIGATION: readonly NavigationGroup[] = [
         label: 'Tarifas y horarios',
         icon: 'tariffs',
         children: [
-          { label: 'Configuración de tarifas', description: 'Tarifa general y excepciones por zona.', path: 'tariffs' },
-          { label: 'Días de cobro', description: 'Calendario semanal general y por zona.', path: 'tariffs/billing-days' },
-          { label: 'Días especiales y feriados', description: 'Fechas especiales y excepciones.', path: 'tariffs/holidays', pending: true },
-          { label: 'Horarios de cobro', description: 'Horarios generales y excepciones.', path: 'tariffs/hours', pending: true },
-          { label: 'Historial de cambios', description: 'Versiones, vigencias y responsables.', path: 'tariffs/history' },
+          {
+            label: 'Configuración de tarifas',
+            description: 'Tarifa general y excepciones por zona.',
+            path: 'tariffs',
+          },
+          {
+            label: 'Días de cobro',
+            description: 'Calendario semanal general y por zona.',
+            path: 'tariffs/billing-days',
+          },
+          {
+            label: 'Días especiales y feriados',
+            description: 'Fechas especiales y excepciones.',
+            path: 'tariffs/holidays',
+            pending: true,
+          },
+          {
+            label: 'Horarios de cobro',
+            description: 'Horarios generales y excepciones.',
+            path: 'tariffs/hours',
+            pending: true,
+          },
+          {
+            label: 'Historial de cambios',
+            description: 'Versiones, vigencias y responsables.',
+            path: 'tariffs/history',
+          },
         ],
       },
       { label: 'Configuración municipal', icon: 'settings' },
