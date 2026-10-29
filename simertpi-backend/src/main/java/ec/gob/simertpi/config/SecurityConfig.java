@@ -24,10 +24,10 @@ public class SecurityConfig {
             "CITIZEN", "INSPECTOR", "SUPERVISOR", "SIMERTPI_ADMIN", "IT_ADMIN", "AUDITOR"
     };
     private static final String[] PERMIT_OPERATORS = {
-            "INSPECTOR", "SUPERVISOR", "SIMERTPI_ADMIN"
+            "INSPECTOR", "SUPERVISOR", "SIMERTPI_ADMIN", "IT_ADMIN"
     };
     private static final String[] PERMIT_READERS = {
-            "CITIZEN", "INSPECTOR", "SUPERVISOR", "SIMERTPI_ADMIN"
+            "CITIZEN", "INSPECTOR", "SUPERVISOR", "SIMERTPI_ADMIN", "IT_ADMIN"
     };
 
     @Bean
@@ -38,7 +38,7 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.GET,"/actuator/health", "/actuator/health/liveness", "/actuator/health/readiness").permitAll()
-                .requestMatchers(HttpMethod.GET,"/actuator/info", "/actuator/metrics", "/actuator/metrics/**", "/actuator/prometheus").hasAuthority("SIMERTPI_ADMIN")
+                .requestMatchers(HttpMethod.GET,"/actuator/info", "/actuator/metrics", "/actuator/metrics/**", "/actuator/prometheus").hasAnyAuthority("SIMERTPI_ADMIN", "IT_ADMIN")
                 .requestMatchers("/actuator/**").denyAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/users").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/municipal/auth/login", "/api/v1/municipal/auth/refresh", "/api/v1/municipal/auth/logout", "/api/v1/municipal/auth/activate").permitAll()
@@ -58,19 +58,19 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST,"/api/v1/payments/{id}/refresh").hasAuthority("CITIZEN")
                 .requestMatchers("/api/v1/payments/**").authenticated()
                 .requestMatchers(HttpMethod.GET, "/api/v1/users/username/**")
-                    .hasAuthority("SIMERTPI_ADMIN")
+                    .hasAuthority("IT_ADMIN")
                 .requestMatchers(HttpMethod.POST, "/api/v1/parking/sessions", "/api/v1")
                     .hasAuthority("CITIZEN")
                 .requestMatchers(HttpMethod.POST, "/api/v1/parking/sessions/*/abandon")
                         .hasAuthority("CITIZEN")
                 .requestMatchers(HttpMethod.GET, "/api/v1/parking/rules", "/api/v1/parking/rules/options")
-                    .hasAnyAuthority("CITIZEN", "INSPECTOR", "SUPERVISOR", "SIMERTPI_ADMIN")
+                    .hasAnyAuthority("CITIZEN", "INSPECTOR", "SUPERVISOR", "SIMERTPI_ADMIN", "IT_ADMIN")
                 .requestMatchers("/api/v1/inspections/**", "/api/v1/violations/**")
                     .hasAuthority("INSPECTOR")
                 .requestMatchers(HttpMethod.POST, "/api/v1/evidence")
                     .hasAuthority("INSPECTOR")
                 .requestMatchers(HttpMethod.GET, "/api/v1/evidence/**")
-                    .hasAnyAuthority("INSPECTOR", "SUPERVISOR", "SIMERTPI_ADMIN")
+                    .hasAnyAuthority("INSPECTOR", "SUPERVISOR", "SIMERTPI_ADMIN", "IT_ADMIN")
                 .requestMatchers("/api/v1/evidence/**").denyAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/permits/mine")
                     .hasAuthority("CITIZEN")
@@ -80,9 +80,9 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/api/v1/permits/{id}")
                     .hasAnyAuthority(PERMIT_READERS)
                 .requestMatchers(HttpMethod.POST, "/api/v1/permits")
-                    .hasAuthority("SIMERTPI_ADMIN")
+                    .hasAnyAuthority("SIMERTPI_ADMIN", "IT_ADMIN")
                 .requestMatchers(HttpMethod.DELETE, "/api/v1/permits/{id}")
-                    .hasAuthority("SIMERTPI_ADMIN")
+                    .hasAnyAuthority("SIMERTPI_ADMIN", "IT_ADMIN")
                 .requestMatchers("/api/v1/permits/**").denyAll()
                 .requestMatchers("/api/v1/citizen/**", "/api/v1/notifications/inbox", "/api/v1/notifications/inbox/**", "/api/v1/notifications/unread-count").hasAuthority("CITIZEN")
                 .requestMatchers(HttpMethod.GET, "/api/v1/notifications/mine")
@@ -96,14 +96,14 @@ public class SecurityConfig {
                 .requestMatchers("/api/v1/notifications/**").denyAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/admin/reconciliation/payments",
                         "/api/v1/admin/reconciliation/evidence", "/api/v1/admin/reconciliation/outbox")
-                    .hasAuthority("SIMERTPI_ADMIN")
+                    .hasAnyAuthority("SIMERTPI_ADMIN", "IT_ADMIN")
                 .requestMatchers("/api/v1/admin/reconciliation/**").denyAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/admin/parking/reentry-configuration")
-                    .hasAuthority("SIMERTPI_ADMIN")
+                    .hasAnyAuthority("SIMERTPI_ADMIN", "IT_ADMIN")
                 .requestMatchers(HttpMethod.PUT, "/api/v1/admin/parking/reentry-configuration")
-                    .hasAuthority("SIMERTPI_ADMIN")
+                    .hasAnyAuthority("SIMERTPI_ADMIN", "IT_ADMIN")
                 .requestMatchers("/api/v1/admin/parking/**").denyAll()
-                .requestMatchers(HttpMethod.GET,"/api/v1/audit/**").hasAuthority("SIMERTPI_ADMIN")
+                .requestMatchers(HttpMethod.GET,"/api/v1/audit/**").hasAnyAuthority("SIMERTPI_ADMIN", "IT_ADMIN")
                 .requestMatchers("/api/v1/audit/**").denyAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/vehicles")
                     .hasAuthority("CITIZEN")
@@ -115,7 +115,7 @@ public class SecurityConfig {
                     .hasAnyAuthority(VEHICLE_READERS)
                 .requestMatchers(HttpMethod.POST, "/api/v1/zones", "/api/v1/streets",
                         "/api/v1/parking-spaces")
-                    .hasAuthority("SIMERTPI_ADMIN")
+                    .hasAnyAuthority("SIMERTPI_ADMIN", "IT_ADMIN")
                 .requestMatchers(HttpMethod.POST, "/api/v1/tariffs")
                     .denyAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/parking-sessions/*/extensions/mobile").hasAuthority("CITIZEN")

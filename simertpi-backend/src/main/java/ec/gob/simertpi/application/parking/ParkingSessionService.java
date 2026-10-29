@@ -39,7 +39,7 @@ public class ParkingSessionService {
             "INSPECTOR", "SUPERVISOR", "SIMERTPI_ADMIN", "IT_ADMIN", "AUDITOR"
     );
     private static final Set<String> OPERATOR_ROLES = Set.of(
-            "INSPECTOR", "SUPERVISOR", "SIMERTPI_ADMIN"
+            "INSPECTOR", "SUPERVISOR", "SIMERTPI_ADMIN", "IT_ADMIN"
     );
 
     private final ParkingSessionRepository parkingSessionRepository;

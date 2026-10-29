@@ -1,0 +1,126 @@
+.configuration-page {
+  min-width: 0;
+}
+.primary-button,
+.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 8px 13px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.primary-button {
+  background: #24734b;
+  color: #fff;
+}
+.primary-button:hover:not(:disabled) {
+  background: #1d603e;
+}
+.secondary-button {
+  background: #fff;
+  border-color: var(--border);
+  color: var(--ink);
+}
+.compact-button {
+  min-height: 36px;
+}
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.filters {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  margin: 17px 0 18px;
+}
+.filters label {
+  display: grid;
+  gap: 6px;
+  min-width: 150px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+.filters .filter-search {
+  flex: 1;
+}
+.filters input,
+.filters select {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+.filters :focus-visible,
+button:focus-visible {
+  outline: 3px solid #65a982;
+  outline-offset: 2px;
+}
+.result-count {
+  color: var(--muted);
+  font-size: 13px;
+}
+.charge-indicator {
+  display: inline-flex;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #f1f3f4;
+  color: #46515a;
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.charge-indicator--yes {
+  background: #e7f4eb;
+  color: #25623f;
+}
+.read-only-note {
+  margin: 16px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+@media (max-width: 700px) {
+  .filters {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .filters label {
+    width: 100%;
+  }
+  .section-heading {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .table-scroll {
+    overflow-x: auto;
+  }
+  table {
+    min-width: 850px;
+  }
+}

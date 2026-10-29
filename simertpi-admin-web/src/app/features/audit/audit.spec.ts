@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { of, throwError } from 'rxjs';
 import { Audit } from './audit';
-import { AuditApi, AuditRecord } from './audit-api';
+import { AuditApi, AuditRecord, ConfigurationChangeRecord } from './audit-api';
 import { PortalError } from '../../core/http/portal-error';
 import { ActivatedRoute } from '@angular/router';
 
@@ -17,6 +17,25 @@ const rows: AuditRecord[] = [
     correlationId: 'trace-1',
   },
 ];
+const changes: ConfigurationChangeRecord[] = [
+  {
+    id: 'change-1',
+    occurredAt: '2026-10-18T04:30:00Z',
+    actorId: 'actor-1',
+    actorName: 'Admin Prueba',
+    actorRole: 'SIMERTPI_ADMIN',
+    action: 'CALENDAR_EXCEPTION_UPDATED',
+    resourceType: 'CALENDAR_EXCEPTION',
+    resourceId: 'holiday-1',
+    result: 'SUCCESS',
+    correlationId: 'trace-change',
+    details: {
+      reason: 'Ajuste autorizado',
+      'before.name': 'Nombre anterior',
+      'after.name': 'Nombre nuevo',
+    },
+  },
+];
 
 describe('Administrative audit view', () => {
   let search: ReturnType<typeof vi.fn>;
@@ -26,8 +45,14 @@ describe('Administrative audit view', () => {
     await TestBed.configureTestingModule({
       imports: [Audit],
       providers: [
-        { provide: AuditApi, useValue: { search } },
-        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: new URLSearchParams() } } },
+        {
+          provide: AuditApi,
+          useValue: { search, configurationHistory: vi.fn().mockReturnValue(of(changes)) },
+        },
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { queryParamMap: new URLSearchParams() } },
+        },
       ],
     }).compileComponents();
   });
@@ -38,6 +63,22 @@ describe('Administrative audit view', () => {
     expect(search).toHaveBeenCalledWith(expect.objectContaining({ offset: 0, limit: 51 }));
     expect(fixture.nativeElement.textContent).toContain('INSPECTOR_CREATED');
     expect(fixture.nativeElement.textContent).toContain('Admin Prueba');
+  });
+
+  it('shows audited administrative changes, Ecuador time and before/after details', () => {
+    const fixture = TestBed.createComponent(Audit);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Historial de configuraciones y cuentas');
+    expect(fixture.nativeElement.textContent).toContain('Día especial actualizado');
+    expect(fixture.nativeElement.textContent).toContain('Ajuste autorizado');
+    expect(fixture.componentInstance.formatDateTime(changes[0].occurredAt)).toContain(
+      '17 oct 2026',
+    );
+    fixture.componentInstance.selectedChange.set(changes[0]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('Anterior · Nombre');
+    expect(fixture.nativeElement.textContent).toContain('Nuevo · Nombre');
   });
 
   it('translates filters and moves through result pages without exceeding API bounds', () => {

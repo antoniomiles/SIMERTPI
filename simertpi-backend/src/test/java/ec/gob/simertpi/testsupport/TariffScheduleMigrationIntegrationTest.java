@@ -13,7 +13,7 @@ class TariffScheduleMigrationIntegrationTest extends AbstractPostgresIntegration
     @Test
     void upgradeFromV44PreservesExistingTariffsAndAddsNullableCancellationMetadata() throws Exception {
         var postgres = postgresContainer();
-        String database = "qa_tariff_v48_" + UUID.randomUUID().toString().replace("-", "");
+        String database = "qa_tariff_v50_" + UUID.randomUUID().toString().replace("-", "");
         try (var connection = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
              var statement = connection.createStatement()) {
             statement.execute("CREATE DATABASE " + database);
@@ -39,9 +39,9 @@ class TariffScheduleMigrationIntegrationTest extends AbstractPostgresIntegration
 
         Flyway after = Flyway.configure().dataSource(url, postgres.getUsername(), postgres.getPassword())
                 .outOfOrder(false).cleanDisabled(true).load();
-        assertThat(after.migrate().migrationsExecuted).isEqualTo(4);
+        assertThat(after.migrate().migrationsExecuted).isEqualTo(6);
         after.validate();
-        assertThat(after.info().current().getVersion().toString()).isEqualTo("48");
+        assertThat(after.info().current().getVersion().toString()).isEqualTo("50");
         try (var connection = after.getConfiguration().getDataSource().getConnection();
              var statement = connection.prepareStatement("""
                      SELECT code,name,amount,currency,valid_from,valid_to,active,normative_reference,

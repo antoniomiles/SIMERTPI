@@ -7,11 +7,13 @@ import ec.gob.simertpi.domain.identity.repository.RoleRepository;
 import ec.gob.simertpi.domain.identity.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -24,7 +26,7 @@ class UserServiceTest {
         UserRepository userRepository = mock(UserRepository.class);
         RoleRepository roleRepository = mock(RoleRepository.class);
         BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
-        UserService service = new UserService(userRepository, roleRepository, encoder);
+        UserService service = new UserService(userRepository, roleRepository, encoder, mock(JdbcTemplate.class));
         Role citizen = new Role();
         citizen.setCode("CITIZEN");
         when(roleRepository.findByCode("CITIZEN")).thenReturn(Optional.of(citizen));
@@ -37,5 +39,18 @@ class UserServiceTest {
         assertNotEquals(rawPassword, created.getPasswordHash());
         assertTrue(encoder.matches(rawPassword, created.getPasswordHash()));
         verify(userRepository).save(any(User.class));
+    }
+
+    @Test
+    void rejectsUsernameAlreadyPresentWithDifferentCase() {
+        UserRepository userRepository = mock(UserRepository.class);
+        RoleRepository roleRepository = mock(RoleRepository.class);
+        UserService service = new UserService(userRepository, roleRepository,
+                new BCryptPasswordEncoder(), mock(JdbcTemplate.class));
+        when(userRepository.existsByUsernameIgnoreCase("Citizen")).thenReturn(true);
+
+        assertThrows(IllegalArgumentException.class, () -> service.createUser(new CreateUserRequest(
+                "Citizen", "citizen@example.test", "citizen-password-123", "Citizen", "Test", null)));
+        verify(userRepository).existsByUsernameIgnoreCase("Citizen");
     }
 }

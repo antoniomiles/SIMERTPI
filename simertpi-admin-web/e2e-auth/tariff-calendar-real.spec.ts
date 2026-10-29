@@ -22,11 +22,13 @@ const decodeQrImage = async (page: import('@playwright/test').Page, dataUrl: str
   return reader.decode(new BinaryBitmap(new HybridBinarizer(source))).getText();
 };
 const expectQrImageToDecode = async (page: import('@playwright/test').Page, image: import('@playwright/test').Locator, expected: string) => {
-  await expect.poll(async () => {
-    const dataUrl = await image.getAttribute('src');
-    if (!dataUrl?.startsWith('data:image/png;base64,')) return '';
-    try { return await decodeQrImage(page, dataUrl); } catch { return ''; }
-  }, { timeout: 10_000 }).toBe(expected);
+  await expect(image).toHaveAttribute('src', /^data:image\/png;base64,/, { timeout: 10_000 });
+  await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.complete && element.naturalWidth > 0),
+    { timeout: 10_000, message: 'El QR debe estar cargado como imagen antes de decodificarlo.' }).toBe(true);
+  const dataUrl = await image.getAttribute('src');
+  if (!dataUrl) throw new Error('La imagen QR no tiene un contenido src después de cargarse.');
+  const decoded = await decodeQrImage(page, dataUrl);
+  expect(decoded, 'El QR renderizado debe codificar exactamente el identificador persistido.').toBe(expected);
 };
 const waitForVisibleMapTiles = async (page: import('@playwright/test').Page) => page.waitForFunction(() => {
   const tiles = Array.from(document.querySelectorAll<HTMLImageElement>('.leaflet-container .leaflet-tile'))

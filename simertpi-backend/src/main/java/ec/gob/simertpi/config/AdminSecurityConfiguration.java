@@ -37,17 +37,19 @@ public class AdminSecurityConfiguration {
    .authorizeHttpRequests(a->a
     .requestMatchers(HttpMethod.GET,"/api/v1/admin/auth/csrf").permitAll()
     .requestMatchers(HttpMethod.POST,"/api/v1/admin/auth/login","/api/v1/admin/auth/logout").permitAll()
-    .requestMatchers(HttpMethod.GET,"/api/v1/admin/auth/me","/api/v1/admin/parking/reentry-configuration").hasAuthority("SIMERTPI_ADMIN")
-    .requestMatchers(HttpMethod.GET,"/api/v1/admin/inspectors").hasAuthority("SIMERTPI_ADMIN")
-    .requestMatchers(HttpMethod.GET,"/api/v1/admin/audit").hasAuthority("SIMERTPI_ADMIN")
-    .requestMatchers(HttpMethod.GET,"/api/v1/admin/access/users","/api/v1/admin/access/roles").hasAuthority("SIMERTPI_ADMIN")
-    .requestMatchers(HttpMethod.GET,"/api/v1/admin/payments").hasAuthority("SIMERTPI_ADMIN")
-    .requestMatchers(HttpMethod.GET,"/api/v1/admin/reports").hasAuthority("SIMERTPI_ADMIN")
-    .requestMatchers(HttpMethod.GET,"/api/v1/admin/inspections","/api/v1/admin/inspections/*").hasAuthority("SIMERTPI_ADMIN")
-    .requestMatchers(HttpMethod.GET,"/api/v1/admin/violations","/api/v1/admin/violations/*").hasAuthority("SIMERTPI_ADMIN")
+    .requestMatchers(HttpMethod.GET,"/api/v1/admin/auth/me","/api/v1/admin/parking/reentry-configuration").hasAnyAuthority("SIMERTPI_ADMIN","IT_ADMIN")
+    .requestMatchers(HttpMethod.GET,"/api/v1/admin/inspectors").hasAnyAuthority("SIMERTPI_ADMIN","IT_ADMIN")
+    .requestMatchers(HttpMethod.GET,"/api/v1/admin/audit").hasAnyAuthority("SIMERTPI_ADMIN","IT_ADMIN")
+    .requestMatchers(HttpMethod.GET,"/api/v1/admin/configuration-history").hasAuthority("IT_ADMIN")
+    .requestMatchers(HttpMethod.GET,"/api/v1/admin/access/users").hasAnyAuthority("SIMERTPI_ADMIN","IT_ADMIN")
+    .requestMatchers(HttpMethod.GET,"/api/v1/admin/access/roles","/api/v1/admin/access/permissions").hasAuthority("IT_ADMIN")
+    .requestMatchers(HttpMethod.GET,"/api/v1/admin/payments").hasAnyAuthority("SIMERTPI_ADMIN","IT_ADMIN")
+    .requestMatchers(HttpMethod.GET,"/api/v1/admin/reports").hasAnyAuthority("SIMERTPI_ADMIN","IT_ADMIN")
+    .requestMatchers(HttpMethod.GET,"/api/v1/admin/inspections","/api/v1/admin/inspections/*").hasAnyAuthority("SIMERTPI_ADMIN","IT_ADMIN")
+    .requestMatchers(HttpMethod.GET,"/api/v1/admin/violations","/api/v1/admin/violations/*").hasAnyAuthority("SIMERTPI_ADMIN","IT_ADMIN")
     .requestMatchers(HttpMethod.GET,
      "/api/v1/admin/violations/*/evidence",
-     "/api/v1/admin/evidence/*/content").hasAuthority("SIMERTPI_ADMIN")
+     "/api/v1/admin/evidence/*/content").hasAnyAuthority("SIMERTPI_ADMIN","IT_ADMIN")
     .requestMatchers(HttpMethod.GET,
      "/api/v1/admin/parking/zones",
      "/api/v1/admin/parking/catalog/**",
@@ -60,16 +62,17 @@ public class AdminSecurityConfiguration {
      "/api/v1/admin/parking/billing-day-calendars/*/history",
      "/api/v1/admin/parking/configuration/effective",
      "/api/v1/admin/parking/schedules",
+     "/api/v1/admin/parking/schedules/effective",
      "/api/v1/admin/parking/calendar-exceptions",
-     "/api/v1/admin/parking/sessions").hasAuthority("SIMERTPI_ADMIN")
+     "/api/v1/admin/parking/sessions").hasAnyAuthority("SIMERTPI_ADMIN","IT_ADMIN")
     .requestMatchers(HttpMethod.POST,
      "/api/v1/admin/parking/zones",
      "/api/v1/admin/parking/zones/*/streets",
-     "/api/v1/admin/parking/streets/*/spaces").hasAuthority("SIMERTPI_ADMIN")
+     "/api/v1/admin/parking/streets/*/spaces").hasAnyAuthority("SIMERTPI_ADMIN","IT_ADMIN")
     .requestMatchers(HttpMethod.PUT,
      "/api/v1/admin/parking/zones/*",
      "/api/v1/admin/parking/streets/*",
-     "/api/v1/admin/parking/spaces/*").hasAuthority("SIMERTPI_ADMIN")
+     "/api/v1/admin/parking/spaces/*").hasAnyAuthority("SIMERTPI_ADMIN","IT_ADMIN")
     .requestMatchers(HttpMethod.POST,
      "/api/v1/admin/parking/tariffs",
      "/api/v1/admin/parking/tariffs/*/end",
@@ -80,12 +83,28 @@ public class AdminSecurityConfiguration {
      "/api/v1/admin/parking/billing-day-calendars",
      "/api/v1/admin/parking/billing-day-calendars/*/end",
      "/api/v1/admin/parking/billing-day-calendars/*/revise",
-     "/api/v1/admin/parking/billing-day-calendars/*/cancel").hasAuthority("SIMERTPI_ADMIN")
-    .requestMatchers(HttpMethod.PUT,"/api/v1/admin/parking/tariffs/*").hasAuthority("SIMERTPI_ADMIN")
-    .requestMatchers(HttpMethod.PUT,"/api/v1/admin/parking/billing-day-calendars/*").hasAuthority("SIMERTPI_ADMIN")
-    .requestMatchers(HttpMethod.POST,"/api/v1/admin/inspectors","/api/v1/admin/inspectors/*/activation").hasAuthority("SIMERTPI_ADMIN")
-    .requestMatchers(HttpMethod.PUT,"/api/v1/admin/parking/reentry-configuration").hasAuthority("SIMERTPI_ADMIN")
-    .requestMatchers(HttpMethod.POST,"/api/v1/admin/reconciliation/payments","/api/v1/admin/reconciliation/evidence","/api/v1/admin/reconciliation/outbox").hasAuthority("SIMERTPI_ADMIN")
+     "/api/v1/admin/parking/billing-day-calendars/*/cancel").hasAnyAuthority("SIMERTPI_ADMIN","IT_ADMIN")
+    .requestMatchers(HttpMethod.POST,
+     "/api/v1/admin/parking/schedules",
+     "/api/v1/admin/parking/schedules/*/revise",
+     "/api/v1/admin/parking/schedules/*/end",
+     "/api/v1/admin/parking/schedules/*/deactivate",
+     "/api/v1/admin/parking/calendar-exceptions",
+     "/api/v1/admin/parking/calendar-exceptions/*/deactivate").hasAnyAuthority("SIMERTPI_ADMIN","IT_ADMIN")
+    .requestMatchers(HttpMethod.POST,"/api/v1/admin/access/users/*/activation").hasAuthority("IT_ADMIN")
+    .requestMatchers(HttpMethod.POST,"/api/v1/admin/access/users").hasAnyAuthority("SIMERTPI_ADMIN","IT_ADMIN")
+    .requestMatchers(HttpMethod.PUT,
+     "/api/v1/admin/parking/schedules/*",
+     "/api/v1/admin/parking/calendar-exceptions/*").hasAnyAuthority("SIMERTPI_ADMIN","IT_ADMIN")
+    .requestMatchers(HttpMethod.PUT,
+     "/api/v1/admin/access/users/*",
+     "/api/v1/admin/access/users/*/status",
+     "/api/v1/admin/access/users/*/roles").hasAnyAuthority("SIMERTPI_ADMIN","IT_ADMIN")
+    .requestMatchers(HttpMethod.PUT,"/api/v1/admin/parking/tariffs/*").hasAnyAuthority("SIMERTPI_ADMIN","IT_ADMIN")
+    .requestMatchers(HttpMethod.PUT,"/api/v1/admin/parking/billing-day-calendars/*").hasAnyAuthority("SIMERTPI_ADMIN","IT_ADMIN")
+    .requestMatchers(HttpMethod.POST,"/api/v1/admin/inspectors","/api/v1/admin/inspectors/*/activation").hasAnyAuthority("SIMERTPI_ADMIN","IT_ADMIN")
+    .requestMatchers(HttpMethod.PUT,"/api/v1/admin/parking/reentry-configuration").hasAnyAuthority("SIMERTPI_ADMIN","IT_ADMIN")
+    .requestMatchers(HttpMethod.POST,"/api/v1/admin/reconciliation/payments","/api/v1/admin/reconciliation/evidence","/api/v1/admin/reconciliation/outbox").hasAnyAuthority("SIMERTPI_ADMIN","IT_ADMIN")
     .anyRequest().denyAll())
    .addFilterAfter(new AdminSessionFilter(auth,origin),SecurityContextHolderFilter.class);
   return http.build();

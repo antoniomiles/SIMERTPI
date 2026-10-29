@@ -107,12 +107,24 @@ td small {
   min-width: 0;
   gap: 7px;
 }
-.admin-form > .field > span { grid-row: 1; }
+.admin-form > .field > span {
+  grid-row: 1;
+}
 .admin-form > .field > input,
 .admin-form > .field > select,
-.admin-form > .field > strong { grid-row: 2; align-self: start; }
-.admin-form > .field > small { grid-row: 3; margin: 0; }
-.admin-form > .field > strong { display: flex; align-items: center; min-height: 45px; }
+.admin-form > .field > strong {
+  grid-row: 2;
+  align-self: start;
+}
+.admin-form > .field > small {
+  grid-row: 3;
+  margin: 0;
+}
+.admin-form > .field > strong {
+  display: flex;
+  align-items: center;
+  min-height: 45px;
+}
 .admin-form .wide,
 .weekday-field {
   grid-column: 1 / -1;
@@ -126,10 +138,24 @@ td small {
   border: 1px solid var(--border);
   border-radius: 8px;
 }
-.timing-options legend { padding: 0 5px; font-weight: 600; }
-.timing-options label { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; }
-.timing-options input { width: 18px; min-height: 18px; }
-.warning-note { border-left: 4px solid #b7791f; background: #fff8e6; }
+.timing-options legend {
+  padding: 0 5px;
+  font-weight: 600;
+}
+.timing-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+}
+.timing-options input {
+  width: 18px;
+  min-height: 18px;
+}
+.warning-note {
+  border-left: 4px solid #b7791f;
+  background: #fff8e6;
+}
 .admin-form input,
 .admin-form select,
 .inline-form input {
@@ -210,8 +236,12 @@ td small {
 .error-note {
   margin-bottom: 16px;
 }
-.success-note { border-left: 4px solid var(--green); }
-.error-note { border-left: 4px solid #a12622; }
+.success-note {
+  border-left: 4px solid var(--green);
+}
+.error-note {
+  border-left: 4px solid #a12622;
+}
 .tag.inactive {
   background: #fff2cc;
   color: #5c3c00;
@@ -221,16 +251,226 @@ td small {
   margin: 12px 0;
 }
 @media (max-width: 840px) {
-  .summary-grid { grid-template-columns: 1fr 1fr; }
-  .admin-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .summary-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .admin-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 @media (max-width: 600px) {
   .summary-grid,
   .admin-form,
-  .filters { grid-template-columns: 1fr; }
+  .filters {
+    grid-template-columns: 1fr;
+  }
   .admin-form .wide,
-  .weekday-field { grid-column: auto; }
-  .config-section { padding: 16px; }
-  .section-heading { align-items: flex-start; }
-  .form-actions { align-items: stretch; }
+  .weekday-field {
+    grid-column: auto;
+  }
+  .config-section {
+    padding: 16px;
+  }
+  .section-heading {
+    align-items: flex-start;
+  }
+  .form-actions {
+    align-items: stretch;
+  }
+}
+
+/* Shared, compact controls for the calendar administration dialogs. */
+.calendar-admin .heading-actions,
+.calendar-admin .row-actions,
+.calendar-admin .dialog-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.calendar-admin .row-actions {
+  min-width: 180px;
+}
+.calendar-admin .danger-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid #e4b9b6;
+  border-radius: 7px;
+  background: #fff7f6;
+  color: #922f2b;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.calendar-admin .danger-button:hover:not(:disabled) {
+  background: #fbe9e7;
+}
+.calendar-admin .danger-button:disabled,
+.calendar-admin .icon-close:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.calendar-admin .modal-backdrop {
+  position: fixed;
+  z-index: 1300;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgb(19 31 24 / 48%);
+}
+.calendar-admin .admin-config-dialog {
+  width: min(760px, 100%);
+  max-height: min(92dvh, 900px);
+  overflow: auto;
+  padding: 22px;
+  border: 1px solid #dce6df;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 22px 64px rgb(16 35 24 / 24%);
+}
+.calendar-admin .dialog-header,
+.calendar-admin .dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.calendar-admin .dialog-header {
+  margin-bottom: 18px;
+}
+.calendar-admin .dialog-header h2 {
+  margin: 2px 0 0;
+  color: var(--ink);
+  font-size: 20px;
+}
+.calendar-admin .dialog-header .eyebrow {
+  margin: 0;
+  color: var(--green);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.07em;
+}
+.calendar-admin .icon-close {
+  display: grid;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 22px;
+  cursor: pointer;
+}
+.calendar-admin .dialog-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.calendar-admin .dialog-form-grid .field,
+.calendar-admin .admin-config-dialog > .field {
+  display: grid;
+  align-content: start;
+  min-width: 0;
+  gap: 6px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+.calendar-admin .dialog-form-grid .field > span,
+.calendar-admin .admin-config-dialog > .field > span {
+  min-height: 1.2em;
+}
+.calendar-admin .dialog-form-grid .field b {
+  color: #9d342d;
+}
+.calendar-admin .dialog-form-grid input,
+.calendar-admin .dialog-form-grid select,
+.calendar-admin .dialog-form-grid textarea,
+.calendar-admin .admin-config-dialog > .field textarea,
+.calendar-admin .admin-config-dialog > .field input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+.calendar-admin .dialog-form-grid textarea,
+.calendar-admin .admin-config-dialog > .field textarea {
+  min-height: 88px;
+  resize: vertical;
+}
+.calendar-admin .dialog-form-grid .field small,
+.calendar-admin .admin-config-dialog > .field small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+.calendar-admin .dialog-form-grid .field-full {
+  grid-column: 1 / -1;
+}
+.calendar-admin .dialog-form-grid :focus-visible,
+.calendar-admin .admin-config-dialog :focus-visible {
+  outline: 3px solid #65a982;
+  outline-offset: 2px;
+}
+.calendar-admin .dialog-actions {
+  justify-content: flex-end;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.calendar-admin .form-error,
+.calendar-admin .inline-error,
+.calendar-admin .field-error {
+  color: #922f2b;
+}
+.calendar-admin .form-error {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border: 1px solid #edc6c3;
+  border-radius: 8px;
+  background: #fff7f6;
+  font-size: 13px;
+}
+.calendar-admin .inline-error {
+  margin: 0 0 12px;
+}
+.calendar-admin .field-error {
+  display: block;
+  margin-top: 5px;
+  font-size: 12px;
+}
+@media (max-width: 700px) {
+  .calendar-admin .admin-config-dialog {
+    max-height: 94dvh;
+    padding: 16px;
+    border-radius: 12px;
+  }
+  .calendar-admin .dialog-form-grid {
+    grid-template-columns: 1fr;
+    gap: 11px;
+  }
+  .calendar-admin .dialog-form-grid .field-full {
+    grid-column: auto;
+  }
+  .calendar-admin .dialog-header h2 {
+    font-size: 18px;
+  }
+  .calendar-admin .heading-actions {
+    justify-content: flex-end;
+  }
 }

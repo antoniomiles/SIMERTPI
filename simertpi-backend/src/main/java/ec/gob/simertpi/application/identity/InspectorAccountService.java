@@ -49,21 +49,37 @@ public class InspectorAccountService {
     @Transactional(readOnly = true)
     public org.springframework.data.domain.Page<InspectorDirectoryProjection> directory(
             String query, Boolean enabled, org.springframework.data.domain.Pageable pageable) {
-        String normalized = query == null || query.isBlank() ? null : query.trim();
+        // Do not pass a null into the JPQL search predicate: PostgreSQL may infer
+        // the nullable parameter as bytea when it is used with LOWER/LIKE.
+        String normalized = query == null ? "" : query.trim();
         return users.searchInspectors(normalized, enabled, pageable);
     }
 
     @Transactional
     @Audited(action = "INSPECTOR_CREATED", resourceType = "USER")
     public CreatedInspector create(String username, String email, String firstName, String lastName, String phone) {
+        return createWithRoles(username, email, firstName, lastName, phone, List.of(INSPECTOR));
+    }
+
+    /** Creates an invited account using only existing roles; the caller must enforce administrator policy. */
+    @Transactional
+    public CreatedInspector createWithRoles(String username, String email, String firstName, String lastName, String phone,
+                                           List<String> requestedRoles) {
         String normalizedUsername = clean(username);
         String normalizedEmail = clean(email).toLowerCase(Locale.ROOT);
+        jdbc.query("SELECT pg_advisory_xact_lock(hashtextextended('username:' || lower(?), 0))", rs -> null, normalizedUsername);
+        jdbc.query("SELECT pg_advisory_xact_lock(hashtextextended(lower(?), 0))", rs -> null, normalizedEmail);
         if (users.existsByUsernameIgnoreCase(normalizedUsername) || users.existsByEmailIgnoreCase(normalizedEmail)) {
             throw new InspectorAlreadyExistsException();
         }
-
-        Role inspector = roles.findByCode(INSPECTOR)
-                .orElseThrow(() -> new IllegalStateException("Required municipal role is unavailable"));
+        List<String> roleCodes = requestedRoles == null ? List.of() : requestedRoles.stream()
+                .filter(java.util.Objects::nonNull).map(code -> code.trim().toUpperCase(Locale.ROOT)).distinct().sorted().toList();
+        if (roleCodes.isEmpty() || requestedRoles == null || roleCodes.size() != requestedRoles.size()
+                || roleCodes.contains("IT_ADMIN") && roleCodes.contains("SIMERTPI_ADMIN")) {
+            throw new IllegalArgumentException("La combinación de roles solicitada no es válida.");
+        }
+        List<Role> assignedRoles = roleCodes.stream().map(code -> roles.findByCode(code)
+                .orElseThrow(() -> new IllegalArgumentException("El rol solicitado no existe en el catálogo."))).toList();
         OffsetDateTime now = OffsetDateTime.now();
         UUID id = UUID.randomUUID();
         User user = new User();
@@ -77,7 +93,7 @@ public class InspectorAccountService {
         user.setEnabled(false);
         user.setCreatedAt(now);
         user.setUpdatedAt(now);
-        user.getRoles().add(inspector);
+        user.getRoles().addAll(assignedRoles);
         users.saveAndFlush(user);
 
         IssuedActivation activation = issueActivation(id, now);
@@ -95,6 +111,21 @@ public class InspectorAccountService {
         User user = users.findById(userId).orElseThrow(InspectorNotFoundException::new);
         if (user.isEnabled() || user.getPasswordHash() != null || user.getRoles().size() != 1
                 || !user.getRoles().iterator().next().getCode().equals(INSPECTOR)) {
+            throw new InspectorActivationStateException();
+        }
+        IssuedActivation activation = issueActivation(userId, OffsetDateTime.now());
+        return new ActivationIssued(userId, activation.token(), activation.expiresAt());
+    }
+
+    @Transactional
+    public ActivationIssued reissueInvite(UUID userId) {
+        jdbc.query("SELECT id FROM identity.users WHERE id = ? FOR UPDATE", rs -> {
+            if (!rs.next()) throw new InspectorNotFoundException();
+            return rs.getObject(1, UUID.class);
+        }, userId);
+        User user = users.findById(userId).orElseThrow(InspectorNotFoundException::new);
+        Integer pendingToken = jdbc.queryForObject("SELECT COUNT(*) FROM identity.inspector_activation_tokens WHERE user_id=?", Integer.class, userId);
+        if (user.isEnabled() || user.getPasswordHash() != null || user.getRoles().isEmpty() || pendingToken == null || pendingToken != 1) {
             throw new InspectorActivationStateException();
         }
         IssuedActivation activation = issueActivation(userId, OffsetDateTime.now());
@@ -130,11 +161,13 @@ public class InspectorAccountService {
                 UPDATE identity.users SET password_hash = ?, enabled = TRUE, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ? AND enabled = FALSE AND password_hash IS NULL
                 """, passwords.encode(newPassword), userId);
-        if (updated != 1 || roleCodes.size() != 1 || !INSPECTOR.equals(roleCodes.getFirst())) {
+        if (updated != 1 || roleCodes.isEmpty() || roleCodes.contains("IT_ADMIN") && roleCodes.contains("SIMERTPI_ADMIN")) {
             throw new InspectorActivationRejectedException();
         }
         jdbc.update("DELETE FROM identity.inspector_activation_tokens WHERE user_id = ?", userId);
-        audit.success("INSPECTOR_ACTIVATED", "USER", userId, null, Map.of("role", INSPECTOR));
+        String activationAction = roleCodes.size() == 1 && INSPECTOR.equals(roleCodes.getFirst())
+                ? "INSPECTOR_ACTIVATED" : "INVITED_ACCOUNT_ACTIVATED";
+        audit.success(activationAction, "USER", userId, null, Map.of("roles", String.join(",", roleCodes.stream().sorted().toList())));
     }
 
     private IssuedActivation issueActivation(UUID userId, OffsetDateTime now) {

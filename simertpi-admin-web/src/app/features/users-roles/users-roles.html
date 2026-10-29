@@ -1,129 +1,491 @@
 <app-page-heading
   eyebrow="ADMINISTRACIÓN / ACCESOS"
   title="Usuarios, roles y permisos"
-  description="Consulta las cuentas y los roles registrados en SIMERTPI."
+  description="Consulta el directorio administrativo y el catálogo de roles registrados en SIMERTPI."
 >
-  <span class="read-only-tag">Solo lectura</span>
+  <span class="read-only-tag"><span aria-hidden="true">●</span> Administración protegida</span>
 </app-page-heading>
 
 <section class="access-note" role="note" aria-label="Alcance de la administración de accesos">
-  <strong>Los permisos se controlan en el backend.</strong>
-  <p>
-    El sistema conserva un catálogo de roles, pero no una matriz editable de permisos. Esta vista no
-    asigna roles, crea cuentas ni cambia estados; el acceso efectivo se valida por ruta en el servidor.
-  </p>
-  <p>Para el alta y activación de inspectores utilice Personal municipal.</p>
+  <span class="note-icon" aria-hidden="true">i</span>
+  <div>
+    <strong>Operaciones administrativas con auditoría</strong>
+    <p>
+      Aquí puedes actualizar datos de cuenta, habilitar o deshabilitar cuentas autorizadas y crear
+      inspectores mediante el flujo seguro de activación. Los roles y permisos se aplican en el
+      backend; los controles disponibles se limitan a tus capacidades y al alcance de tu cuenta.
+    </p>
+    <p>El enlace de activación se muestra una sola vez y debe entregarse por un canal seguro.</p>
+  </div>
 </section>
 
+@if (!preview && isSuperAdmin()) {
 <div class="tabs" role="tablist" aria-label="Administración de accesos">
-  <button type="button" role="tab" [attr.aria-selected]="tab() === 'users'" (click)="setTab('users')">
-    Cuentas
+  <button
+    type="button"
+    role="tab"
+    id="accounts-tab"
+    aria-controls="accounts-panel"
+    [attr.aria-selected]="tab() === 'users'"
+    (click)="setTab('users')"
+  >
+    <span class="tab-icon" aria-hidden="true">♙</span> Cuentas
+    @if (directory(); as result) {
+      <span class="tab-count">{{ result.totalElements }}</span>
+    }
   </button>
-  <button type="button" role="tab" [attr.aria-selected]="tab() === 'roles'" (click)="setTab('roles')">
-    Catálogo de roles
+  @if (canManageAllAccounts()) {
+  <button
+    type="button"
+    role="tab"
+    id="roles-tab"
+    aria-controls="roles-panel"
+    [attr.aria-selected]="tab() === 'roles'"
+    (click)="setTab('roles')"
+  >
+    <span class="tab-icon" aria-hidden="true">◈</span> Catálogo de roles
+    <span class="tab-count">{{ roleCatalog().length }}</span>
   </button>
+  }
 </div>
+
+}
 
 @if (preview) {
   <app-data-state
     title="Previsualización sin datos"
     description="Esta vista local no consulta el backend ni muestra cuentas o roles de ejemplo."
   />
+} @else if (!isSuperAdmin() && !isAdmin()) {
+  <app-data-state
+    kind="error"
+    title="Acceso no disponible"
+    description="La administración de cuentas requiere un rol administrativo habilitado."
+  />
 } @else if (tab() === 'users') {
-  <section class="card directory" aria-labelledby="accounts-title">
+  <section class="panel" id="accounts-panel" role="tabpanel" aria-labelledby="accounts-tab">
+    <div class="summary-grid" aria-label="Resumen de cuentas">
+      <article class="summary-card">
+        <span class="summary-icon green" aria-hidden="true">♙</span>
+        <div>
+          <span class="summary-label">Cuentas encontradas</span
+          ><strong>{{ directory()?.totalElements ?? '—' }}</strong
+          ><small>Según los filtros actuales</small>
+        </div>
+      </article>
+      <article class="summary-card">
+        <span class="summary-icon green" aria-hidden="true">✓</span>
+        <div>
+          <span class="summary-label">Habilitadas</span
+          ><strong>{{ usersState() === 'ready' ? enabledOnPage() : '—' }}</strong
+          ><small>En esta página</small>
+        </div>
+      </article>
+      <article class="summary-card">
+        <span class="summary-icon amber" aria-hidden="true">◷</span>
+        <div>
+          <span class="summary-label">Pendientes de activación</span
+          ><strong>{{ usersState() === 'ready' ? pendingOnPage() : '—' }}</strong
+          ><small>En esta página</small>
+        </div>
+      </article>
+      <article class="summary-card">
+        <span class="summary-icon slate" aria-hidden="true">◈</span>
+        <div>
+          <span class="summary-label">Roles registrados</span
+          ><strong>{{ roleCatalog().length }}</strong
+          ><small>Catálogo consultado</small>
+        </div>
+      </article>
+    </div>
+
     <div class="section-heading">
       <div>
-        <h2 id="accounts-title">Cuentas de acceso</h2>
-        <p>Datos mínimos del usuario, roles asignados y estado de la cuenta.</p>
+        <span class="section-kicker">DIRECTORIO</span>
+        <h2>Cuentas de acceso</h2>
+        <p>Consulta de usuarios, roles asociados y estado de la cuenta.</p>
       </div>
-      <button class="button secondary" type="button" (click)="loadUsers()" [disabled]="usersState() === 'loading'">
-        Actualizar
+      <button
+        class="button secondary"
+        type="button"
+        (click)="loadUsers()"
+        [disabled]="usersState() === 'loading'"
+      >
+        <span aria-hidden="true">↻</span> Actualizar
       </button>
+      @if (canManageAllAccounts() || canManageInspectors()) {
+        <button class="button primary" type="button" (click)="openCreateInspector()">
+          <span aria-hidden="true">＋</span> {{ canManageAllAccounts() ? 'Crear cuenta' : 'Crear inspector' }}
+        </button>
+      }
     </div>
-    <form class="filters" [formGroup]="filters" (ngSubmit)="$event.preventDefault()">
-      <label>
-        <span>Buscar</span>
-        <input formControlName="query" type="search" maxlength="100" placeholder="Nombre, usuario o correo" />
+
+    <form
+      class="filters"
+      [formGroup]="filters"
+      (ngSubmit)="$event.preventDefault()"
+      aria-label="Filtros de cuentas"
+    >
+      <label class="search-field">
+        <span>Buscar cuenta</span>
+        <span class="control-wrap"
+          ><span aria-hidden="true">⌕</span
+          ><input
+            formControlName="query"
+            type="search"
+            maxlength="100"
+            placeholder="Nombre, usuario o correo"
+        /></span>
       </label>
       <label>
-        <span>Rol</span>
+        <span>Rol asignado</span>
         <select formControlName="role">
           <option value="">Todos los roles</option>
           @for (role of roleCatalog(); track role.code) {
-            <option [value]="role.code">{{ role.code }} · {{ role.name }}</option>
+            @if (canManageAllAccounts() || role.code === 'INSPECTOR') {
+              <option [value]="role.code">{{ role.displayName || role.name }}</option>
+            }
           }
+          @if (isAdmin()) { <option value="INSPECTOR">Inspector municipal</option> }
         </select>
       </label>
       <label>
-        <span>Estado</span>
+        <span>Estado de cuenta</span>
         <select formControlName="status">
-          <option value="all">Todos</option>
+          <option value="all">Todos los estados</option>
           <option value="enabled">Habilitadas</option>
           <option value="disabled">Deshabilitadas</option>
         </select>
       </label>
+      <button
+        class="button clear-button"
+        type="button"
+        (click)="clearFilters()"
+        [disabled]="usersState() === 'loading'"
+      >
+        Limpiar filtros
+      </button>
     </form>
+
     @if (usersState() === 'loading') {
-      <app-data-state kind="loading" title="Consultando cuentas" description="Cargando el directorio administrativo." />
+      <app-data-state
+        kind="loading"
+        title="Consultando cuentas"
+        description="Cargando el directorio administrativo."
+      />
     } @else if (usersState() === 'error') {
-      <app-data-state kind="error" title="No se pudo cargar el directorio" [description]="usersError()">
+      <app-data-state
+        kind="error"
+        title="No se pudo cargar el directorio"
+        [description]="usersError()"
+      >
         <button class="button secondary" type="button" (click)="loadUsers()">Reintentar</button>
       </app-data-state>
     } @else if (usersState() === 'empty') {
-      <app-data-state title="Sin cuentas para estos filtros" description="No se encontraron cuentas registradas que coincidan con la consulta." />
+      <app-data-state
+        title="Sin cuentas para estos filtros"
+        description="No se encontraron cuentas registradas que coincidan con la consulta."
+      />
     } @else if (directory(); as result) {
       <div class="table-scroll" tabindex="0" role="region" aria-label="Directorio de cuentas">
         <table>
-          <caption class="sr-only">Cuentas y roles registrados en SIMERTPI</caption>
-          <thead><tr><th scope="col">Cuenta</th><th scope="col">Correo</th><th scope="col">Roles</th><th scope="col">Estado</th><th scope="col">Creada</th></tr></thead>
+          <caption class="sr-only">
+            Cuentas y roles registrados en SIMERTPI
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">Cuenta</th>
+              <th scope="col">Correo electrónico</th>
+              <th scope="col">Roles asignados</th>
+              <th scope="col">Estado</th>
+              <th scope="col">Fecha de registro</th>
+              <th scope="col">Acciones</th>
+            </tr>
+          </thead>
           <tbody>
             @for (account of result.content; track account.id) {
               <tr>
-                <td><strong>{{ account.firstName }} {{ account.lastName }}</strong><span class="secondary-text">{{ account.username }}</span></td>
-                <td>{{ account.email }}</td>
-                <td><ul class="role-list">@for (code of account.roles; track code) { <li>{{ code }} · {{ roleName(code) }}</li> }</ul></td>
-                <td><span class="status" [class.disabled]="!account.enabled">{{ accountStatus(account.enabled, account.activationPending) }}</span></td>
-                <td>{{ account.createdAt | date: 'mediumDate' }}</td>
+                <td>
+                  <div class="account-cell">
+                    <span class="avatar" aria-hidden="true"
+                      >{{ account.firstName.charAt(0) }}{{ account.lastName.charAt(0) }}</span
+                    ><span
+                      ><strong>{{ account.firstName }} {{ account.lastName }}</strong
+                      ><span class="secondary-text">{{ account.username }}</span></span
+                    >
+                  </div>
+                </td>
+                <td class="email-cell">{{ account.email }}</td>
+                <td>
+                  <ul class="role-list">
+                    @for (code of account.roles; track code) {
+                      <li>
+                        <span class="role-chip">{{ roleName(code) }}</span>
+                      </li>
+                    }
+                  </ul>
+                </td>
+                <td>
+                  <span
+                    class="status"
+                    [ngClass]="accountStatusClass(account.enabled, account.activationPending)"
+                    >{{ accountStatus(account.enabled, account.activationPending) }}</span
+                  >
+                </td>
+                <td class="date-cell">
+                  {{ formatCreatedAt(account.createdAt) }}
+                </td>
+                <td>
+                  <div class="row-actions">
+                    @if (canManageAccount(account)) {
+                    <button class="button compact secondary" type="button" (click)="openEdit(account)">Editar</button>
+                    @if (account.activationPending) {
+                      @if (canReissueActivation(account)) {
+                        <button class="button compact secondary" type="button" (click)="openActivation(account)">Reemitir activación</button>
+                      }
+                    } @else if (canChangeStatus(account)) {
+                      <button class="button compact" [class.danger-soft]="account.enabled" type="button" (click)="openStatus(account)">
+                        {{ account.enabled ? 'Deshabilitar' : 'Habilitar' }}
+                      </button>
+                    }
+                    }
+                    @if (canChangeRoles(account)) {
+                      <button class="button compact secondary" type="button" (click)="openAssignRoles(account)">Roles</button>
+                    }
+                  </div>
+                </td>
               </tr>
             }
           </tbody>
         </table>
       </div>
       <div class="pagination" aria-label="Paginación de cuentas">
-        <span>{{ result.totalElements }} cuenta(s) · Página {{ result.page + 1 }} de {{ result.totalPages }}</span>
-        <button class="button secondary" type="button" [disabled]="!hasPrevious()" (click)="previousPage()">Anterior</button>
-        <button class="button secondary" type="button" [disabled]="!hasNext()" (click)="nextPage()">Siguiente</button>
+        <span class="pagination-count"
+          >{{ result.totalElements }} cuenta(s) · Página {{ result.page + 1 }} de
+          {{ result.totalPages }}</span
+        >
+        <div class="pagination-actions">
+          <button
+            class="button secondary"
+            type="button"
+            [disabled]="!hasPrevious()"
+            (click)="previousPage()"
+          >
+            Anterior
+          </button>
+          <button
+            class="button secondary"
+            type="button"
+            [disabled]="!hasNext()"
+            (click)="nextPage()"
+          >
+            Siguiente
+          </button>
+        </div>
       </div>
     }
   </section>
-} @else {
-  <section class="card role-catalog" aria-labelledby="roles-title">
+} @else if (canManageAllAccounts()) {
+  <section class="panel" id="roles-panel" role="tabpanel" aria-labelledby="roles-tab">
+    <div class="summary-grid role-summary" aria-label="Resumen del catálogo de roles">
+      <article class="summary-card">
+        <span class="summary-icon green" aria-hidden="true">◈</span>
+        <div>
+          <span class="summary-label">Roles registrados</span
+          ><strong>{{ roleCatalog().length }}</strong
+          ><small>Definidos en el catálogo</small>
+        </div>
+      </article>
+      <article class="summary-card">
+        <span class="summary-icon slate" aria-hidden="true">♙</span>
+        <div>
+          <span class="summary-label">Cuentas vinculadas</span
+          ><strong>{{ assignedAccountCount() }}</strong
+          ><small>Suma de asignaciones del catálogo</small>
+        </div>
+      </article>
+    </div>
     <div class="section-heading">
       <div>
-        <h2 id="roles-title">Roles existentes</h2>
-        <p>El catálogo procede de la base de datos; la cantidad indica cuentas vinculadas a cada rol.</p>
+        <span class="section-kicker">CATÁLOGO</span>
+        <h2>Roles existentes</h2>
+        <p>Consulta los roles registrados y la cantidad de cuentas asociadas.</p>
       </div>
-      <button class="button secondary" type="button" (click)="loadRoles()" [disabled]="rolesState() === 'loading'">
-        Actualizar
+      <button
+        class="button secondary"
+        type="button"
+        (click)="loadRoles()"
+        [disabled]="rolesState() === 'loading'"
+      >
+        <span aria-hidden="true">↻</span> Actualizar
       </button>
     </div>
     @if (rolesState() === 'loading') {
-      <app-data-state kind="loading" title="Consultando roles" description="Cargando el catálogo registrado." />
+      <app-data-state
+        kind="loading"
+        title="Consultando roles"
+        description="Cargando el catálogo registrado."
+      />
     } @else if (rolesState() === 'error') {
-      <app-data-state kind="error" title="No se pudo cargar el catálogo" [description]="rolesError()">
+      <app-data-state
+        kind="error"
+        title="No se pudo cargar el catálogo"
+        [description]="rolesError()"
+      >
         <button class="button secondary" type="button" (click)="loadRoles()">Reintentar</button>
       </app-data-state>
     } @else if (rolesState() === 'empty') {
-      <app-data-state title="No hay roles registrados" description="El catálogo de roles está vacío." />
+      <app-data-state
+        title="No hay roles registrados"
+        description="El catálogo de roles está vacío."
+      />
     } @else {
+      <section class="permissions-panel" aria-label="Capacidades devueltas por el servidor">
+        <h3>Capacidades por rol</h3>
+        <div class="permissions-grid">
+          @for (rolePermission of permissionCatalog(); track rolePermission.roleCode) {
+            <article class="permission-card">
+              <div><strong>{{ rolePermission.roleName }}</strong><code>{{ rolePermission.roleCode }}</code></div>
+              <ul>
+                @for (permission of rolePermission.permissions; track permission) {
+                  <li>{{ permissionLabel(permission) }}</li>
+                } @empty {
+                  <li>Sin capacidades informadas</li>
+                }
+              </ul>
+            </article>
+          }
+        </div>
+      </section>
       <div class="table-scroll" tabindex="0" role="region" aria-label="Catálogo de roles">
         <table>
-          <caption class="sr-only">Roles registrados y cuentas asignadas</caption>
-          <thead><tr><th scope="col">Código</th><th scope="col">Nombre</th><th scope="col">Descripción del catálogo</th><th scope="col">Cuentas</th></tr></thead>
-          <tbody>@for (role of roleCatalog(); track role.code) { <tr><td><code>{{ role.code }}</code></td><td>{{ role.name }}</td><td>{{ role.description || 'Sin descripción' }}</td><td>{{ role.assignedAccounts }}</td></tr> }</tbody>
+          <caption class="sr-only">
+            Roles registrados y cuentas asignadas
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">Código</th>
+              <th scope="col">Rol</th>
+              <th scope="col">Descripción</th>
+              <th scope="col">Cuentas vinculadas</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (role of roleCatalog(); track role.code) {
+              <tr>
+                <td>
+                  <code class="role-code">{{ role.code }}</code>
+                </td>
+                <td>
+                  <strong>{{ role.displayName || role.name }}</strong>
+                </td>
+                <td>{{ role.description || 'Sin descripción registrada' }}</td>
+                <td>
+                  <span class="assigned-count">{{ role.assignedAccounts }}</span>
+                </td>
+              </tr>
+            }
+          </tbody>
         </table>
       </div>
-      <p class="permission-note">La descripción del catálogo no constituye una concesión de permisos. Las autorizaciones se definen y aplican en el backend por endpoint; no se pueden editar desde el portal.</p>
+      <p class="permission-note">
+        <strong>Permisos de acceso:</strong> la asignación utiliza únicamente roles existentes. El
+        backend vuelve a validar autorización, alcance y concurrencia en cada operación.
+      </p>
     }
   </section>
+}
+
+@if (notice(); as message) {
+  <div class="access-toast" [class.error]="message.kind === 'error'" role="status" aria-live="polite">
+    <span>{{ message.message }}</span>
+    <button type="button" aria-label="Cerrar notificación" (click)="dismissNotice()">×</button>
+  </div>
+}
+
+@if (operation(); as currentOperation) {
+  <div class="access-backdrop" (click)="closeOperation()">
+    <section class="access-dialog" role="dialog" aria-modal="true" [attr.aria-labelledby]="'access-dialog-title'" (click)="$event.stopPropagation()">
+      @if (currentOperation === 'edit') {
+        <form [formGroup]="profileForm" (ngSubmit)="saveProfile()">
+          <header><div><span class="section-kicker">CUENTA</span><h2 id="access-dialog-title">Editar datos de usuario</h2><p>{{ selectedAccount()?.username }}</p></div><button type="button" class="icon-close" aria-label="Cerrar" (click)="closeOperation()">×</button></header>
+          <div class="dialog-fields">
+            <label>Correo electrónico<input type="email" formControlName="email" autocomplete="email" /></label>
+            <label>Nombres<input type="text" formControlName="firstName" autocomplete="given-name" /></label>
+            <label>Apellidos<input type="text" formControlName="lastName" autocomplete="family-name" /></label>
+            <label>Teléfono<input type="tel" formControlName="phone" autocomplete="tel" /></label>
+            <label class="wide">Motivo de modificación<textarea formControlName="reason" rows="3" maxlength="500"></textarea></label>
+          </div>
+          @if (operationError()) { <p class="operation-error" role="alert">{{ operationError() }}</p> }
+          <footer><button type="button" class="button secondary" (click)="closeOperation()" [disabled]="saving()">Cancelar</button><button class="button primary" type="submit" [disabled]="saving()">{{ saving() ? 'Guardando…' : 'Guardar cambios' }}</button></footer>
+        </form>
+      } @else if (currentOperation === 'status') {
+        <form [formGroup]="statusForm" (ngSubmit)="saveStatus()">
+          <header><div><span class="section-kicker">ESTADO DE CUENTA</span><h2 id="access-dialog-title">{{ selectedAccount()?.enabled ? 'Deshabilitar cuenta' : 'Habilitar cuenta' }}</h2><p>{{ selectedAccount()?.firstName }} {{ selectedAccount()?.lastName }} · {{ selectedAccount()?.username }}</p></div><button type="button" class="icon-close" aria-label="Cerrar" (click)="closeOperation()">×</button></header>
+          <p class="dialog-note">La operación se registrará en auditoría. Escribe el motivo para continuar.</p>
+          <label>Motivo<textarea formControlName="reason" rows="3" maxlength="500"></textarea></label>
+          @if (operationError()) { <p class="operation-error" role="alert">{{ operationError() }}</p> }
+          <footer><button type="button" class="button secondary" (click)="closeOperation()" [disabled]="saving()">Cancelar</button><button class="button primary" type="submit" [disabled]="saving()">{{ saving() ? 'Procesando…' : 'Confirmar' }}</button></footer>
+        </form>
+      } @else if (currentOperation === 'invite') {
+        <form [formGroup]="inviteForm" (ngSubmit)="createInspector()">
+          <header><div><span class="section-kicker">NUEVA CUENTA</span><h2 id="access-dialog-title">{{ isSuperAdmin() ? 'Crear cuenta' : 'Crear inspector' }}</h2><p>Se generará un enlace de activación; no se asignará una contraseña desde esta pantalla.</p></div><button type="button" class="icon-close" aria-label="Cerrar" (click)="closeOperation()">×</button></header>
+          <div class="dialog-fields">
+            <label>Usuario<input formControlName="username" autocomplete="username" /></label>
+            <label>Correo electrónico<input type="email" formControlName="email" autocomplete="email" /></label>
+            <label>Nombres<input formControlName="firstName" autocomplete="given-name" /></label>
+            <label>Apellidos<input formControlName="lastName" autocomplete="family-name" /></label>
+            <label>Teléfono<input type="tel" formControlName="phone" autocomplete="tel" /></label>
+            @if (canManageAllAccounts()) {
+              <fieldset class="role-choice wide">
+                <legend>Roles existentes</legend>
+                <div class="role-choice-grid">
+                  @for (role of visibleRoleOptions(); track role.code) {
+                    <label class="role-choice-option"><input type="checkbox" [checked]="inviteForm.controls.roles.value.includes(role.code)" (change)="toggleInviteRole(role.code, $any($event.target).checked)" /><span><strong>{{ role.displayName || role.name }}</strong><small>{{ role.description || 'Rol registrado en el sistema' }}</small></span></label>
+                  }
+                </div>
+              </fieldset>
+            } @else {
+              <p class="fixed-role wide">La cuenta se creará con el rol Inspector municipal.</p>
+            }
+            <label class="wide">Motivo de creación<textarea formControlName="reason" rows="3" maxlength="500"></textarea></label>
+          </div>
+          @if (operationError()) { <p class="operation-error" role="alert">{{ operationError() }}</p> }
+          <footer><button type="button" class="button secondary" (click)="closeOperation()" [disabled]="saving()">Cancelar</button><button class="button primary" type="submit" [disabled]="saving()">{{ saving() ? 'Creando…' : (isSuperAdmin() ? 'Crear cuenta' : 'Crear inspector') }}</button></footer>
+        </form>
+      } @else if (currentOperation === 'roles') {
+        <form [formGroup]="rolesForm" (ngSubmit)="saveRoles()">
+          <header><div><span class="section-kicker">ROLES EXISTENTES</span><h2 id="access-dialog-title">Administrar roles</h2><p>{{ selectedAccount()?.firstName }} {{ selectedAccount()?.lastName }} · {{ selectedAccount()?.username }}</p></div><button type="button" class="icon-close" aria-label="Cerrar" (click)="closeOperation()">×</button></header>
+          <fieldset class="role-choice">
+            <legend>Selecciona los roles asignados</legend>
+            <div class="role-choice-grid">
+              @for (role of visibleRoleOptions(); track role.code) {
+                <label class="role-choice-option"><input type="checkbox" [checked]="rolesForm.controls.roles.value.includes(role.code)" (change)="toggleAssignedRole(role.code, $any($event.target).checked)" /><span><strong>{{ role.displayName || role.name }}</strong><small>{{ role.description || 'Rol registrado en el sistema' }}</small></span></label>
+              }
+            </div>
+          </fieldset>
+          <label>Motivo del cambio<textarea formControlName="reason" rows="3" maxlength="500"></textarea></label>
+          @if (operationError()) { <p class="operation-error" role="alert">{{ operationError() }}</p> }
+          <footer><button type="button" class="button secondary" (click)="closeOperation()" [disabled]="saving()">Cancelar</button><button class="button primary" type="submit" [disabled]="saving()">{{ saving() ? 'Guardando…' : 'Guardar roles' }}</button></footer>
+        </form>
+      } @else {
+        <header><div><span class="section-kicker">ACTIVACIÓN SEGURA</span><h2 id="access-dialog-title">Enlace de activación</h2><p>{{ selectedAccount()?.username || 'Cuenta de inspector creada' }}</p></div><button type="button" class="icon-close" aria-label="Cerrar" (click)="clearActivationSecret()">×</button></header>
+        @if (activationSecret(); as secret) {
+          <p class="dialog-note">Copia este token ahora y entrégalo por un canal seguro. No se volverá a mostrar.</p>
+          <label>Token de un solo uso<textarea readonly rows="3">{{ secret.token }}</textarea></label>
+          <p>Vence: {{ secret.expiresAt }}</p>
+        } @else {
+          <p class="dialog-note">Se emitirá un token nuevo y se invalidará el enlace anterior.</p>
+          @if (!selectedAccount()?.roles?.includes('INSPECTOR')) {
+            <form [formGroup]="activationForm">
+              <label>Motivo de reemisión<textarea formControlName="reason" rows="3" maxlength="500"></textarea></label>
+            </form>
+          }
+          @if (operationError()) { <p class="operation-error" role="alert">{{ operationError() }}</p> }
+          <footer><button type="button" class="button secondary" (click)="closeOperation()">Cancelar</button><button type="button" class="button primary" (click)="reissueActivation()" [disabled]="saving()">{{ saving() ? 'Emitiendo…' : 'Reemitir enlace' }}</button></footer>
+        }
+        @if (activationSecret()) { <footer><button type="button" class="button primary" (click)="clearActivationSecret()">Cerrar y borrar token</button></footer> }
+      }
+    </section>
+  </div>
 }

@@ -1,0 +1,70 @@
+:host {
+  display: inline-flex;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.admin-config-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  max-width: 100%;
+  min-height: 1.55rem;
+  padding: 0.18rem 0.58rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 650;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.admin-config-status__dot {
+  width: 0.42rem;
+  height: 0.42rem;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.admin-config-status--active {
+  color: #075b32;
+  border-color: #b7ddc5;
+  background: #eaf7ef;
+}
+
+.admin-config-status--scheduled {
+  color: #174f9a;
+  border-color: #c5d8f5;
+  background: #edf4ff;
+}
+
+.admin-config-status--cancelled {
+  color: #9e2d39;
+  border-color: #f1c5ca;
+  background: #fff0f1;
+}
+
+.admin-config-status--ended {
+  color: #4e5d6b;
+  border-color: #d7dfe6;
+  background: #f0f3f6;
+}
+
+.admin-config-status--inactive {
+  color: #704d00;
+  border-color: #ebd28e;
+  background: #fff7df;
+}
+
+.admin-config-status--neutral {
+  color: #46586a;
+  border-color: #d5dfe7;
+  background: #f2f5f8;
+}
+
+@media (prefers-contrast: more) {
+  .admin-config-status {
+    border-width: 2px;
+  }
+}

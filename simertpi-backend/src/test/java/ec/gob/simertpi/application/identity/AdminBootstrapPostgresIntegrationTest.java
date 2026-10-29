@@ -48,6 +48,12 @@ class AdminBootstrapPostgresIntegrationTest {
   assertThat(users.findById(id).orElseThrow().getPasswordHash().equals(createdHash)).isTrue();
   assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit.functional_audit_log WHERE action='ADMIN_BOOTSTRAP' AND resource_id=? AND actor_name='BOOTSTRAP:isolated-operator'",Integer.class,id)).isEqualTo(1);
  }
+ @Test void createsFirstSuperadministratorWithItAdminRoleAndRejectsSecondBootstrap(){
+  String name="superadmin-"+UUID.randomUUID();UUID id=service.createFirstSuperadmin(identity(name),CharBuffer.wrap(PASSWORD.toCharArray()),"approved-local-fixture");
+  User created=users.findByUsernameWithRoles(name).orElseThrow();assertThat(created.isEnabled()).isTrue();assertThat(created.getRoles().stream().map(r->r.getCode()).toList()).containsExactly("IT_ADMIN");
+  assertThatThrownBy(()->service.createFirstSuperadmin(identity("second-super-"+UUID.randomUUID()),PASSWORD,"approved-local-fixture")).isInstanceOf(IllegalStateException.class);
+  assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit.functional_audit_log WHERE action='ADMIN_BOOTSTRAP' AND resource_id=? AND metadata->>'role'='IT_ADMIN' AND result='SUCCESS'",Integer.class,id)).isEqualTo(1);
+ }
  @Test void refusesPromotionAndRequiresExplicitOperator(){
   User user=new User();String name="existing-"+UUID.randomUUID();user.setId(UUID.randomUUID());user.setUsername(name);user.setEmail(name+"@example.invalid");user.setFirstName("Existing");user.setLastName("Account");user.setEnabled(true);user.setCreatedAt(OffsetDateTime.now());user.setUpdatedAt(user.getCreatedAt());users.saveAndFlush(user);
   assertThatThrownBy(()->service.createFirstAdmin(identity(name),PASSWORD,"CP25.3-C-LOCAL")).isInstanceOf(IllegalStateException.class);
@@ -60,6 +66,12 @@ class AdminBootstrapPostgresIntegrationTest {
    start.countDown();int successes=0;for(var result:results)if(result.get(20,TimeUnit.SECONDS))successes++;assertThat(successes).isEqualTo(1);
    assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM identity.user_roles ur JOIN identity.roles r ON r.id=ur.role_id WHERE r.code='SIMERTPI_ADMIN'",Integer.class)).isEqualTo(1);
   }finally{pool.shutdownNow();}
+ }
+ @Test void bootstrapParserKeepsLegacyModeAndRequiresExplicitSuperadminMode(){
+  assertThat(AdminBootstrapCli.parseMode(new String[]{"--bootstrap-dev-admin"})).isEqualTo(AdminBootstrapCli.BootstrapMode.DEV_ADMIN);
+  assertThat(AdminBootstrapCli.parseMode(new String[]{"--bootstrap-dev-superadmin"})).isEqualTo(AdminBootstrapCli.BootstrapMode.DEV_SUPERADMIN);
+  assertThat(AdminBootstrapCli.run(new String[]{"--bootstrap-dev-admin","--bootstrap-dev-superadmin"})).isEqualTo(1);
+  assertThatThrownBy(()->AdminBootstrapCli.parseMode(new String[]{"--bootstrap-prod-superadmin"})).isInstanceOf(IllegalArgumentException.class);
  }
  @Test void exactDevHostDatabasePortAndVerifiedTlsAreRequired(){
   String host=AdminBootstrapCli.RESOURCE+".internal",good="jdbc:postgresql://"+host+":5432/simertpi?sslmode=verify-full";

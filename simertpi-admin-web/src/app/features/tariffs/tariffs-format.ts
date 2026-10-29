@@ -8,6 +8,12 @@ export function currentConfigurationDate(): string {
   return `${part('year')}-${part('month')}-${part('day')}`;
 }
 
+export function currentConfigurationTime(): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: guayaquil,
+  }).format(new Date());
+}
+
 export function nextConfigurationDate(): string {
   const [year, month, day] = currentConfigurationDate().split('-').map(Number);
   return new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);

@@ -38,7 +38,7 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             FROM User u JOIN u.roles r
             WHERE r.code = 'INSPECTOR'
               AND (:enabled IS NULL OR u.enabled = :enabled)
-              AND (:query IS NULL OR
+              AND (:query = '' OR
                    LOWER(u.username) LIKE LOWER(CONCAT('%', :query, '%')) OR
                    LOWER(u.email) LIKE LOWER(CONCAT('%', :query, '%')) OR
                    LOWER(CONCAT(u.firstName, ' ', u.lastName)) LIKE LOWER(CONCAT('%', :query, '%')))
@@ -47,7 +47,7 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             SELECT COUNT(u.id) FROM User u JOIN u.roles r
             WHERE r.code = 'INSPECTOR'
               AND (:enabled IS NULL OR u.enabled = :enabled)
-              AND (:query IS NULL OR
+              AND (:query = '' OR
                    LOWER(u.username) LIKE LOWER(CONCAT('%', :query, '%')) OR
                    LOWER(u.email) LIKE LOWER(CONCAT('%', :query, '%')) OR
                    LOWER(CONCAT(u.firstName, ' ', u.lastName)) LIKE LOWER(CONCAT('%', :query, '%')))

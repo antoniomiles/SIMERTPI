@@ -7,6 +7,8 @@ import { Zones } from './zones';
 import { CatalogPage, ZonesApi, ZoneCatalog } from './zones-api';
 import { TariffsApi } from '../tariffs/tariffs-api';
 
+vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn().mockResolvedValue('data:image/png;base64,c3ludGhldGljLXFy') } }));
+
 const zone = { id:'z1',code:'Z-01',name:'Centro',description:null,active:true,createdAt:'2026-10-18T00:00:00Z',updatedAt:'2026-10-18T00:00:00Z',streetCount:1,spaceCount:1,activeSpaceCount:1 };
 const street = { id:'s1',zoneId:'z1',zoneCode:'Z-01',zoneName:'Centro',code:'S-01',name:'Calle Norte',description:null,active:true,createdAt:zone.createdAt,updatedAt:zone.updatedAt,spaceCount:1 };
 const space = { id:'p1',zoneId:'z1',zoneCode:'Z-01',zoneName:'Centro',streetId:'s1',streetCode:'S-01',streetName:'Calle Norte',code:'P-01',qrCode:'SIMERTPI-QR-01',spaceNumber:'01',latitude:null,longitude:null,spaceType:'STANDARD',active:true,operationalStatus:'AVAILABLE' as const,mapStatus:'NO_ACTIVE_SESSION' as const,createdAt:zone.createdAt,updatedAt:zone.updatedAt };
@@ -188,6 +190,8 @@ describe('Administrative zones, streets and spaces screens', () => {
     view='spaces';TestBed.overrideProvider(ActivatedRoute,{useValue:{snapshot:{data:{catalogView:'spaces'},pathFromRoot:[{data:{}}]}}});
     const f=TestBed.createComponent(Zones);f.detectChanges();const c=f.componentInstance;
     c.select(space);await vi.waitFor(()=>expect(c.qrDataUrl().startsWith('data:image/png;base64,')).toBe(true));
+    const { default: QRCode } = await import('qrcode');
+    expect(QRCode.toDataURL).toHaveBeenCalledWith(space.qrCode,expect.objectContaining({errorCorrectionLevel:'M'}));
     c.openCreate();f.detectChanges();
     expect(f.nativeElement.textContent).toContain('El identificador QR se genera automáticamente');
     expect(f.nativeElement.querySelector('[formcontrolname="qrCode"]')).toBeNull();

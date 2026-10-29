@@ -7,6 +7,7 @@ export interface AdminIdentity {
   readonly sessionExpiresAt: string;
   readonly absoluteExpiresAt: string;
 }
+const ADMIN_ROLES = new Set(['SIMERTPI_ADMIN', 'IT_ADMIN']);
 @Injectable({ providedIn: 'root' })
 export class AdminSessionState {
   private readonly value = signal<AdminIdentity | null>(null);
@@ -29,7 +30,7 @@ export class AdminSessionState {
   }
 
   accept(identity: AdminIdentity) {
-    if (!identity.enabled || !identity.roles.includes('SIMERTPI_ADMIN'))
+    if (!identity.enabled || !identity.roles.some((role) => ADMIN_ROLES.has(role)))
       throw new Error('Administrative identity required');
     this.value.set(identity);
     this.lastServerSyncAt = Date.now();

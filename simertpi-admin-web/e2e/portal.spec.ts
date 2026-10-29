@@ -215,7 +215,7 @@ test('tariffs preview stays local and never calls configuration APIs', async ({ 
   expect(requests).toEqual([]);
 });
 
-test('tariffs navigation has the five exact Spanish options, descriptions, active state, pending views and history', async ({ page }) => {
+test('tariffs navigation has the five exact Spanish options, descriptions, active state, functional views and history', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto('/preview/tariffs');
   const menu = page.getByRole('button', { name: 'Tarifas y horarios' });
@@ -238,8 +238,8 @@ test('tariffs navigation has the five exact Spanish options, descriptions, activ
   await page.getByRole('link', { name: /Días especiales y feriados/ }).click();
   await expect(page).toHaveURL(/\/preview\/tariffs\/holidays$/);
   await expect(page.getByRole('heading', { name: 'Días especiales y feriados' })).toBeVisible();
-  await expect(page.locator('.card > .tag')).toHaveText('Pendiente');
-  await expect(page.getByRole('heading', { name: 'Funcionalidad pendiente' })).toBeVisible();
+  await expect(page.locator('.preview-note')).toContainText('La vista no consulta ni modifica datos.');
+  await expect(page.getByRole('heading', { name: 'Funcionalidad pendiente' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Tarifas y horarios' })).toHaveAttribute('aria-expanded', 'true');
 });
 

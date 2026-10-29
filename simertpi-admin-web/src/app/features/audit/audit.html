@@ -30,7 +30,12 @@
       </div>
       <div class="field">
         <label for="audit-resource-id">Identificador del registro</label>
-        <input id="audit-resource-id" formControlName="resourceId" maxlength="36" autocomplete="off" />
+        <input
+          id="audit-resource-id"
+          formControlName="resourceId"
+          maxlength="36"
+          autocomplete="off"
+        />
       </div>
       <div class="field">
         <label for="audit-result">Resultado</label>
@@ -106,7 +111,7 @@
         <tbody>
           @for (row of rows(); track row.id) {
             <tr>
-              <td>{{ row.occurredAt | date: 'medium' }}</td>
+              <td>{{ formatDateTime(row.occurredAt) }}</td>
               <td>
                 <strong>{{ row.actorName || 'Sistema' }}</strong>
                 @if (row.actorRole) {
@@ -143,4 +148,181 @@
       </div>
     </nav>
   </section>
+}
+
+<section
+  class="audit-results card configuration-history"
+  aria-label="Historial de configuraciones"
+  aria-live="polite"
+>
+  <div class="results-heading">
+    <div>
+      <p class="eyebrow">CAMBIOS ADMINISTRATIVOS</p>
+      <h2>Historial de configuraciones y cuentas</h2>
+    </div>
+    @if (changesState() === 'ready') {
+      <span class="tag">{{ changes().length }} en esta página</span>
+    }
+  </div>
+  <p class="history-note">
+    Los datos provienen del registro inmutable de auditoría. Los cambios antiguos pueden no incluir
+    motivo o valores anteriores y nuevos.
+  </p>
+  @if (changesState() === 'loading') {
+    <app-data-state
+      kind="loading"
+      title="Cargando historial"
+      description="Consultando cambios de horarios, días especiales y cuentas."
+    />
+  } @else if (changesState() === 'error') {
+    <app-data-state
+      kind="error"
+      title="No se pudo cargar el historial"
+      [description]="changesError()"
+    >
+      <button
+        class="button secondary"
+        type="button"
+        (click)="loadConfigurationHistory(changesOffset())"
+      >
+        Reintentar
+      </button>
+    </app-data-state>
+  } @else if (changesState() === 'empty') {
+    <app-data-state
+      kind="empty"
+      title="Todavía no hay cambios en este historial"
+      description="Los cambios nuevos se mostrarán aquí después de ser confirmados por el servidor."
+    />
+  } @else {
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Fecha y hora (Ecuador)</th>
+            <th scope="col">Configuración</th>
+            <th scope="col">Acción</th>
+            <th scope="col">Responsable</th>
+            <th scope="col">Motivo</th>
+            <th scope="col">Detalle</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (change of changes(); track change.id) {
+            <tr>
+              <td>{{ formatDateTime(change.occurredAt) }}</td>
+              <td>
+                <strong>{{ change.resourceType }}</strong
+                ><small>{{ change.resourceId || 'Identificador no disponible' }}</small>
+              </td>
+              <td>{{ actionLabel(change.action) }}</td>
+              <td>
+                <strong>{{ change.actorName || 'Responsable no registrado' }}</strong
+                ><small>{{ change.actorRole || 'Rol no registrado' }}</small>
+              </td>
+              <td class="reason-cell">
+                {{ change.details['reason'] || 'Motivo no registrado en este evento histórico.' }}
+              </td>
+              <td>
+                <button
+                  class="button secondary"
+                  type="button"
+                  (click)="selectedChange.set(change)"
+                  [attr.aria-label]="'Ver detalle del cambio ' + actionLabel(change.action)"
+                >
+                  Ver detalle
+                </button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    <nav class="pagination" aria-label="Paginación del historial de configuraciones">
+      <span>Registros {{ changesOffset() + 1 }}–{{ changesOffset() + changes().length }}</span>
+      <div>
+        <button
+          class="button secondary"
+          type="button"
+          (click)="previousChanges()"
+          [disabled]="changesOffset() === 0"
+        >
+          Anterior
+        </button>
+        <button
+          class="button secondary"
+          type="button"
+          (click)="nextChanges()"
+          [disabled]="!changesHasNext()"
+        >
+          Siguiente
+        </button>
+      </div>
+    </nav>
+  }
+</section>
+
+@if (selectedChange(); as selected) {
+  <div class="change-dialog-backdrop" (click)="closeChangeDetails()">
+    <section
+      class="change-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="change-dialog-title"
+      tabindex="-1"
+      (click)="$event.stopPropagation()"
+      (keydown.escape)="closeChangeDetails()"
+    >
+      <header>
+        <div>
+          <p class="eyebrow">{{ selected.resourceType }}</p>
+          <h2 id="change-dialog-title">Detalle del cambio</h2>
+        </div>
+        <button
+          class="button secondary"
+          type="button"
+          autofocus
+          (click)="closeChangeDetails()"
+          aria-label="Cerrar detalle"
+        >
+          Cerrar
+        </button>
+      </header>
+      <dl class="change-meta">
+        <div>
+          <dt>Acción</dt>
+          <dd>{{ actionLabel(selected.action) }}</dd>
+        </div>
+        <div>
+          <dt>Fecha y hora (Ecuador)</dt>
+          <dd>{{ formatDateTime(selected.occurredAt) }}</dd>
+        </div>
+        <div>
+          <dt>Responsable</dt>
+          <dd>{{ selected.actorName || 'No registrado' }}</dd>
+        </div>
+        <div>
+          <dt>Identificador</dt>
+          <dd>{{ selected.resourceId || 'No disponible' }}</dd>
+        </div>
+      </dl>
+      @if (hasDetails(selected)) {
+        <dl class="change-values">
+          @for (entry of detailEntries(selected); track entry[0]) {
+            <div>
+              <dt>{{ detailLabel(entry[0]) }}</dt>
+              <dd>{{ entry[1] || 'Sin valor' }}</dd>
+            </div>
+          }
+        </dl>
+      } @else {
+        <p class="history-note">
+          Este evento histórico no contiene un motivo ni valores detallados.
+        </p>
+      }
+      <footer>
+        <button class="button primary" type="button" (click)="closeChangeDetails()">Cerrar</button>
+      </footer>
+    </section>
+  </div>
 }

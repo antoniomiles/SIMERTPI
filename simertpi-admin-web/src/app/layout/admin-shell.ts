@@ -41,6 +41,12 @@ export class AdminShell {
   private readonly injector = inject(Injector);
   readonly preference = inject(SidebarPreference);
   readonly session = inject(AdminSession);
+  readonly administrativeRoleLabel = () => {
+    const roles = this.session.identity()?.roles ?? [];
+    if (roles.includes('IT_ADMIN')) return 'Superadministrador';
+    if (roles.includes('SIMERTPI_ADMIN')) return 'Administrador';
+    return 'Usuario administrativo';
+  };
   readonly environmentLabel = { local: 'LOCAL', dev: 'DEV', production: 'PROD' }[
     inject(PORTAL_CONFIG).name
   ];

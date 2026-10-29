@@ -1,0 +1,133 @@
+/* Shared presentation for the independent billing-day and calendar pages. */
+.calendar-admin {
+  width: 100%;
+  min-width: 0;
+  color: var(--ink);
+  .config-section {
+    margin-bottom: 20px;
+    padding: 22px;
+  }
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+  .summary-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+    padding: 18px;
+  }
+  .summary-card > strong {
+    color: var(--ink);
+    font-size: 18px;
+    line-height: 1.35;
+  }
+  .summary-card > span:not(.eyebrow),
+  .summary-card > small {
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .eyebrow {
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.045em;
+  }
+  .section-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 14px;
+    h2 { margin: 0; font-size: 19px; }
+  }
+  .section-note {
+    margin: 0 0 16px;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  .table-scroll {
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+  }
+  table { width: 100%; border-collapse: collapse; text-align: left; }
+  th,
+  td {
+    min-width: 110px;
+    padding: 12px 11px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th { color: var(--muted); font-size: 12px; font-weight: 650; }
+  td { font-size: 13px; line-height: 1.5; }
+  td small { display: block; margin-top: 3px; color: var(--muted); }
+  .list-empty { margin: 0; padding: 14px 10px; color: var(--muted); font-size: 13px; }
+  .filters {
+    display: grid;
+    grid-template-columns: minmax(240px, 2fr) minmax(190px, 1fr);
+    gap: 16px;
+    align-items: end;
+    padding: 16px 0;
+    label { display: grid; gap: 6px; color: var(--ink); font-size: 12px; font-weight: 650; }
+    input,
+    select { width: 100%; min-height: 42px; }
+    input:focus-visible,
+    select:focus-visible { outline: 3px solid #65a982; outline-offset: 2px; }
+  }
+  .filter-search { min-width: 0; }
+  .row-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
+  .charge-indicator {
+    display: inline-flex;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: #f1f3f4;
+    color: #46515a;
+    font-size: 12px;
+    font-weight: 650;
+    white-space: nowrap;
+  }
+  .charge-indicator--yes { background: #e7f4eb; color: #25623f; }
+  .effective-fields {
+    display: grid;
+    grid-template-columns: minmax(220px, 1.5fr) repeat(2, minmax(150px, 1fr)) auto;
+    align-items: end;
+    gap: 12px;
+    label { display: grid; gap: 5px; color: var(--ink); font-size: 12px; font-weight: 650; }
+    select,
+    input { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; background: #fff; color: var(--ink); font: inherit; font-size: 13px; }
+  }
+  .effective-result {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border: 1px solid #c9dfcf;
+    border-left: 4px solid var(--green);
+    border-radius: 7px;
+    background: #f4faf5;
+    color: #274a32;
+    dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 12px 0 0; }
+    dt { color: var(--muted); font-size: 11px; }
+    dd { margin: 2px 0 0; font-size: 13px; font-weight: 650; }
+  }
+}
+
+@media (max-width: 840px) {
+  .calendar-admin .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+  .calendar-admin {
+    .filters { grid-template-columns: 1fr; }
+    .filters label { width: 100%; }
+    .section-heading { align-items: flex-start; flex-wrap: wrap; }
+    .table-scroll { overflow-x: auto; }
+    table { min-width: 760px; }
+    .config-section { padding: 16px; }
+    .effective-fields { grid-template-columns: 1fr; }
+    .effective-result dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+}

@@ -1,0 +1,5 @@
+ALTER TABLE parking.holidays
+    ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+ALTER TABLE parking.schedules
+    ADD COLUMN row_version BIGINT NOT NULL DEFAULT 0;

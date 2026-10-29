@@ -32,7 +32,8 @@ public class InspectorAuthorizationService {
         if (!user.isEnabled()) throw new ForbiddenException();
         boolean inspector = user.getRoles().stream().anyMatch(role -> "INSPECTOR".equals(role.getCode()));
         boolean supervisorOrAdmin = user.getRoles().stream().anyMatch(role ->
-                "SUPERVISOR".equals(role.getCode()) || "SIMERTPI_ADMIN".equals(role.getCode()));
+                "SUPERVISOR".equals(role.getCode()) || "SIMERTPI_ADMIN".equals(role.getCode())
+                        || "IT_ADMIN".equals(role.getCode()));
         if (!inspector && !supervisorOrAdmin) throw new ForbiddenException();
         if (inspector && !supervisorOrAdmin && !user.getId().equals(inspectorId)) throw new ForbiddenException();
         return user;

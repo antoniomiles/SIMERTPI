@@ -1,8 +1,8 @@
 import { expect,test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 const password='chrome-isolated-fixture-2026';
-async function login(page: import('@playwright/test').Page,name='qa.admin'){
- await page.goto('/login');await page.getByLabel('Usuario',{exact:true}).fill(name);await page.getByLabel('Contraseña',{exact:true}).fill(password);await page.getByRole('button',{name:'Iniciar sesión'}).click();
+async function login(page: import('@playwright/test').Page,name='qa.admin',secret=password){
+ await page.goto('/login');await page.getByLabel('Usuario',{exact:true}).fill(name);await page.getByLabel('Contraseña',{exact:true}).fill(secret);await page.getByRole('button',{name:'Iniciar sesión'}).click();
 }
 test('real cookie login, reload, protected route and logout with no browser credential storage',async({page})=>{
  await login(page);await expect(page).toHaveURL(/admin\/dashboard$/);
@@ -29,6 +29,85 @@ test('incorrect password and missing csrf are rejected by the real backend',asyn
 test('unsafe redirects are discarded after a real login',async({page})=>{
  await page.goto('/login?returnUrl=https%3A%2F%2Funtrusted.invalid');await page.getByLabel('Usuario',{exact:true}).fill('qa.admin');await page.getByLabel('Contraseña',{exact:true}).fill(password);await page.getByRole('button',{name:'Iniciar sesión'}).click();await expect(page).toHaveURL('https://localhost:4443/admin/dashboard');
  await page.getByRole('button',{name:'Cerrar sesión',exact:true}).click();
+});
+test('superadministrator invites an administrator and the administrator cannot elevate roles', async ({ page }) => {
+ test.setTimeout(90_000);
+ await login(page, 'qa.it_admin');
+ await expect(page).toHaveURL(/admin\/dashboard$/);
+ await expect(page.getByText('Superadministrador', { exact: true })).toBeVisible();
+ await page.goto('/admin/access');
+ await expect(page.getByRole('heading', { name: 'Usuarios, roles y permisos' })).toBeVisible();
+ await page.getByRole('button', { name: 'Crear cuenta', exact: true }).first().click();
+ const invite = page.locator('.access-dialog');
+ await invite.locator('[formControlName="username"]').fill('qa.created.admin');
+ await invite.locator('[formControlName="email"]').fill('qa.created.admin@example.invalid');
+ await invite.locator('[formControlName="firstName"]').fill('Cuenta');
+ await invite.locator('[formControlName="lastName"]').fill('Administradora E2E');
+ await invite.getByRole('checkbox', { name: /^Administrador\b/ }).check();
+ await invite.locator('[formControlName="reason"]').fill('Prueba E2E de aprovisionamiento administrativo');
+ const createdResponsePromise = page.waitForResponse(response => response.request().method() === 'POST'
+   && new URL(response.url()).pathname === '/api/v1/admin/access/users');
+ await invite.getByRole('button', { name: 'Crear cuenta', exact: true }).click();
+ const createdResponse = await createdResponsePromise;
+ expect(createdResponse.status()).toBe(201);
+ const activationTokenField = invite.getByLabel('Token de un solo uso');
+ await expect(activationTokenField).toHaveValue(/^[A-Za-z0-9_-]{43}$/);
+ const activationToken = await activationTokenField.inputValue();
+ const createdLookup = await page.request.get('/api/v1/admin/access/users?q=qa.created.admin');
+ expect(createdLookup.status()).toBe(200);
+ const createdDirectory = await createdLookup.json() as { content: Array<{ id: string; username: string; roles: string[]; activationPending: boolean }> };
+ expect(createdDirectory.content).toHaveLength(1);
+ const createdAccount = createdDirectory.content[0];
+ expect(createdAccount).toMatchObject({ username: 'qa.created.admin', roles: ['SIMERTPI_ADMIN'], activationPending: true });
+
+ const activation = await page.request.post('/api/v1/municipal/auth/activate', {
+   data: { activationToken, newPassword: 'qa-created-admin-password-2026' },
+ });
+ expect(activation.status()).toBe(204);
+ await invite.getByRole('button', { name: 'Cerrar y borrar token' }).click();
+ await page.getByRole('button', { name: 'Cerrar sesión', exact: true }).click();
+
+ await login(page, 'qa.created.admin', 'qa-created-admin-password-2026');
+ await expect(page).toHaveURL(/admin\/dashboard$/);
+ await expect(page.getByText('Administrador', { exact: true })).toBeVisible();
+ await page.goto('/admin/access');
+ await expect(page.getByRole('button', { name: 'Crear inspector', exact: true })).toBeVisible();
+ await expect(page.getByRole('button', { name: 'Crear cuenta', exact: true })).toHaveCount(0);
+ await expect(page.getByRole('tab', { name: /Catálogo de roles/ })).toHaveCount(0);
+ expect((await page.request.get('/api/v1/admin/access/roles')).status()).toBe(403);
+ expect((await page.request.get('/api/v1/admin/access/permissions')).status()).toBe(403);
+
+ const inspectorResponsePromise = page.waitForResponse(response => response.request().method() === 'POST'
+   && new URL(response.url()).pathname === '/api/v1/admin/access/users');
+ await page.getByRole('button', { name: 'Crear inspector', exact: true }).click();
+ const inspectorDialog = page.locator('.access-dialog');
+ await inspectorDialog.locator('[formControlName="username"]').fill('qa.created.inspector');
+ await inspectorDialog.locator('[formControlName="email"]').fill('qa.created.inspector@example.invalid');
+ await inspectorDialog.locator('[formControlName="firstName"]').fill('Inspector');
+ await inspectorDialog.locator('[formControlName="lastName"]').fill('E2E');
+ await inspectorDialog.locator('[formControlName="reason"]').fill('Prueba E2E de alcance del administrador');
+ await inspectorDialog.getByRole('button', { name: 'Crear inspector', exact: true }).click();
+ const inspectorResponse = await inspectorResponsePromise;
+ expect(inspectorResponse.status()).toBe(201);
+ const inspectorLookup = await page.request.get('/api/v1/admin/access/users?q=qa.created.inspector');
+ expect(inspectorLookup.status()).toBe(200);
+ const inspectorDirectory = await inspectorLookup.json() as { content: Array<{ id: string; username: string; updatedAt: string; roles: string[]; activationPending: boolean }> };
+ expect(inspectorDirectory.content).toHaveLength(1);
+ const inspector = inspectorDirectory.content[0];
+ expect(inspector).toMatchObject({ username: 'qa.created.inspector', roles: ['INSPECTOR'], activationPending: true });
+ expect((await page.request.get('/api/v1/admin/auth/csrf')).status()).toBe(204);
+ const csrf = (await page.context().cookies()).find(cookie => cookie.name === '__Host-SIMERTPI_ADMIN_XSRF')?.value;
+ expect(csrf).toBeTruthy();
+ const escalation = await page.request.put(`/api/v1/admin/access/users/${inspector.id}/roles`, {
+   headers: { 'X-XSRF-TOKEN': csrf! },
+   data: { roles: ['IT_ADMIN'], reason: 'Intento E2E de elevación', updatedAt: inspector.updatedAt },
+ });
+ expect(escalation.status()).toBe(403);
+ const persisted = await page.request.get('/api/v1/admin/access/users?q=qa.created.inspector');
+ expect(persisted.status()).toBe(200);
+ const directory = await persisted.json() as { content: Array<{ username: string; roles: string[]; activationPending: boolean }> };
+ expect(directory.content).toHaveLength(1);
+ expect(directory.content[0]).toMatchObject({ username: 'qa.created.inspector', roles: ['INSPECTOR'], activationPending: true });
 });
 test('unauthenticated deep link and real expiration return to login',async({page})=>{
  const testStartedAt = Date.now();

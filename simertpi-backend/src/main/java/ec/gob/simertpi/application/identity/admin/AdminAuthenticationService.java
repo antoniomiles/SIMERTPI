@@ -101,7 +101,7 @@ public class AdminAuthenticationService {
    (rs,n)->new Stored(rs.getObject(1,UUID.class),rs.getObject(2,UUID.class),rs.getString(3),rs.getObject(4,OffsetDateTime.class),rs.getObject(5,OffsetDateTime.class),rs.getBoolean(6)),hash(token));
   return list.isEmpty()?null:list.getFirst();
  }
- private static boolean allowed(User user){return user.isEnabled()&&user.getRoles().stream().anyMatch(r->r.getCode().equals("SIMERTPI_ADMIN"));}
+ private static boolean allowed(User user){return user.isEnabled()&&user.getRoles().stream().anyMatch(r->Set.of("SIMERTPI_ADMIN","IT_ADMIN").contains(r.getCode()));}
  private static String stamp(User user){return hash(user.getPasswordHash()+":"+user.getRoles().stream().map(r->r.getCode()).sorted().toList());}
  public static void establish(User user){var auth=UsernamePasswordAuthenticationToken.authenticated(user.getUsername(),null,user.getRoles().stream().map(r->new SimpleGrantedAuthority(r.getCode())).toList());SecurityContextHolder.getContext().setAuthentication(auth);}
  private static Identity identity(User u,OffsetDateTime idle,OffsetDateTime absolute){return new Identity(u.getId(),u.getUsername(),u.getRoles().stream().map(r->r.getCode()).sorted().toList(),u.isEnabled(),idle,absolute);}

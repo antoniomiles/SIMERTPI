@@ -38,7 +38,8 @@ public class ParkingReentryConfigurationService {
             throw new IllegalArgumentException("cooldownMinutes must be between 1 and 1440");
         }
         var admin = users.findByUsernameWithRoles(username).orElseThrow(ForbiddenException::new);
-        if (!admin.isEnabled() || admin.getRoles().stream().noneMatch(role -> "SIMERTPI_ADMIN".equals(role.getCode()))) {
+        if (!admin.isEnabled() || admin.getRoles().stream().noneMatch(role ->
+                "SIMERTPI_ADMIN".equals(role.getCode()) || "IT_ADMIN".equals(role.getCode()))) {
             throw new ForbiddenException();
         }
         Settings before = currentForUpdate();

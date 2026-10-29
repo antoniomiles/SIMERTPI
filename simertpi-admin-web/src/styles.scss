@@ -1,5 +1,7 @@
 @use './styles/tokens';
 @use './styles/typography';
+@use './app/styles/admin-configuration-shared';
+@use './app/styles/admin-access-dialog';
 @import 'leaflet/dist/leaflet.css';
 * {
   box-sizing: border-box;

@@ -66,7 +66,7 @@ public class AdminParkingTariffScheduleController {
                         .thenComparing(Schedule::getDayOfWeek).thenComparing(Schedule::getStartTime))
                 .map(s -> new ScheduleView(s.getId(), s.getZoneId(), zoneCode(zones, s.getZoneId()),
                         zoneName(zones, s.getZoneId()), s.getDayOfWeek(), s.getStartTime(), s.getEndTime(),
-                        s.isActive(), s.getValidFrom(), s.getValidTo(), s.getCreatedAt(), s.getUpdatedAt()))
+                        s.isActive(), s.getValidFrom(), s.getValidTo(), s.getCreatedAt(), s.getUpdatedAt(), s.getRowVersion()))
                 .toList();
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(rows);
     }
@@ -79,7 +79,7 @@ public class AdminParkingTariffScheduleController {
                 .map(h -> new CalendarExceptionView(h.getId(), h.getHolidayDate(), h.getName(), h.getZoneId(),
                         zoneCode(zones, h.getZoneId()), zoneName(zones, h.getZoneId()), h.getHolidayType(),
                         h.isTariffed(), h.getStartTime(), h.getEndTime(), h.getNormativeReference(),
-                        h.getValidFrom(), h.getValidTo(), h.isActive(), h.getCreatedAt()))
+                        h.getValidFrom(), h.getValidTo(), h.isActive(), h.getCreatedAt(), h.getUpdatedAt()))
                 .toList();
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(rows);
     }
@@ -105,10 +105,10 @@ public class AdminParkingTariffScheduleController {
 
     public record ScheduleView(UUID id, UUID zoneId, String zoneCode, String zoneName, Short dayOfWeek,
             LocalTime startTime, LocalTime endTime, boolean active, LocalDate validFrom, LocalDate validTo,
-            OffsetDateTime createdAt, OffsetDateTime updatedAt) { }
+            OffsetDateTime createdAt, OffsetDateTime updatedAt, long rowVersion) { }
 
     public record CalendarExceptionView(UUID id, LocalDate holidayDate, String name, UUID zoneId, String zoneCode,
             String zoneName, String holidayType, boolean tariffed, LocalTime startTime, LocalTime endTime,
             String normativeReference, LocalDate validFrom, LocalDate validTo, boolean active,
-            OffsetDateTime createdAt) { }
+            OffsetDateTime createdAt, OffsetDateTime updatedAt) { }
 }

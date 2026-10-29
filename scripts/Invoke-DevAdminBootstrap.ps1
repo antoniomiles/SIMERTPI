@@ -7,7 +7,8 @@ param(
  [Parameter(Mandatory=$true)][string]$ApprovalId,
  [Parameter(Mandatory=$true)][string]$JavaHome,
  [string]$BackendDirectory,
- [switch]$PreflightOnly
+ [switch]$PreflightOnly,
+ [switch]$Superadministrator
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
@@ -45,7 +46,8 @@ try{
   $pointer=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
   $env:DB_PASSWORD=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
  }
- $arguments=@('-cp',('"'+$classpath+'"'),'ec.gob.simertpiadmin.bootstrap.AdminBootstrapCli','--bootstrap-dev-admin',"--expected-host=$ExpectedHost","--expected-db-user=$ExpectedDbUser","--operator=$Operator","--approval-id=$ApprovalId"); $process=Start-Process -FilePath $java -ArgumentList $arguments -NoNewWindow -Wait -PassThru
+ $bootstrapMode=if($Superadministrator){'--bootstrap-dev-superadmin'}else{'--bootstrap-dev-admin'}
+ $arguments=@('-cp',('"'+$classpath+'"'),'ec.gob.simertpiadmin.bootstrap.AdminBootstrapCli',$bootstrapMode,"--expected-host=$ExpectedHost","--expected-db-user=$ExpectedDbUser","--operator=$Operator","--approval-id=$ApprovalId"); $process=Start-Process -FilePath $java -ArgumentList $arguments -NoNewWindow -Wait -PassThru
  if($process.ExitCode -ne 0){throw 'Bootstrap detenido; consultar resultado por vía autorizada antes de reintentar'}
 }finally{
  foreach($name in $names){[Environment]::SetEnvironmentVariable($name,$previous[$name],'Process')}

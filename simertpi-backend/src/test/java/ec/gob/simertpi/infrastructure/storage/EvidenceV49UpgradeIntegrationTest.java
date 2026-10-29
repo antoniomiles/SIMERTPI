@@ -122,7 +122,7 @@ class EvidenceV49UpgradeIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM enforcement.evidence WHERE id IN (?, ?)", Long.class, oldEvidenceId, newEvidenceId))
                 .isEqualTo(2L);
         assertThat(jdbc.queryForObject("SELECT max(version::integer) FROM public.flyway_schema_history WHERE success", Integer.class))
-                .isEqualTo(49);
+                .isEqualTo(50);
     }
 
     private static String sha256(byte[] bytes) {

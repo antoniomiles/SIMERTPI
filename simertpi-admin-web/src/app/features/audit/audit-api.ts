@@ -13,6 +13,20 @@ export interface AuditRecord {
   correlationId: string | null;
 }
 
+export interface ConfigurationChangeRecord {
+  id: string;
+  occurredAt: string;
+  actorId: string | null;
+  actorName: string | null;
+  actorRole: string | null;
+  action: string;
+  resourceType: string | null;
+  resourceId: string | null;
+  result: string;
+  correlationId: string | null;
+  details: Record<string, string>;
+}
+
 export interface AuditFilters {
   action?: string;
   resourceType?: string;
@@ -31,12 +45,23 @@ export class AuditApi {
 
   search(filters: AuditFilters) {
     let params = new HttpParams().set('limit', filters.limit).set('offset', filters.offset);
-    for (const key of ['action', 'resourceType', 'resourceId', 'result', 'correlationId'] as const) {
+    for (const key of [
+      'action',
+      'resourceType',
+      'resourceId',
+      'result',
+      'correlationId',
+    ] as const) {
       const value = filters[key]?.trim();
       if (value) params = params.set(key, value);
     }
     if (filters.from) params = params.set('from', filters.from);
     if (filters.to) params = params.set('to', filters.to);
     return this.api.get<AuditRecord[]>('admin/audit', { params });
+  }
+
+  configurationHistory(limit = 26, offset = 0) {
+    const params = new HttpParams().set('limit', limit).set('offset', offset);
+    return this.api.get<ConfigurationChangeRecord[]>('admin/configuration-history', { params });
   }
 }

@@ -20,8 +20,9 @@ public final class AdminBootstrapCli {
  public static int run(String[] args){
   char[] first=null,second=null;
   try {
+   BootstrapMode mode=parseMode(args);
    Map<String,String> flags=new HashMap<>();
-   if(args.length!=5||!args[0].equals("--bootstrap-dev-admin"))throw new IllegalArgumentException();
+   if(args.length!=5)throw new IllegalArgumentException();
    for(int i=1;i<args.length;i++){String[] flag=args[i].split("=",2);if(flag.length!=2||flags.put(flag[0],flag[1])!=null)throw new IllegalArgumentException();}
    if(!flags.keySet().equals(Set.of("--expected-host","--expected-db-user","--operator","--approval-id")))throw new IllegalArgumentException();
    String host=flags.get("--expected-host"),user=flags.get("--expected-db-user"),operator=flags.get("--operator"),authorization=flags.get("--approval-id");
@@ -39,14 +40,16 @@ public final class AdminBootstrapCli {
     first=console.readPassword("Contraseña (mínimo 16 caracteres; máximo 72 bytes UTF-8): ");second=console.readPassword("Repita contraseña: ");
     if(first==null||second==null||!Arrays.equals(first,second))throw new IllegalArgumentException();
     SecurityContextHolder.getContext().setAuthentication(UsernamePasswordAuthenticationToken.authenticated("BOOTSTRAP:"+operator,null,List.of(new SimpleGrantedAuthority("BOOTSTRAP_OPERATOR"))));
-    try {context.getBean(AdminBootstrapService.class).createFirstAdmin(identity,CharBuffer.wrap(first),authorization);}
+    try {if(mode==BootstrapMode.DEV_SUPERADMIN)context.getBean(AdminBootstrapService.class).createFirstSuperadmin(identity,CharBuffer.wrap(first),authorization);else context.getBean(AdminBootstrapService.class).createFirstAdmin(identity,CharBuffer.wrap(first),authorization);}
     catch(RuntimeException rejected){context.getBean(AuditService.class).recordOutcome("ADMIN_BOOTSTRAP","USER",null,"FAILURE",Map.of("approvalId",authorization));throw rejected;}
-    console.printf("Administrador creado y verificado; enabled=true, único rol=SIMERTPI_ADMIN.%n");
+    console.printf("Cuenta administrativa creada y verificada; enabled=true, único rol=%s.%n",mode.roleCode);
    }
    return 0;
   }catch(Exception rejected){System.err.println("Bootstrap detenido; destino, autorización o persistencia no verificados. No se muestran detalles sensibles.");return 1;}
   finally {if(first!=null)Arrays.fill(first,'\0');if(second!=null)Arrays.fill(second,'\0');SecurityContextHolder.clearContext();}
  }
+ public enum BootstrapMode { DEV_ADMIN("SIMERTPI_ADMIN"), DEV_SUPERADMIN("IT_ADMIN"); final String roleCode; BootstrapMode(String roleCode){this.roleCode=roleCode;} }
+ public static BootstrapMode parseMode(String[] args){if(args==null||args.length==0)throw new IllegalArgumentException();return switch(args[0]){case "--bootstrap-dev-admin"->BootstrapMode.DEV_ADMIN;case "--bootstrap-dev-superadmin"->BootstrapMode.DEV_SUPERADMIN;default->throw new IllegalArgumentException();};}
  public static void verifyJdbcTarget(String url,String expectedHost){
   if(expectedHost==null||!expectedHost.matches(java.util.regex.Pattern.quote(RESOURCE)+"(?:\\.[a-z]+-postgres\\.render\\.com|\\.internal)?"))throw new IllegalArgumentException("Unapproved DEV host");
   if(!url.startsWith("jdbc:postgresql://"))throw new IllegalArgumentException("Invalid JDBC target");

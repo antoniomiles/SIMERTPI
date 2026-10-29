@@ -4,6 +4,93 @@
   margin-bottom: 22px;
 }
 
+.configuration-history {
+  margin-top: 22px;
+}
+
+.history-note {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.reason-cell {
+  min-width: 13rem;
+  max-width: 22rem;
+  overflow-wrap: anywhere;
+}
+
+.change-dialog-backdrop {
+  position: fixed;
+  z-index: 1100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: #10231880;
+}
+
+.change-dialog {
+  width: min(680px, 100%);
+  max-height: min(82vh, 760px);
+  overflow: auto;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 20px 60px #10231840;
+}
+
+.change-dialog header,
+.change-dialog footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.change-dialog h2 {
+  margin: 3px 0 0;
+}
+
+.change-meta,
+.change-values {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 20px 0;
+}
+
+.change-meta > div,
+.change-values > div {
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid #e1e9e3;
+  border-radius: 8px;
+  background: #f8faf8;
+}
+
+.change-meta dt,
+.change-values dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.change-meta dd,
+.change-values dd {
+  margin: 4px 0 0;
+  color: var(--ink);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.change-dialog footer {
+  justify-content: flex-end;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
 .panel-heading,
 .results-heading,
 .filter-actions,
@@ -123,5 +210,14 @@ td small {
 
   .pagination button {
     flex: 1;
+  }
+
+  .change-dialog {
+    padding: 16px;
+  }
+
+  .change-meta,
+  .change-values {
+    grid-template-columns: 1fr;
   }
 }

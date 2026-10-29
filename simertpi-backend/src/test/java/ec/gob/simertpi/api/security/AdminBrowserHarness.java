@@ -20,8 +20,8 @@ class AdminBrowserHarness extends AbstractPostgresIntegrationTest {
  @Autowired UserRepository users;@Autowired RoleRepository roles;@Autowired PasswordEncoder encoder;@Autowired JdbcTemplate jdbc;@Autowired ParkingSessionService parkingSessions;
  @Test void serveDisposableFixturesForChrome()throws Exception {
   UUID browserAdminId=null;
-  for(String role:List.of("SIMERTPI_ADMIN","CITIZEN","INSPECTOR","DISABLED")){
-   User u=new User();String name="qa."+(role.equals("SIMERTPI_ADMIN")?"admin":role.toLowerCase());
+  for(String role:List.of("IT_ADMIN","SIMERTPI_ADMIN","CITIZEN","INSPECTOR","DISABLED")){
+   User u=new User();String name="qa."+(role.equals("SIMERTPI_ADMIN")?"admin":role.equals("IT_ADMIN")?"it_admin":role.toLowerCase());
    u.setId(UUID.randomUUID());u.setUsername(name);u.setEmail(name+"@example.invalid");u.setFirstName("Browser");u.setLastName("Fixture");u.setEnabled(!role.equals("DISABLED"));u.setCreatedAt(OffsetDateTime.now());u.setUpdatedAt(u.getCreatedAt());u.setPasswordHash(encoder.encode("chrome-isolated-fixture-2026"));u.getRoles().add(roles.findByCode(role.equals("DISABLED")?"SIMERTPI_ADMIN":role).orElseThrow());users.saveAndFlush(u);
    if(role.equals("SIMERTPI_ADMIN"))browserAdminId=u.getId();
   }
@@ -125,6 +125,10 @@ class AdminBrowserHarness extends AbstractPostgresIntegrationTest {
    verifyCatalogWritesPersisted();
    return;
   }
+  if (Boolean.getBoolean("simertpi.admin-browser-harness.identity-only")) {
+   verifyAdminHierarchyPersisted();
+   return;
+  }
   org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.tariffs WHERE code='E2E-TAR-GENERAL-V2' AND amount=0.30 AND valid_to='2030-12-23T03:06:00Z'::timestamptz",Integer.class)).isEqualTo(1);
   org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.tariffs WHERE code='E2E-TAR-END-NOW' AND valid_to IS NOT NULL",Integer.class)).isEqualTo(1);
   org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.tariffs WHERE code='E2E-TAR-END-SCHEDULED' AND valid_to IS NOT NULL AND valid_to > CURRENT_TIMESTAMP",Integer.class)).isEqualTo(1);
@@ -136,6 +140,26 @@ class AdminBrowserHarness extends AbstractPostgresIntegrationTest {
   org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.billing_day_calendars WHERE normative_reference='E2E-CAL-SCHEDULED-V2' AND active=FALSE AND cancellation_reason='Cancelación E2E PostgreSQL'",Integer.class)).isEqualTo(1);
   org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.billing_day_calendar_history WHERE reason LIKE 'E2E %'",Integer.class)).isGreaterThanOrEqualTo(4);
   org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.billing_day_calendars WHERE normative_reference='E2E-CAL-END' AND valid_to IS NOT NULL AND valid_to >= CURRENT_DATE",Integer.class)).isEqualTo(1);
+  if (Boolean.getBoolean("simertpi.admin-browser-harness.tariff-only")) return;
+  verifyAdminHierarchyPersisted();
+ }
+
+ private void verifyAdminHierarchyPersisted() {
+  org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("""
+    SELECT count(*) FROM identity.users u
+    JOIN identity.user_roles ur ON ur.user_id=u.id
+    JOIN identity.roles r ON r.id=ur.role_id
+    WHERE u.username='qa.created.admin' AND u.enabled AND u.password_hash IS NOT NULL
+      AND r.code='SIMERTPI_ADMIN'
+      AND NOT EXISTS (SELECT 1 FROM identity.user_roles x JOIN identity.roles xr ON xr.id=x.role_id
+                      WHERE x.user_id=u.id AND xr.code='IT_ADMIN')
+    """,Integer.class)).isEqualTo(1);
+  org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("""
+    SELECT count(*) FROM audit.functional_audit_log
+    WHERE resource_type='USER' AND resource_id=(SELECT id FROM identity.users WHERE username='qa.created.admin')
+      AND action IN ('ADMIN_USER_INVITED','INVITED_ACCOUNT_ACTIVATED')
+      AND result='SUCCESS' AND metadata::text NOT ILIKE '%activationToken%'
+    """,Integer.class)).isGreaterThanOrEqualTo(2);
  }
 
  private void verifyMapTransitionsPersisted() {

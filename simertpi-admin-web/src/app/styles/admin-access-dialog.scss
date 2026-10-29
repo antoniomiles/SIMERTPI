@@ -1,0 +1,166 @@
+app-users-roles {
+  .button.primary {
+    border-color: #176b3a;
+    background: #176b3a;
+    color: #fff;
+  }
+  .button.primary:hover:not(:disabled) {
+    border-color: #10542e;
+    background: #10542e;
+  }
+  .button.compact {
+    min-height: 1.85rem;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.7rem;
+  }
+  .button.danger-soft {
+    border-color: #e8c9c4;
+    background: #fff6f4;
+    color: #8e4036;
+  }
+  .row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    min-width: 10rem;
+  }
+  .access-backdrop {
+    position: fixed;
+    z-index: 1500;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 1rem;
+    background: rgb(19 34 24 / 46%);
+  }
+  .access-dialog {
+    width: min(100%, 42rem);
+    max-height: min(90dvh, 52rem);
+    overflow: auto;
+    padding: 1.15rem;
+    border: 1px solid #dce6df;
+    border-radius: 0.75rem;
+    background: #fff;
+    box-shadow: 0 18px 55px rgb(12 35 19 / 22%);
+  }
+  .access-dialog header,
+  .access-dialog footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+  .access-dialog header { margin-bottom: 1rem; }
+  .access-dialog header h2 { margin: 0.2rem 0; color: #203228; font-size: 1.2rem; }
+  .access-dialog header p,
+  .access-dialog .dialog-note {
+    margin: 0;
+    color: #65746a;
+    font-size: 0.83rem;
+    line-height: 1.45;
+  }
+  .access-dialog .icon-close {
+    flex: 0 0 2rem;
+    width: 2rem;
+    height: 2rem;
+    border: 1px solid #dce6df;
+    border-radius: 50%;
+    background: #fff;
+    color: #46564b;
+    font-size: 1.2rem;
+    cursor: pointer;
+  }
+  .access-dialog .dialog-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+  }
+  .access-dialog label {
+    display: grid;
+    gap: 0.3rem;
+    margin: 0.65rem 0;
+    color: #34493a;
+    font-size: 0.78rem;
+    font-weight: 700;
+  }
+  .access-dialog .dialog-fields .wide { grid-column: 1 / -1; }
+  .access-dialog input,
+  .access-dialog textarea {
+    width: 100%;
+    min-height: 2.45rem;
+    box-sizing: border-box;
+    padding: 0.55rem 0.65rem;
+    border: 1px solid #cbd8ce;
+    border-radius: 0.38rem;
+    background: #fff;
+    color: #24372a;
+    font: inherit;
+    font-size: 0.85rem;
+  }
+  .access-dialog textarea { min-height: 5rem; resize: vertical; }
+  .access-dialog input:focus-visible,
+  .access-dialog textarea:focus-visible,
+  .access-dialog .icon-close:focus-visible {
+    outline: 3px solid #e5b82d;
+    outline-offset: 2px;
+  }
+  .access-dialog footer {
+    justify-content: flex-end;
+    margin-top: 1rem;
+    padding-top: 0.8rem;
+    border-top: 1px solid #e6ece8;
+  }
+  .access-dialog .operation-error {
+    padding: 0.65rem 0.75rem;
+    border: 1px solid #e8c9c4;
+    border-radius: 0.4rem;
+    background: #fff6f4;
+    color: #8e4036;
+    font-size: 0.83rem;
+  }
+  .access-toast {
+    position: fixed;
+    z-index: 1600;
+    top: 1rem;
+    right: 1rem;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.8rem;
+    max-width: min(28rem, calc(100vw - 2rem));
+    padding: 0.8rem 0.95rem;
+    border: 1px solid #b9d9c1;
+    border-left: 4px solid #176b3a;
+    border-radius: 0.5rem;
+    background: #f3faf4;
+    color: #214c2e;
+    box-shadow: 0 8px 28px rgb(13 44 24 / 16%);
+  }
+  .access-toast.error {
+    border-color: #e8c9c4;
+    border-left-color: #a84639;
+    background: #fff7f5;
+    color: #7a3028;
+  }
+  .access-toast button {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font-size: 1.1rem;
+    cursor: pointer;
+  }
+}
+
+@media (max-width: 600px) {
+  app-users-roles {
+    .access-backdrop { align-items: end; padding: 0; }
+    .access-dialog {
+      width: 100%;
+      max-height: 92dvh;
+      padding: 0.9rem;
+      border-radius: 0.8rem 0.8rem 0 0;
+    }
+    .access-dialog .dialog-fields { grid-template-columns: 1fr; }
+    .access-dialog .dialog-fields .wide { grid-column: auto; }
+    table { min-width: 680px; }
+  }
+}

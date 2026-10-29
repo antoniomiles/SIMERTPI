@@ -38,7 +38,7 @@ public class PermitService {
     private static final String OPERATION = "CREATE_PERMIT";
     private static final int IDEMPOTENCY_TTL_HOURS = 24;
     private static final Set<String> MUNICIPAL = Set.of(
-            "INSPECTOR", "SUPERVISOR", "SIMERTPI_ADMIN");
+            "INSPECTOR", "SUPERVISOR", "SIMERTPI_ADMIN", "IT_ADMIN");
 
     private final JpaPermitRepository permits;
     private final UserRepository users;
@@ -237,7 +237,7 @@ public class PermitService {
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario autenticado no encontrado"));
     }
     private void requireAdmin(Set<String> authorities) {
-        if (!authorities.contains("SIMERTPI_ADMIN")) throw new ForbiddenException();
+        if (!authorities.contains("SIMERTPI_ADMIN") && !authorities.contains("IT_ADMIN")) throw new ForbiddenException();
     }
     private void requireMunicipal(Set<String> authorities) {
         if (authorities.stream().noneMatch(MUNICIPAL::contains)) throw new ForbiddenException();

@@ -1,0 +1,396 @@
+<main class="configuration-page calendar-admin" lang="es-EC">
+  <app-page-heading
+    eyebrow="ADMINISTRACIÓN / CONFIGURACIÓN MUNICIPAL"
+    title="Días especiales y feriados"
+    description="Administra excepciones de calendario con el alcance y la vigencia autorizados."
+  >
+    <div class="heading-actions">
+      <button
+        class="secondary-button compact-button"
+        type="button"
+        (click)="load()"
+        [disabled]="state() === 'loading' || preview"
+      >
+        <span aria-hidden="true">↻</span> Actualizar
+      </button>
+      <button
+        class="primary-button compact-button"
+        type="button"
+        (click)="openCreate()"
+        [disabled]="preview || zones().length === 0"
+      >
+        <span aria-hidden="true">＋</span> Nueva excepción
+      </button>
+    </div>
+  </app-page-heading>
+
+  @if (preview) {
+    <section class="notice preview-note" role="status">
+      <strong>Previsualización local</strong>
+      <p>La vista no consulta ni modifica datos.</p>
+    </section>
+  }
+  @if (zoneError()) {
+    <p class="inline-error" role="alert">{{ zoneError() }}</p>
+  }
+
+  <section class="summary-grid" aria-label="Resumen de días especiales">
+    <article class="card summary-card">
+      <span class="eyebrow">Registros consultados</span><strong>{{ rows().length }}</strong
+      ><span>Excepciones disponibles</span>
+    </article>
+    <article class="card summary-card">
+      <span class="eyebrow">Vigentes</span><strong>{{ activeCount() }}</strong
+      ><span>Según fecha de Ecuador</span>
+    </article>
+    <article class="card summary-card">
+      <span class="eyebrow">Programados</span><strong>{{ scheduledCount() }}</strong
+      ><span>Inicio futuro</span>
+    </article>
+    <article class="card summary-card">
+      <span class="eyebrow">Finalizados o inactivos</span><strong>{{ inactiveCount() }}</strong
+      ><span>Conservados para trazabilidad</span>
+    </article>
+  </section>
+
+  <section class="card config-section effective-query" aria-labelledby="effective-calendar-title">
+    <div class="section-heading"><div><p class="eyebrow">RESOLUCIÓN DEL SERVIDOR</p><h2 id="effective-calendar-title">Consultar regla efectiva</h2></div></div>
+    <p class="section-note">La respuesta usa el resolvedor operativo existente del backend. La fecha y la hora ingresadas se interpretan como hora local de Ecuador.</p>
+    <div class="effective-fields">
+      <label><span>Zona</span><select [value]="effectiveZoneId()" (change)="effectiveZoneId.set($any($event.target).value)"><option value="">Seleccione una zona</option>@for (zone of zones(); track zone.id) { <option [value]="zone.id">{{ zone.code }} · {{ zone.name }}</option> }</select></label>
+      <label><span>Fecha local</span><input type="date" [value]="effectiveDate()" (change)="effectiveDate.set($any($event.target).value)" /></label>
+      <label><span>Hora local</span><input type="time" [value]="effectiveTime()" (change)="effectiveTime.set($any($event.target).value)" /></label>
+      <button class="primary-button compact-button" type="button" (click)="consultEffective()" [disabled]="effectiveLoading() || !effectiveZoneId()">{{ effectiveLoading() ? 'Consultando…' : 'Consultar' }}</button>
+    </div>
+    @if (effectiveError()) { <p class="form-error" role="alert">{{ effectiveError() }}</p> }
+    @if (effectiveResult(); as result) {
+      <div class="effective-result" role="status">
+        <strong>{{ effectiveExplanation(result) }}</strong>
+        <dl><div><dt>Estado operativo</dt><dd>{{ result.operational ? 'Dentro de horario' : 'Fuera de horario o sin horario activo' }}</dd></div><div><dt>Excepción especial</dt><dd>{{ result.holiday ? 'Aplicable' : 'Ninguna' }}</dd></div><div><dt>Cobro</dt><dd>{{ result.chargeable ? 'Según configuración tarifaria' : 'No cobrable por excepción' }}</dd></div><div><dt>Intervalo resuelto</dt><dd>{{ result.windowStart ? result.windowStart.slice(0, 5) + '–' + result.windowEnd?.slice(0, 5) : 'Sin intervalo activo' }} · {{ result.source }}</dd></div></dl>
+      </div>
+    }
+  </section>
+
+  <section class="card config-section">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">CALENDARIO MUNICIPAL</p>
+        <h2>Excepciones registradas</h2>
+      </div>
+      <span class="result-count">{{ visibleRows().length }} resultados</span>
+    </div>
+    <p class="section-note">
+      No se precargan feriados ni se presume gratuidad. Configure únicamente reglas respaldadas por
+      la disposición correspondiente.
+    </p>
+    <div class="filters" role="search">
+      <label class="filter-search"
+        ><span>Buscar</span
+        ><input
+          type="search"
+          [value]="query()"
+          (input)="query.set($any($event.target).value)"
+          placeholder="Nombre, zona o referencia"
+          aria-label="Buscar días especiales"
+      /></label>
+      <label
+        ><span>Estado</span
+        ><select [value]="statusFilter()" (change)="statusFilter.set($any($event.target).value)">
+          <option value="all">Todos</option>
+          <option value="active">Vigente</option>
+          <option value="scheduled">Programado</option>
+          <option value="ended">Finalizado</option>
+          <option value="inactive">Inactivo</option>
+        </select></label
+      >
+      <button
+        class="secondary-button compact-button"
+        type="button"
+        (click)="query.set(''); statusFilter.set('all')"
+      >
+        Limpiar
+      </button>
+    </div>
+    @if (state() === 'loading') {
+      <app-data-state
+        kind="loading"
+        title="Consultando días especiales"
+        description="Cargando la información del servidor."
+      />
+    } @else if (state() === 'error') {
+      <app-data-state
+        kind="error"
+        title="No se pudo cargar la información"
+        [description]="errorMessage()"
+        ><button class="primary-button compact-button" type="button" (click)="load()">
+          Reintentar
+        </button></app-data-state
+      >
+    } @else if (state() === 'empty') {
+      <app-data-state
+        kind="empty"
+        title="No hay excepciones registradas"
+        description="Puede crear una configuración respaldada por una disposición municipal."
+      />
+    } @else if (visibleRows().length === 0) {
+      <p class="list-empty" role="status">No hay resultados para los filtros seleccionados.</p>
+    } @else {
+      <div class="table-scroll">
+        <table>
+          <caption class="visually-hidden">
+            Días especiales y feriados registrados
+          </caption>
+          <thead>
+            <tr>
+              <th>Fecha especial</th>
+              <th>Nombre y tipo</th>
+              <th>Aplicación</th>
+              <th>Cobro</th>
+              <th>Vigencia</th>
+              <th>Estado</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of visibleRows(); track row.id) {
+              <tr>
+                <td>
+                  <strong>{{ formatDate(row.holidayDate) }}</strong>
+                </td>
+                <td>
+                  <strong>{{ row.name }}</strong
+                  ><small>{{ typeLabel(row.holidayType) }}</small>
+                </td>
+                <td>{{ scope(row) }}</td>
+                <td>
+                  <span class="charge-indicator" [class.charge-indicator--yes]="row.tariffed">{{
+                    row.tariffed ? 'Con cobro' : 'Sin cobro'
+                  }}</span>
+                  @if (row.startTime || row.endTime) {
+                    <small>{{ row.startTime || '—' }}–{{ row.endTime || '—' }}</small>
+                  }
+                </td>
+                <td>
+                  {{ formatDate(row.validFrom) }} –
+                  {{ row.validTo ? formatDate(row.validTo) : 'Sin fecha final' }}
+                  @if (row.normativeReference) {
+                    <small>{{ row.normativeReference }}</small>
+                  }
+                </td>
+                <td>
+                  <app-admin-config-status [label]="statusLabel(row)" [tone]="statusTone(row)" />
+                </td>
+                <td>
+                  <div class="row-actions">
+                    <button
+                      class="secondary-button compact-button"
+                      type="button"
+                      (click)="openHistory(row)"
+                      aria-label="Historial de {{ row.name }}"
+                    >
+                      Historial
+                    </button>
+                    @if (canManage(row)) {
+                      <button
+                        class="secondary-button compact-button"
+                        type="button"
+                        (click)="openEdit(row)"
+                        aria-label="Editar {{ row.name }}"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        class="danger-button compact-button"
+                        type="button"
+                        (click)="openDeactivate(row)"
+                        aria-label="Desactivar {{ row.name }}"
+                      >
+                        Desactivar
+                      </button>
+                    }
+                  </div>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+  </section>
+
+  @if (dialog(); as mode) {
+    <div class="modal-backdrop" (click)="closeDialog()" (keydown.escape)="closeDialog()">
+      <section
+        class="admin-config-dialog"
+        role="dialog"
+        aria-modal="true"
+        [attr.aria-labelledby]="
+          mode === 'deactivate' ? 'exception-deactivate-title' : 'exception-form-title'
+        "
+        (click)="$event.stopPropagation()"
+        (keydown.escape)="closeDialog()"
+      >
+        @if (mode === 'deactivate') {
+          <header class="dialog-header">
+            <div>
+              <p class="eyebrow">CONFIRMACIÓN REQUERIDA</p>
+              <h2 id="exception-deactivate-title">Desactivar excepción</h2>
+            </div>
+            <button
+              type="button"
+              class="icon-close"
+              (click)="closeDialog()"
+              [disabled]="saving()"
+              aria-label="Cerrar"
+            >
+              ×
+            </button>
+          </header>
+          <p>
+            La excepción <strong>{{ selected()?.name }}</strong> dejará de participar en la
+            resolución del calendario. Su registro histórico se conservará.
+          </p>
+          <label class="field"
+            ><span>Motivo obligatorio</span
+            ><textarea
+              [formControl]="form.controls.reason"
+              maxlength="500"
+              rows="3"
+              aria-describedby="deactivate-reason-help"
+            ></textarea
+            ><small id="deactivate-reason-help"
+              >Indique la causa administrativa de la desactivación.</small
+            ></label
+          >
+          @if (form.controls.reason.invalid && form.controls.reason.touched) {
+            <small class="field-error">El motivo es obligatorio.</small>
+          }
+          @if (actionError()) {
+            <p class="form-error" role="alert">{{ actionError() }}</p>
+          }
+          <footer class="dialog-actions">
+            <button
+              class="secondary-button compact-button"
+              type="button"
+              (click)="closeDialog()"
+              [disabled]="saving()"
+            >
+              Volver</button
+            ><button
+              class="danger-button compact-button"
+              type="button"
+              (click)="deactivate()"
+              [disabled]="saving()"
+            >
+              {{ saving() ? 'Desactivando…' : 'Confirmar desactivación' }}
+            </button>
+          </footer>
+        } @else {
+          <header class="dialog-header">
+            <div>
+              <p class="eyebrow">CONFIGURACIÓN DE CALENDARIO</p>
+              <h2 id="exception-form-title">
+                {{ mode === 'edit' ? 'Editar día especial' : 'Nueva excepción de calendario' }}
+              </h2>
+            </div>
+            <button
+              type="button"
+              class="icon-close"
+              (click)="closeDialog()"
+              [disabled]="saving()"
+              aria-label="Cerrar"
+            >
+              ×
+            </button>
+          </header>
+          <form [formGroup]="form" (ngSubmit)="submit()" novalidate>
+            <div class="dialog-form-grid">
+              <label class="field"
+                ><span>Fecha especial <b>*</b></span
+                ><input type="date" formControlName="holidayDate" /><small
+                  >Fecha calendario de Ecuador.</small
+                ></label
+              >
+              <label class="field"
+                ><span>Nombre <b>*</b></span
+                ><input type="text" formControlName="name" maxlength="150"
+              /></label>
+              <label class="field"
+                ><span>Aplicación <b>*</b></span
+                ><select formControlName="scope">
+                  <option value="">Seleccione el alcance</option>
+                  <option value="__general__">General, todas las zonas</option>
+                  @for (zone of zones(); track zone.id) {
+                    <option [value]="zone.id">{{ zone.code }} · {{ zone.name }}</option>
+                  }
+                </select></label
+              >
+              <label class="field"
+                ><span>Tipo de excepción <b>*</b></span
+                ><select formControlName="holidayType">
+                  <option value="">Seleccione el tipo</option>
+                  @for (type of holidayTypes; track type.value) {
+                    <option [value]="type.value">{{ type.label }}</option>
+                  }
+                </select></label
+              >
+              <label class="field"
+                ><span>Tratamiento de cobro <b>*</b></span
+                ><select formControlName="tariffed">
+                  <option value="">Seleccione el tratamiento configurado</option>
+                  <option value="true">Con cobro</option>
+                  <option value="false">Sin cobro</option></select
+                ><small>Seleccione según la disposición que respalda esta excepción.</small></label
+              >
+              <label class="field"
+                ><span>Referencia normativa</span
+                ><input type="text" formControlName="normativeReference" maxlength="255"
+              /></label>
+              <label class="field"
+                ><span>Vigente desde <b>*</b></span
+                ><input type="date" formControlName="validFrom"
+              /></label>
+              <label class="field"
+                ><span>Vigente hasta</span><input type="date" formControlName="validTo" /><small
+                  >Opcional; no puede preceder al inicio.</small
+                ></label
+              >
+              <label class="field"
+                ><span>Hora inicial</span><input type="time" formControlName="startTime" /><small
+                  >Déjela vacía si no limita el intervalo.</small
+                ></label
+              >
+              <label class="field"
+                ><span>Hora final</span><input type="time" formControlName="endTime"
+              /></label>
+              <label class="field field-full"
+                ><span>Motivo <b>*</b></span
+                ><textarea formControlName="reason" maxlength="500" rows="3"></textarea
+                ><small
+                  >Se registra en la auditoría junto con los valores modificados.</small
+                ></label
+              >
+            </div>
+            @if (actionError()) {
+              <p class="form-error" role="alert">{{ actionError() }}</p>
+            }
+            <footer class="dialog-actions">
+              <button
+                class="secondary-button compact-button"
+                type="button"
+                (click)="closeDialog()"
+                [disabled]="saving()"
+              >
+                Cancelar</button
+              ><button class="primary-button compact-button" type="submit" [disabled]="saving()">
+                {{
+                  saving() ? 'Guardando…' : mode === 'edit' ? 'Guardar cambios' : 'Crear excepción'
+                }}
+              </button>
+            </footer>
+          </form>
+        }
+      </section>
+    </div>
+  }
+</main>

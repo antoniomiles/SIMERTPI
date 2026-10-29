@@ -20,9 +20,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AdminAuthPostgresIntegrationTest extends AbstractPostgresIntegrationTest {
  @Autowired MockMvc mvc;@Autowired JdbcTemplate jdbc;@Autowired PasswordEncoder encoder;
  private static final String PASSWORD="isolated-admin-fixture-2026";
- private UUID adminId;private String admin,citizen,inspector,disabled;
+ private UUID adminId,inspectorId;private String admin,itAdmin,citizen,inspector,disabled,disabledItAdmin;
  private record Browser(Cookie session,Cookie csrf) { @Override public String toString(){return "Browser[redacted]";} }
- @BeforeEach void fixture(){String suffix=UUID.randomUUID().toString();admin="admin-"+suffix;citizen="citizen-"+suffix;inspector="inspector-"+suffix;disabled="disabled-"+suffix;adminId=create(admin,"SIMERTPI_ADMIN",true);create(citizen,"CITIZEN",true);create(inspector,"INSPECTOR",true);create(disabled,"SIMERTPI_ADMIN",false);}
+ @BeforeEach void fixture(){String suffix=UUID.randomUUID().toString();admin="admin-"+suffix;itAdmin="it-admin-"+suffix;citizen="citizen-"+suffix;inspector="inspector-"+suffix;disabled="disabled-"+suffix;disabledItAdmin="disabled-it-"+suffix;adminId=create(admin,"SIMERTPI_ADMIN",true);create(itAdmin,"IT_ADMIN",true);create(citizen,"CITIZEN",true);inspectorId=create(inspector,"INSPECTOR",true);create(disabled,"SIMERTPI_ADMIN",false);create(disabledItAdmin,"IT_ADMIN",false);}
  private UUID create(String name,String role,boolean enabled){UUID id=UUID.randomUUID();jdbc.update("INSERT INTO identity.users(id,username,email,password_hash,first_name,last_name,enabled) VALUES (?,?,?,?,?,?,?)",id,name,name+"@example.invalid",encoder.encode(PASSWORD),"Isolated","Fixture",enabled);jdbc.update("INSERT INTO identity.user_roles(user_id,role_id) SELECT ?,id FROM identity.roles WHERE code=?",id,role);return id;}
  private Cookie cookie(MvcResult result,String name){String header=result.getResponse().getHeaders("Set-Cookie").stream().filter(h->h.startsWith(name+"=")).findFirst().orElseThrow();return new Cookie(name,header.substring(name.length()+1).split(";",2)[0]);}
  private Cookie csrf()throws Exception{return cookie(mvc.perform(get("/api/v1/admin/auth/csrf").secure(true)).andExpect(status().isNoContent()).andReturn(),"__Host-SIMERTPI_ADMIN_XSRF");}
@@ -38,6 +38,48 @@ class AdminAuthPostgresIntegrationTest extends AbstractPostgresIntegrationTest {
   assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM identity.admin_web_sessions WHERE user_id=? AND token_hash=?",Integer.class,adminId,AdminAuthenticationService.hash(session.getValue()))).isEqualTo(1);
   mvc.perform(get("/api/v1/admin/auth/me").secure(true).cookie(session)).andExpect(status().isOk()).andExpect(jsonPath("$.username").value(admin)).andExpect(header().string("Cache-Control","no-store"));
   assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit.functional_audit_log WHERE action='ADMIN_LOGIN' AND actor_id=? AND result='SUCCESS'",Integer.class,adminId)).isEqualTo(1);
+ }
+ @Test void itAdminCanLoginAndInheritBusinessRoutesWhileInspectorManagementRemainsScoped()throws Exception{
+   var itLogin=login(itAdmin,PASSWORD,csrf());
+   assertThat(itLogin.getResponse().getStatus()).isEqualTo(200);
+  var mapper=new com.fasterxml.jackson.databind.ObjectMapper();
+  assertThat(mapper.readTree(itLogin.getResponse().getContentAsString()).get("roles").toString()).contains("IT_ADMIN");
+  Cookie itSession=cookie(itLogin,AdminAuthenticationService.COOKIE);
+  mvc.perform(get("/api/v1/admin/auth/me").secure(true).cookie(itSession)).andExpect(status().isOk())
+          .andExpect(jsonPath("$.roles[0]").value("IT_ADMIN"));
+  mvc.perform(get("/api/v1/admin/parking/zones").secure(true).cookie(itSession)).andExpect(status().isOk());
+  mvc.perform(get("/api/v1/admin/audit").secure(true).cookie(itSession)).andExpect(status().isOk());
+  mvc.perform(get("/api/v1/admin/inspectors").secure(true).cookie(itSession)).andExpect(status().isOk());
+  mvc.perform(get("/api/v1/admin/access/permissions").secure(true).cookie(itSession)).andExpect(status().isOk());
+  mvc.perform(get("/api/v1/admin/access/users").secure(true).cookie(itSession)).andExpect(status().isOk());
+  Cookie itCsrf=csrf();
+  mvc.perform(post("/api/v1/admin/access/users/{id}/activation",UUID.randomUUID()).secure(true)
+          .cookie(itSession,itCsrf).header("X-XSRF-TOKEN",itCsrf.getValue()).contentType("application/json")
+          .content("{\"reason\":\"fixture reissue check\",\"updatedAt\":\""+java.time.OffsetDateTime.now()+"\"}"))
+          .andExpect(status().isNotFound());
+
+  Browser functional=login();
+  mvc.perform(get("/api/v1/admin/parking/zones").secure(true).cookie(functional.session())).andExpect(status().isOk());
+  mvc.perform(get("/api/v1/admin/audit").secure(true).cookie(functional.session())).andExpect(status().isOk());
+  mvc.perform(get("/api/v1/admin/inspectors").secure(true).cookie(functional.session())).andExpect(status().isOk());
+  mvc.perform(get("/api/v1/admin/access/permissions").secure(true).cookie(functional.session())).andExpect(status().isForbidden());
+  var scopedUsers=mvc.perform(get("/api/v1/admin/access/users").secure(true).cookie(functional.session()))
+          .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+  assertThat(scopedUsers).contains(inspector).doesNotContain(admin).doesNotContain(itAdmin);
+  mvc.perform(get("/api/v1/admin/access/roles").secure(true).cookie(functional.session())).andExpect(status().isForbidden());
+
+  Cookie csrf=csrf();
+  var updatedAt=jdbc.queryForObject("SELECT updated_at FROM identity.users WHERE id=?",java.time.OffsetDateTime.class,inspectorId);
+  mvc.perform(put("/api/v1/admin/access/users/{id}/roles",inspectorId).secure(true)
+          .cookie(functional.session(),csrf).header("X-XSRF-TOKEN",csrf.getValue())
+          .contentType("application/json").content("{\"roles\":[\"IT_ADMIN\"],\"reason\":\"fixture escalation attempt\",\"updatedAt\":\""+updatedAt+"\"}"))
+          .andExpect(status().isForbidden());
+  assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM identity.user_roles ur JOIN identity.roles r ON r.id=ur.role_id WHERE ur.user_id=? AND r.code='IT_ADMIN'",Integer.class,inspectorId)).isZero();
+  Cookie accessCsrf=csrf();
+  mvc.perform(post("/api/v1/admin/access/users/{id}/activation",inspectorId).secure(true)
+          .cookie(functional.session(),accessCsrf).header("X-XSRF-TOKEN",accessCsrf.getValue())
+          .contentType("application/json").content("{\"reason\":\"fixture reissue check\",\"updatedAt\":\""+java.time.OffsetDateTime.now()+"\"}"))
+          .andExpect(status().isForbidden());
  }
  @Test void meRenewsTheFiveMinuteIdleDeadlineAndReturnsThePersistedServerDeadline()throws Exception{
   var result=login(admin,PASSWORD,csrf());assertThat(result.getResponse().getStatus()).isEqualTo(200);
@@ -56,7 +98,7 @@ class AdminAuthPostgresIntegrationTest extends AbstractPostgresIntegrationTest {
   assertThat(remaining).isLessThanOrEqualTo(java.time.Duration.ofMinutes(5)).isGreaterThan(java.time.Duration.ofMinutes(4).plusSeconds(50));
  }
  @Test void invalidPasswordDisabledCitizenAndInspectorRejectedAndAudited()throws Exception {
-  for(String name:List.of(citizen,inspector,disabled))assertThat(login(name,PASSWORD,csrf()).getResponse().getStatus()).isEqualTo(401);
+  for(String name:List.of(citizen,inspector,disabled,disabledItAdmin))assertThat(login(name,PASSWORD,csrf()).getResponse().getStatus()).isEqualTo(401);
   assertThat(login(admin,"wrong-isolated-password",csrf()).getResponse().getStatus()).isEqualTo(401);
   assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM identity.admin_web_sessions WHERE user_id=?",Integer.class,adminId)).isZero();
   assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit.functional_audit_log WHERE action='ADMIN_LOGIN' AND result='FAILURE'",Integer.class)).isGreaterThanOrEqualTo(4);

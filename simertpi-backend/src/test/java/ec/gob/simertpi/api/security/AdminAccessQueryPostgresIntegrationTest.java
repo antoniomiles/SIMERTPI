@@ -39,7 +39,7 @@ class AdminAccessQueryPostgresIntegrationTest extends AbstractPostgresIntegratio
     @BeforeEach
     void prepareAdminSession() throws Exception {
         adminUsername = "access-admin-" + UUID.randomUUID();
-        adminId = createUser(adminUsername, "SIMERTPI_ADMIN", true, ADMIN_PASSWORD);
+        adminId = createUser(adminUsername, "IT_ADMIN", true, ADMIN_PASSWORD);
         browser = loginAdmin();
     }
 
@@ -66,7 +66,8 @@ class AdminAccessQueryPostgresIntegrationTest extends AbstractPostgresIntegratio
         String body = result.getResponse().getContentAsString();
         String storedHash = jdbc.queryForObject("SELECT password_hash FROM identity.users WHERE id=?", String.class, citizen);
         assertThat(result.getResponse().getHeader("Cache-Control")).contains("no-store");
-        assertThat(body).doesNotContain("passwordHash", "password_hash", "phone", "activationToken", storedHash);
+        assertThat(body).contains("phone");
+        assertThat(body).doesNotContain("passwordHash", "password_hash", "activationToken", storedHash);
         assertThat(jdbc.queryForObject("SELECT enabled FROM identity.users WHERE id=?", Boolean.class, inspector)).isFalse();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM identity.user_roles WHERE user_id=?", Integer.class, citizen)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit.functional_audit_log WHERE actor_id=? AND action='ADMIN_USERS_SEARCHED' AND result='SUCCESS'", Integer.class, adminId)).isPositive();
@@ -87,6 +88,17 @@ class AdminAccessQueryPostgresIntegrationTest extends AbstractPostgresIntegratio
     }
 
     @Test
+    void inspectorDirectoryWithoutSearchTermReturnsRecordsInsteadOfBindingNullAsBinary() throws Exception {
+        String username = "access-inspector-directory-" + UUID.randomUUID();
+        UUID inspector = createUser(username, "INSPECTOR", false, null);
+
+        mvc.perform(get("/api/v1/admin/inspectors").secure(true).cookie(browser.session()))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .jsonPath("$.content[?(@.id == '" + inspector + "')]").exists());
+    }
+
+    @Test
     void anonymousInspectorBearerAndMutationAttemptsCannotUseTheAdministrativeDirectory() throws Exception {
         mvc.perform(get("/api/v1/admin/access/users").secure(true)).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/v1/admin/access/roles").secure(true)).andExpect(status().isUnauthorized());
@@ -103,21 +115,38 @@ class AdminAccessQueryPostgresIntegrationTest extends AbstractPostgresIntegratio
                         .header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isUnauthorized());
 
+        String municipalAdminUsername = "access-municipal-admin-" + UUID.randomUUID();
+        createUser(municipalAdminUsername, "SIMERTPI_ADMIN", true, ADMIN_PASSWORD);
+        Browser municipalAdmin = loginAs(municipalAdminUsername, ADMIN_PASSWORD);
+        mvc.perform(get("/api/v1/admin/auth/me").secure(true).cookie(municipalAdmin.session()))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .jsonPath("$.username").value(municipalAdminUsername))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .jsonPath("$.roles").value(org.hamcrest.Matchers.contains("SIMERTPI_ADMIN")));
         int before = jdbc.queryForObject("SELECT COUNT(*) FROM identity.users", Integer.class);
-        mvc.perform(post("/api/v1/admin/access/users").secure(true).cookie(browser.session(), browser.csrf())
-                        .header("X-XSRF-TOKEN", browser.csrf().getValue())
-                        .contentType("application/json").content("{}"))
+        String escalationUsername = "access-escalation-" + UUID.randomUUID();
+        mvc.perform(post("/api/v1/admin/access/users").secure(true).cookie(municipalAdmin.session(), municipalAdmin.csrf())
+                        .header("X-XSRF-TOKEN", municipalAdmin.csrf().getValue())
+                        .contentType("application/json")
+                        .content("{\"username\":\"" + escalationUsername + "\",\"email\":\"" + escalationUsername
+                                + "@example.invalid\",\"firstName\":\"Escalation\",\"lastName\":\"Attempt\","
+                                + "\"roles\":[\"SIMERTPI_ADMIN\"],\"reason\":\"Intento de elevaciÃ³n bloqueado\"}"))
                 .andExpect(status().isForbidden());
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM identity.users", Integer.class)).isEqualTo(before);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit.functional_audit_log WHERE action='ADMIN_USERS_SEARCHED' AND actor_id=?", Integer.class, adminId)).isZero();
     }
 
     private Browser loginAdmin() throws Exception {
+        return loginAs(adminUsername, ADMIN_PASSWORD);
+    }
+
+    private Browser loginAs(String username, String password) throws Exception {
         Cookie csrf = csrfCookie();
         MvcResult result = mvc.perform(post("/api/v1/admin/auth/login").secure(true)
                         .cookie(csrf).header("X-XSRF-TOKEN", csrf.getValue())
                         .contentType("application/json")
-                        .content("{\"username\":\"" + adminUsername + "\",\"password\":\"" + ADMIN_PASSWORD + "\"}"))
+                        .content("{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}"))
                 .andExpect(status().isOk()).andReturn();
         return new Browser(cookie(result, AdminAuthenticationService.COOKIE),
                 cookie(result, "__Host-SIMERTPI_ADMIN_XSRF"));

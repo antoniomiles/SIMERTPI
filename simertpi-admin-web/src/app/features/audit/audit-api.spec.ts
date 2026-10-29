@@ -46,4 +46,16 @@ describe('Administrative audit API', () => {
     expect(request.request.params.get('correlationId')).toBe('trace-1');
     request.flush([]);
   });
+
+  it('loads the allowlisted configuration history through the protected admin route', () => {
+    TestBed.inject(AuditApi).configurationHistory(26, 50).subscribe();
+    const request = TestBed.inject(HttpTestingController).expectOne(
+      (item) => item.url === '/api/v1/admin/configuration-history',
+    );
+    expect(request.request.method).toBe('GET');
+    expect(request.request.withCredentials).toBe(true);
+    expect(request.request.params.get('limit')).toBe('26');
+    expect(request.request.params.get('offset')).toBe('50');
+    request.flush([]);
+  });
 });

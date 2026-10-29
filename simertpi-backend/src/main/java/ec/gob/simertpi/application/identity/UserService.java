@@ -10,6 +10,7 @@ import ec.gob.simertpi.domain.identity.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.OffsetDateTime;
 import java.util.Optional;
@@ -21,14 +22,17 @@ public class UserService {
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
     private final PasswordEncoder passwordEncoder;
+    private final JdbcTemplate jdbc;
 
     public UserService(
             UserRepository userRepository,
             RoleRepository roleRepository,
-            PasswordEncoder passwordEncoder) {
+            PasswordEncoder passwordEncoder,
+            JdbcTemplate jdbc) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.passwordEncoder = passwordEncoder;
+        this.jdbc = jdbc;
     }
 
     public Optional<User> findByUsername(String username) {
@@ -51,11 +55,16 @@ public class UserService {
     @Audited(action = "USER_CREATED", resourceType = "USER")
     public User createUser(CreateUserRequest request) {
 
-        if (userRepository.existsByUsername(request.username())) {
+        String username = request.username().trim();
+        String email = request.email().trim().toLowerCase(java.util.Locale.ROOT);
+        jdbc.query("SELECT pg_advisory_xact_lock(hashtextextended('username:' || lower(?), 0))", rs -> null, username);
+        jdbc.query("SELECT pg_advisory_xact_lock(hashtextextended(lower(?), 0))", rs -> null, email);
+
+        if (userRepository.existsByUsernameIgnoreCase(username)) {
             throw new IllegalArgumentException("El username ya existe");
         }
 
-        if (userRepository.existsByEmail(request.email())) {
+        if (userRepository.existsByEmailIgnoreCase(email)) {
             throw new IllegalArgumentException("El email ya existe");
         }
 
@@ -68,8 +77,8 @@ public class UserService {
 
         User user = new User();
         user.setId(UUID.randomUUID());
-        user.setUsername(request.username());
-        user.setEmail(request.email());
+        user.setUsername(username);
+        user.setEmail(email);
         user.setPasswordHash(passwordEncoder.encode(request.password()));
         user.setFirstName(request.firstName());
         user.setLastName(request.lastName());
