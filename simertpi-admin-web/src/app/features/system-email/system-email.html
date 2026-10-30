@@ -87,7 +87,7 @@
                   type="radio"
                   formControlName="provider"
                   value="GMAIL"
-                  (change)="useGmailDefaults()"
+                  (change)="providerChanged('GMAIL')"
                 />
                 <span><strong>Gmail</strong><small>SMTP de Google con STARTTLS</small></span>
               </label>
@@ -95,7 +95,12 @@
                 class="provider-option"
                 [class.selected]="form.controls.provider.value === 'CUSTOM'"
               >
-                <input type="radio" formControlName="provider" value="CUSTOM" />
+                <input
+                  type="radio"
+                  formControlName="provider"
+                  value="CUSTOM"
+                  (change)="providerChanged('CUSTOM')"
+                />
                 <span
                   ><strong>SMTP personalizado</strong
                   ><small>Servidor institucional autorizado</small></span
@@ -109,7 +114,7 @@
                   type="radio"
                   formControlName="provider"
                   value="MICROSOFT_OUTLOOK"
-                  (change)="useMicrosoftOutlook()"
+                  (change)="providerChanged('MICROSOFT_OUTLOOK')"
                 />
                 <span
                   ><strong>Microsoft Outlook OAuth2</strong
@@ -330,7 +335,15 @@
                         ? 'Configurada; escriba solo para reemplazarla'
                         : 'Ingrese la credencial SMTP'
                     }}"
-                  /><small class="credential-state"
+                  />
+                  @if (
+                    form.controls.password.touched && form.controls.password.hasError('required')
+                  ) {
+                    <small class="field-error" role="alert"
+                      >Ingrese una credencial nueva para esta cuenta SMTP.</small
+                    >
+                  }
+                  <small class="credential-state"
                     ><span
                       class="credential-dot"
                       [class.configured]="
@@ -367,9 +380,22 @@
             </label>
           </section>
 
+          @if (form.invalid && form.touched) {
+            <p class="form-validation" role="alert">
+              Revise los campos obligatorios y los formatos indicados antes de guardar.
+            </p>
+          }
           <div class="form-actions">
             <button class="button button-primary" type="submit" [disabled]="busy()">
               {{ operation() === 'save' ? 'Guardando borrador…' : 'Guardar borrador' }}
+            </button>
+            <button
+              class="button button-secondary"
+              type="button"
+              (click)="discardChanges()"
+              [disabled]="busy() || !hasUnsavedChanges()"
+            >
+              Descartar cambios
             </button>
             <button
               class="button button-secondary"

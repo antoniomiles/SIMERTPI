@@ -189,7 +189,7 @@ export class Zones {
   closeMapSelector(){this.mapDialogRef()?.nativeElement.close();this.mapSelectorOpen.set(false);}
   choosePoint(point:{latitude:number;longitude:number}){this.coordinateCandidate.set(point);this.nearbySpaces.set([]);this.api.nearby(point.latitude,point.longitude,this.editor()==='edit'?this.selected()?.id:undefined).subscribe({next:x=>this.nearbySpaces.set(x),error:()=>{this.nearbySpaces.set([]);this.toast.error('No se pudo comprobar si existen espacios cercanos.');}});}
   confirmPoint(){const point=this.coordinateCandidate();if(!point)return;this.spaceForm.patchValue({latitude:point.latitude.toFixed(7),longitude:point.longitude.toFixed(7)});this.closeMapSelector();this.checkNearby();}
-  async makeQr(value:string){try{this.qrDataUrl.set(await QRCode.toDataURL(value,{errorCorrectionLevel:'M',margin:2,width:240}));}catch{this.qrDataUrl.set('');}}
+  async makeQr(value:string){try{this.qrDataUrl.set(await QRCode.toDataURL(value,{errorCorrectionLevel:'M',margin:4,width:320}));}catch{this.qrDataUrl.set('');}}
   openQr(){if(!this.qrDataUrl())return;this.qrDialogOpen.set(true);this.qrDialogRef()?.nativeElement.showModal();}
   closeQr(){this.qrDialogRef()?.nativeElement.close();this.qrDialogOpen.set(false);}
   downloadQr(){const row=this.selected();if(!row||!this.isSpace(row))return;const link=document.createElement('a');link.href=this.qrDataUrl();link.download=`QR-${row.code}.png`;link.click();}

@@ -191,7 +191,7 @@ describe('Administrative zones, streets and spaces screens', () => {
     const f=TestBed.createComponent(Zones);f.detectChanges();const c=f.componentInstance;
     c.select(space);await vi.waitFor(()=>expect(c.qrDataUrl().startsWith('data:image/png;base64,')).toBe(true));
     const { default: QRCode } = await import('qrcode');
-    expect(QRCode.toDataURL).toHaveBeenCalledWith(space.qrCode,expect.objectContaining({errorCorrectionLevel:'M'}));
+    expect(QRCode.toDataURL).toHaveBeenCalledWith(space.qrCode,expect.objectContaining({errorCorrectionLevel:'M',margin:4,width:320}));
     c.openCreate();f.detectChanges();
     expect(f.nativeElement.textContent).toContain('El identificador QR se genera automáticamente');
     expect(f.nativeElement.querySelector('[formcontrolname="qrCode"]')).toBeNull();

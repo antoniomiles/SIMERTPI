@@ -20,6 +20,7 @@ describe('System email route authorization', () => {
     const adminRoute = routes.find((route) => route.path === 'admin');
     const emailRoute = adminRoute?.children?.find((route) => route.path === 'system/email');
     expect(emailRoute?.canActivate).toContain(superadminGuard);
+    expect(emailRoute?.canDeactivate).toHaveLength(1);
   });
 
   it('allows direct route access for IT_ADMIN', () => {

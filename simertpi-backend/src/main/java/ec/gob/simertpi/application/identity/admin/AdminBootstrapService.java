@@ -36,6 +36,7 @@ public class AdminBootstrapService {
   jdbc.query("SELECT pg_advisory_xact_lock(hashtextextended('username:' || lower(?), 0))",rs->null,normalizedUsername);
   jdbc.query("SELECT pg_advisory_xact_lock(hashtextextended(lower(?), 0))",rs->null,normalizedEmail);
   if(users.existsByUsernameIgnoreCase(normalizedUsername)||users.existsByEmailIgnoreCase(normalizedEmail))throw new IllegalStateException("Identity already exists; no promotion performed");
+  if(microsoftOAuth.isActive())throw new IllegalStateException("Disconnect the active Microsoft SMTP provider before Gmail bootstrap");
   var smtpResult=smtp.bootstrap(smtpCandidate,"BOOTSTRAP:"+actor.getName(),"Initial SMTP setup for approved DEV superadministrator invitation: "+authorization);
   if(!"ACTIVE".equals(smtpResult.status()))throw new IllegalStateException("SMTP bootstrap did not activate a verified configuration");
   var invitation=invitations.createWithRoles(normalizedUsername,normalizedEmail,identity.firstName(),identity.lastName(),null,List.of("IT_ADMIN"));

@@ -37,7 +37,15 @@ test('Superadministrador configura SMTP con persistencia real y Administrador qu
   await page.getByRole('button', { name: 'Guardar borrador', exact: true }).click();
   const draftResponse = await draftResponsePromise;
   expect(draftResponse.status()).toBe(200);
-  const draft = await draftResponse.json() as { version: number; state: string; credentialConfigured: boolean };
+  // Read persisted state through an independent API request. The component reloads
+  // the settings snapshot immediately after saving, which can navigate/reload the
+  // browser response before Chromium exposes the original response body to Playwright.
+  const draftSnapshotResponse = await page.request.get('/api/v1/admin/system/email');
+  expect(draftSnapshotResponse.status()).toBe(200);
+  const savedSnapshot = await draftSnapshotResponse.json() as {
+    draft: { version: number; state: string; credentialConfigured: boolean };
+  };
+  const draft = savedSnapshot.draft;
   expect(draft).toMatchObject({ state: 'DRAFT', credentialConfigured: true });
   expect(JSON.stringify(draft)).not.toContain(submittedSmtpPassword);
   await expect(page.getByRole('status').filter({ hasText: 'Borrador de correo guardado correctamente' }))

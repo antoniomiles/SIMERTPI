@@ -1,5 +1,11 @@
+import { systemEmailUnsavedGuard } from './features/system-email/system-email-unsaved.guard';
 import { Routes } from '@angular/router';
-import { adminGuard, permissionGuard, previewGuard, superadminGuard } from './core/auth/access.guards';
+import {
+  adminGuard,
+  permissionGuard,
+  previewGuard,
+  superadminGuard,
+} from './core/auth/access.guards';
 const pages: Routes = [
   {
     path: 'dashboard',
@@ -34,6 +40,7 @@ const pages: Routes = [
   {
     path: 'system/email',
     canActivate: [superadminGuard],
+    canDeactivate: [systemEmailUnsavedGuard],
     title: 'Configuración de correo | SIMERTPI',
     loadComponent: () => import('./features/system-email/system-email').then((m) => m.SystemEmail),
   },

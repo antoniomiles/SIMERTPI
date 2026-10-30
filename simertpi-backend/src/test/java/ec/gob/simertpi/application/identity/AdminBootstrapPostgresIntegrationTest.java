@@ -39,7 +39,9 @@ class AdminBootstrapPostgresIntegrationTest {
  static AdminBootstrapService.Identity identity(String username){return new AdminBootstrapService.Identity(username,username+"@example.invalid","Isolated","Admin");}
  @Test void nonHttpContextDoesNotHaveFlywayOrScheduling(){assertThat(context.getEnvironment().getProperty("spring.main.web-application-type")).isNotEqualTo("servlet");assertThat(context.getBeansOfType(Flyway.class)).isEmpty();assertThat(context.containsBean("dispatcherServlet")).isFalse();assertThat(context.containsBean("org.springframework.context.annotation.internalScheduledAnnotationProcessor")).isFalse();}
  @Test void firstSuperadminCliRequiresExactApprovedDevIdentityAndExplicitTypedConfirmation(){
-  assertThat(AdminBootstrapCli.isApprovedDevSuperadmin("superadmin.simertpi.dev","ANTOXAVIE1992@GMAIL.COM","antoxavie1992@gmail.com","CONFIRM DEV SUPERADMIN")).isTrue();
+  assertThat(AdminBootstrapCli.isApprovedDevSuperadmin("superadmin.simertpi.dev","SIMERTPI@OUTLOOK.COM","simertpi@outlook.com","CONFIRM DEV SUPERADMIN")).isTrue();
+  assertThat(AdminBootstrapCli.isApprovedDevSuperadmin("superadmin.simertpi.dev","antoxavie1992@gmail.com","antoxavie1992@gmail.com","CONFIRM DEV SUPERADMIN")).isFalse();
+  assertThat(AdminBootstrapCli.normalizeGmailAppPassword("abcd efgh ijkl mnop".toCharArray())).containsExactly("abcdefghijklmnop".toCharArray());
   assertThat(AdminBootstrapCli.isApprovedDevSuperadmin("superadmin.simertpi.dev","operator@example.invalid","operator@example.invalid","CONFIRM DEV SUPERADMIN")).isFalse();
   assertThat(AdminBootstrapCli.isApprovedDevSuperadmin("another-user","operator@example.invalid","operator@example.invalid","CONFIRM DEV SUPERADMIN")).isFalse();
   assertThat(AdminBootstrapCli.isApprovedDevSuperadmin("superadmin.simertpi.dev","another@example.invalid","operator@example.invalid","CONFIRM DEV SUPERADMIN")).isFalse();
@@ -68,6 +70,15 @@ class AdminBootstrapPostgresIntegrationTest {
   assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM identity.inspector_activation_tokens WHERE user_id=?",Integer.class,id)).isZero();
   assertThatThrownBy(()->service.createFirstSuperadminInvite(identity("second-super-"+UUID.randomUUID()),"approved-local-fixture",candidate)).isInstanceOf(IllegalStateException.class);
   assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit.functional_audit_log WHERE action='ADMIN_BOOTSTRAP_PENDING' AND resource_id=? AND metadata->>'role'='IT_ADMIN' AND result='SUCCESS'",Integer.class,id)).isEqualTo(1);
+ }
+ @Test void gmailBootstrapRejectsWhenMicrosoftIsAlreadyActiveAndDoesNotCreateIdentity(){
+  String name="superadmin-dual-provider-"+UUID.randomUUID();
+  var candidate=new ec.gob.simertpi.application.identity.smtp.SmtpCandidate("GMAIL","Fixture SMTP","fixture@example.invalid","smtp.gmail.com",587,"STARTTLS","fixture@example.invalid","fixture-password".toCharArray());
+  org.mockito.Mockito.when(microsoft.isActive()).thenReturn(true);
+  assertThatThrownBy(()->service.createFirstSuperadminInvite(identity(name),"approved-local-fixture",candidate)).isInstanceOf(IllegalStateException.class);
+  org.mockito.Mockito.verify(smtp,org.mockito.Mockito.never()).bootstrap(org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString());
+  assertThat(users.existsByUsernameIgnoreCase(name)).isFalse();
+  assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM identity.inspector_activation_tokens t JOIN identity.users u ON u.id=t.user_id WHERE u.username=?",Integer.class,name)).isZero();
  }
  @Test void microsoftSuperadminBootstrapRequiresActiveOAuthAndDoesNotCreateSmtpPasswordConfig(){
   String name="superadmin-oauth-"+UUID.randomUUID();
@@ -164,7 +175,7 @@ class AdminBootstrapPostgresIntegrationTest {
   assertThat(AdminBootstrapCli.run(new String[]{"--bootstrap-dev-admin","--bootstrap-dev-superadmin"})).isEqualTo(1);
   assertThatThrownBy(()->AdminBootstrapCli.parseMode(new String[]{"--bootstrap-prod-superadmin"})).isInstanceOf(IllegalArgumentException.class);
   assertThatCode(()->AdminBootstrapCli.verifyPortalUrl("https://simertpi-admin-web-dev.onrender.com")).doesNotThrowAnyException();
-  for(String bad:List.of("http://simertpi-admin-web-dev.onrender.com","https://user@example.invalid","https://example.invalid?token=x","https://example.invalid#token=x"))assertThatThrownBy(()->AdminBootstrapCli.verifyPortalUrl(bad)).isInstanceOf(IllegalArgumentException.class);
+  for(String bad:List.of("http://simertpi-admin-web-dev.onrender.com","https://user@simertpi-admin-web-dev.onrender.com","https://simertpi-admin-web-dev.onrender.com/admin","https://simertpi-admin-web-dev.onrender.com?token=x","https://simertpi-admin-web-dev.onrender.com#token=x","https://simertpi-admin-web.onrender.com","https://example.invalid"))assertThatThrownBy(()->AdminBootstrapCli.verifyPortalUrl(bad)).isInstanceOf(IllegalArgumentException.class);
  }
  @Test void exactDevHostDatabasePortAndVerifiedTlsAreRequired(){
   String host=AdminBootstrapCli.RESOURCE+".internal",good="jdbc:postgresql://"+host+":5432/simertpi?sslmode=verify-full";

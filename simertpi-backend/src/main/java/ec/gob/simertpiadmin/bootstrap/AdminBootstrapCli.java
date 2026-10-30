@@ -4,6 +4,7 @@ import ec.gob.simertpi.application.audit.AuditService;
 import ec.gob.simertpi.application.identity.admin.AdminBootstrapService;
 import ec.gob.simertpi.application.identity.invitation.ActivationInvitationDeliveryService;
 import ec.gob.simertpi.application.identity.smtp.MicrosoftOAuthSmtpService;
+import ec.gob.simertpi.application.identity.smtp.SmtpCandidate;
 import java.io.Console;
 import java.net.URI;
 import java.nio.CharBuffer;
@@ -24,9 +25,10 @@ import org.springframework.security.core.context.SecurityContextHolder;
 /** Interactive, database-target-guarded one-time administration bootstrap CLI. */
 public final class AdminBootstrapCli {
     private static final String DEV_SUPERADMIN_USERNAME = "superadmin.simertpi.dev";
-    private static final String DEV_SUPERADMIN_APPROVED_EMAIL = "antoxavie1992@gmail.com";
+    private static final String DEV_SUPERADMIN_APPROVED_EMAIL = "simertpi@outlook.com";
     private static final String DEV_SUPERADMIN_EMAIL_ENV = "SIMERTPI_BOOTSTRAP_SUPERADMIN_EMAIL";
     private static final String DEV_SUPERADMIN_CONFIRMATION = "CONFIRM DEV SUPERADMIN";
+    private static final String DEV_PORTAL_HOST = "simertpi-admin-web-dev.onrender.com";
     private static final String MICROSOFT_SENDER = "simertpi@outlook.com";
     private static final String MICROSOFT_AUTHORIZE_CONFIRMATION = "AUTHORIZE DEV SIMERTPI OUTLOOK SMTP";
     private static final String MICROSOFT_ACTIVATE_CONFIRMATION = "ACTIVATE DEV OUTLOOK SMTP";
@@ -138,14 +140,35 @@ public final class AdminBootstrapCli {
         if (!isApprovedDevSuperadmin(identity.username(), identity.email(), expectedEmail, confirmation))
             throw new IllegalStateException("La identidad o confirmación no coincide con la cuenta Superadministradora autorizada");
         verifyPortalUrl(required("SIMERTPI_PUBLIC_BASE_URL"));
-        requireMicrosoftConfiguration(); requireMicrosoftSender(); required("SIMERTPI_SMTP_ENCRYPTION_KEY");
-        MicrosoftOAuthSmtpService microsoft = context.getBean(MicrosoftOAuthSmtpService.class);
-        if (!microsoft.isActive()) throw new IllegalStateException("Se requiere una conexión Microsoft SMTP activa y verificada");
+        required("SIMERTPI_SMTP_ENCRYPTION_KEY");
         try {
             AdminBootstrapService bootstrap = context.getBean(AdminBootstrapService.class);
-            var invite = mode == BootstrapMode.DEV_SUPERADMIN
-                    ? bootstrap.createFirstSuperadminInvite(identity, approval)
-                    : bootstrap.reissueFirstSuperadminInvite(identity, approval);
+            AdminBootstrapService.PendingSuperadmin invite;
+            if (mode == BootstrapMode.DEV_SUPERADMIN) {
+                JdbcTemplate jdbc = context.getBean(JdbcTemplate.class);
+                if (itAdminExists(jdbc)) throw new IllegalStateException("Un IT_ADMIN ya existe; no se permite un segundo bootstrap");
+                Boolean identityExists = jdbc.queryForObject("""
+                        SELECT EXISTS(SELECT 1 FROM identity.users
+                                      WHERE lower(username)=lower(?) OR lower(email)=lower(?))
+                        """, Boolean.class, identity.username().trim(), identity.email().trim());
+                if (Boolean.TRUE.equals(identityExists)) throw new IllegalStateException("La identidad ya existe; no se promueven cuentas existentes");
+                char[] typed = console.readPassword("Contraseña de aplicación Gmail (entrada oculta): ");
+                char[] appPassword = normalizeGmailAppPassword(typed);
+                try {
+                    SmtpCandidate candidate = new SmtpCandidate("GMAIL", "SIMERTPI — GAD Piñas",
+                            "antoxavie1992@gmail.com", "smtp.gmail.com", 587, "STARTTLS",
+                            "antoxavie1992@gmail.com", appPassword);
+                    invite = bootstrap.createFirstSuperadminInvite(identity, approval, candidate).invitation();
+                } finally {
+                    Arrays.fill(appPassword, '\0');
+                }
+            } else {
+                var smtp = context.getBean(ec.gob.simertpi.application.identity.smtp.SmtpConfigurationService.class);
+                var microsoft = context.getBean(MicrosoftOAuthSmtpService.class);
+                if (!smtp.configured() && !microsoft.isActive())
+                    throw new IllegalStateException("No existe un proveedor de correo activo y verificado para el reenvío");
+                invite = bootstrap.reissueFirstSuperadminInvite(identity, approval);
+            }
             var delivery = context.getBean(ActivationInvitationDeliveryService.class)
                     .deliver(invite.id(), invite.activationToken(), invite.expiresAt(), "BOOTSTRAP:" + operator);
             console.printf("Invitación de IT_ADMIN pendiente; vence %s; estado del proveedor=%s (aceptación no confirma entrega al buzón).%n",
@@ -155,6 +178,27 @@ public final class AdminBootstrapCli {
             context.getBean(AuditService.class).recordOutcome("ADMIN_BOOTSTRAP_PENDING", "USER", null, "FAILURE", Map.of("approvalId", approval));
             throw rejected;
         }
+    }
+
+    /** Removes only presentation whitespace from Google's grouped app-password display and clears the input buffer. */
+    public static char[] normalizeGmailAppPassword(char[] typed) {
+        if (typed == null) throw new IllegalArgumentException("La contraseña de aplicación Gmail es obligatoria");
+        int length = 0;
+        for (char value : typed) if (!Character.isWhitespace(value)) length++;
+        char[] normalized = new char[length];
+        int index = 0;
+        for (char value : typed) {
+            if (Character.isWhitespace(value)) continue;
+            if (value < 0x21 || value > 0x7e) {
+                Arrays.fill(normalized, '\0');
+                Arrays.fill(typed, '\0');
+                throw new IllegalArgumentException("La contraseña de aplicación Gmail contiene caracteres no válidos");
+            }
+            normalized[index++] = value;
+        }
+        Arrays.fill(typed, '\0');
+        if (normalized.length == 0) throw new IllegalArgumentException("La contraseña de aplicación Gmail es obligatoria");
+        return normalized;
     }
 
     private static void requireMicrosoftConfiguration() {
@@ -221,7 +265,9 @@ public final class AdminBootstrapCli {
     public static void verifyPortalUrl(String value) {
         try {
             URI uri = URI.create(value);
-            if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null || uri.getUserInfo() != null
+            if (!"https".equalsIgnoreCase(uri.getScheme()) || !DEV_PORTAL_HOST.equalsIgnoreCase(uri.getHost())
+                    || uri.getUserInfo() != null || (uri.getPort() != -1 && uri.getPort() != 443)
+                    || !(uri.getRawPath() == null || uri.getRawPath().isEmpty() || uri.getRawPath().equals("/"))
                     || uri.getRawQuery() != null || uri.getRawFragment() != null) throw new IllegalArgumentException();
         } catch (RuntimeException invalid) { throw new IllegalArgumentException("Verified HTTPS portal origin required"); }
     }

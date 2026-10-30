@@ -1,5 +1,5 @@
 import { DatePipe } from '@angular/common';
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, HostListener, OnInit, inject, signal } from '@angular/core';
 import { DOCUMENT } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { AdminSession } from '../../core/auth/admin-session';
@@ -19,6 +19,18 @@ import {
 import { Observable, catchError, finalize, forkJoin, of } from 'rxjs';
 
 type ViewState = 'loading' | 'error' | 'ready';
+type EmailFormValue = {
+  provider: EmailProvider;
+  displayName: string;
+  from: string;
+  host: string;
+  port: number;
+  security: EmailSecurity;
+  username: string;
+  password: string;
+  reason: string;
+};
+
 type Operation =
   | 'save'
   | 'connection'
@@ -89,6 +101,8 @@ export class SystemEmail implements OnInit {
     reason: ['', [Validators.required, Validators.maxLength(500)]],
   });
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
+  private selectedProvider: EmailProvider = 'GMAIL';
+  private baseline: EmailFormValue | null = null;
 
   ngOnInit() {
     if (!this.isSuperAdmin()) {
@@ -121,8 +135,25 @@ export class SystemEmail implements OnInit {
             security: config.security,
             username: config.username,
             password: '',
+            reason: '',
+          });
+        } else {
+          this.form.reset({
+            provider: 'GMAIL',
+            displayName: 'SIMERTPI \u2014 GAD Pi\u00f1as',
+            from: '',
+            host: 'smtp.gmail.com',
+            port: 587,
+            security: 'STARTTLS',
+            username: '',
+            password: '',
+            reason: '',
           });
         }
+        this.selectedProvider = this.form.controls.provider.value;
+        this.form.markAsPristine();
+        this.form.markAsUntouched();
+        this.baseline = this.form.getRawValue();
         this.state.set('ready');
       },
       error: (cause: unknown) => {
@@ -132,27 +163,90 @@ export class SystemEmail implements OnInit {
     });
   }
 
-  useGmailDefaults() {
-    this.form.patchValue({
-      provider: 'GMAIL',
-      host: 'smtp.gmail.com',
-      port: 587,
-      security: 'STARTTLS',
-    });
+  providerChanged(provider: EmailProvider) {
+    const previous = this.selectedProvider;
+    if (provider === previous) return;
+    const dirtyBeforeSwitch = this.form.dirty && this.hasUnsavedChangesExceptProvider();
+    if (
+      this.form.dirty &&
+      !globalThis.confirm(
+        'Cambiar el proveedor ajustar\u00e1 los datos de conexi\u00f3n. \u00bfDesea conservar este cambio?',
+      )
+    ) {
+      this.form.controls.provider.setValue(previous, { emitEvent: false });
+      if (!dirtyBeforeSwitch) this.form.markAsPristine();
+      return;
+    }
+    this.selectedProvider = provider;
+    this.form.controls.password.setValue('');
+    if (provider === 'GMAIL') {
+      this.form.patchValue({ host: 'smtp.gmail.com', port: 587, security: 'STARTTLS' });
+    } else if (provider === 'MICROSOFT_OUTLOOK') {
+      this.form.patchValue({ host: 'smtp-mail.outlook.com', port: 587, security: 'STARTTLS' });
+    } else {
+      this.form.patchValue({ host: '', port: 587, security: 'STARTTLS' });
+    }
   }
 
-  useMicrosoftOutlook() {
-    this.form.patchValue({
-      provider: 'MICROSOFT_OUTLOOK',
-      host: 'smtp-mail.outlook.com',
-      port: 587,
-      security: 'STARTTLS',
-      password: '',
-    });
+  hasMatchingCredential() {
+    const source = this.data()?.draft ?? this.data()?.active;
+    const value = this.form.getRawValue();
+    return Boolean(
+      source?.credentialConfigured &&
+      source.provider === value.provider &&
+      source.host.toLowerCase() === value.host.trim().toLowerCase() &&
+      source.username.toLowerCase() === value.username.trim().toLowerCase(),
+    );
+  }
+
+  private hasUnsavedChangesExceptProvider() {
+    if (!this.baseline) return this.form.dirty;
+    const current = this.form.getRawValue();
+    return (Object.keys(current) as Array<keyof EmailFormValue>)
+      .filter((key) => key !== 'provider')
+      .some((key) => current[key] !== this.baseline![key]);
+  }
+
+  hasUnsavedChanges() {
+    return this.form.dirty;
+  }
+
+  discardChanges(confirm = true) {
+    if (!this.form.dirty) return true;
+    if (
+      confirm &&
+      !globalThis.confirm('\u00bfDescartar los cambios de correo que a\u00fan no se han guardado?')
+    )
+      return false;
+    if (this.baseline) this.form.reset({ ...this.baseline, password: '', reason: '' });
+    this.selectedProvider = this.form.controls.provider.value;
+    this.form.markAsPristine();
+    this.form.markAsUntouched();
+    this.form.controls.password.setErrors(null);
+    this.notice.set(null);
+    return true;
+  }
+
+  canDeactivate() {
+    return !this.hasUnsavedChanges() || this.discardChanges(true);
+  }
+
+  @HostListener('window:beforeunload', ['$event'])
+  beforeUnload(event: BeforeUnloadEvent) {
+    if (!this.hasUnsavedChanges()) return;
+    event.preventDefault();
+    event.returnValue = '';
   }
 
   startMicrosoftAuthorization() {
     if (!this.ensureAuthorized() || this.busy()) return;
+    if (this.form.dirty) {
+      this.showNotice(
+        'error',
+        'Guarde o descarte los cambios antes de iniciar la autorizaci\u00f3n Microsoft.',
+      );
+      return;
+    }
     const draft = this.data()?.draft;
     if (!draft || draft.provider !== 'MICROSOFT_OUTLOOK') {
       this.showNotice('error', 'Guarde primero un borrador de Outlook OAuth2.');
@@ -213,19 +307,28 @@ export class SystemEmail implements OnInit {
   saveDraft() {
     if (!this.ensureAuthorized()) return;
     this.form.markAllAsTouched();
-    if (this.form.invalid || this.busy()) return;
+    const passwordControl = this.form.controls.password;
     const value = this.form.getRawValue();
+    if (
+      value.provider !== 'MICROSOFT_OUTLOOK' &&
+      !value.password &&
+      !this.hasMatchingCredential()
+    ) {
+      passwordControl.setErrors({ ...(passwordControl.errors ?? {}), required: true });
+    }
+    if (this.form.invalid || this.busy()) return;
+    const current = this.form.getRawValue();
     const request: EmailDraftRequest = {
-      provider: value.provider,
-      displayName: value.displayName.trim(),
-      from: value.from.trim(),
-      host: value.host.trim(),
-      port: Number(value.port),
-      security: value.security,
-      username: value.username.trim(),
-      reason: value.reason.trim(),
-      ...(value.provider !== 'MICROSOFT_OUTLOOK' && value.password
-        ? { password: value.password }
+      provider: current.provider,
+      displayName: current.displayName.trim(),
+      from: current.from.trim(),
+      host: current.host.trim(),
+      port: Number(current.port),
+      security: current.security,
+      username: current.username.trim(),
+      reason: current.reason.trim(),
+      ...(current.provider !== 'MICROSOFT_OUTLOOK' && current.password
+        ? { password: current.password }
         : {}),
     };
     this.run(

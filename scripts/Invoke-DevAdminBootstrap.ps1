@@ -8,6 +8,7 @@ param(
  [Parameter(Mandatory=$true)][string]$JavaHome,
  [string]$BackendDirectory,
  [string]$ExpectedSuperadminEmail,
+ [switch]$EncryptionKeyVerifiedFromRender,
  [switch]$PreflightOnly,
  [switch]$Superadministrator,
  [switch]$MunicipalAdministrator,
@@ -28,7 +29,8 @@ if($AuthorizeMicrosoftSmtp){$modeCount++}
 if($ActivateMicrosoftSmtp){$modeCount++}
 if($modeCount -ne 1){throw 'Indique exactamente un modo: -Superadministrator, -MunicipalAdministrator, -ResendSuperadminInvitation, -AuthorizeMicrosoftSmtp o -ActivateMicrosoftSmtp'}
 if($Superadministrator -or $ResendSuperadminInvitation){
- if([string]::IsNullOrWhiteSpace($ExpectedSuperadminEmail) -or $ExpectedSuperadminEmail.Length -gt 255 -or $ExpectedSuperadminEmail -notmatch '^[^\s@]+@[^\s@]+\.[^\s@]+$'){throw 'Para bootstrap o reenvío indique el correo aprobado del Superadministrador'}
+ if($ExpectedSuperadminEmail -ine 'simertpi@outlook.com'){throw 'El correo destino autorizado para el primer Superadministrador DEV es simertpi@outlook.com'}
+ if(!$EncryptionKeyVerifiedFromRender){throw 'Verifique la clave SMTP existente en Render y use -EncryptionKeyVerifiedFromRender; no se permite generar o rotar aqui'}
 }
 if($AuthorizeMicrosoftSmtp -or $ActivateMicrosoftSmtp){
  foreach($name in @('SIMERTPI_SMTP_ENCRYPTION_KEY','SIMERTPI_MICROSOFT_CLIENT_ID','SIMERTPI_MICROSOFT_CLIENT_SECRET','SIMERTPI_MICROSOFT_REDIRECT_URI','SIMERTPI_MICROSOFT_AUTHORIZED_SENDER','SIMERTPI_ADMIN_WEB_ORIGIN')){if([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name,'Process'))){throw "Falta configurar $name en el entorno seguro del operador"}}
@@ -51,15 +53,28 @@ $keytool=Join-Path $JavaHome 'bin/keytool.exe'
 $probe=New-Object Diagnostics.ProcessStartInfo; $probe.FileName=$keytool; $probe.Arguments='-printcert -file "'+$ca+'"'; $probe.UseShellExecute=$false; $probe.RedirectStandardOutput=$true; $probe.RedirectStandardError=$true; $probe.CreateNoWindow=$true; $process=[Diagnostics.Process]::Start($probe); $null=$process.StandardOutput.ReadToEnd(); $null=$process.StandardError.ReadToEnd(); $process.WaitForExit()
 if($process.ExitCode -ne 0){throw 'Certificado CA no válido'}
 if($PreflightOnly){Write-Host 'Preflight local correcto. No se abrió conexión a DEV.';return}
-$names=@('DB_URL','DB_USERNAME','DB_PASSWORD','SIMERTPI_BOOTSTRAP_SUPERADMIN_EMAIL')
+$names=@('DB_URL','DB_USERNAME','DB_PASSWORD','SIMERTPI_BOOTSTRAP_SUPERADMIN_EMAIL','SIMERTPI_SMTP_ENCRYPTION_KEY','SIMERTPI_PUBLIC_BASE_URL')
 $previous=@{}
 foreach($name in $names){$previous[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
 $secure=$null
+$keySecure=$null
 $pointer=[IntPtr]::Zero
+$keyPointer=[IntPtr]::Zero
+$keyString=$null
+$keyBytes=$null
 try{
  $env:DB_URL='jdbc:postgresql://'+$ExpectedHost+':5432/simertpi?sslmode=verify-full&sslrootcert='+[Uri]::EscapeDataString($ca.Replace('\','/'))
  $env:DB_USERNAME=$ExpectedDbUser
- if($Superadministrator -or $ResendSuperadminInvitation){$env:SIMERTPI_BOOTSTRAP_SUPERADMIN_EMAIL=$ExpectedSuperadminEmail.Trim()}
+ if($Superadministrator -or $ResendSuperadminInvitation){$env:SIMERTPI_BOOTSTRAP_SUPERADMIN_EMAIL='simertpi@outlook.com';$env:SIMERTPI_PUBLIC_BASE_URL='https://simertpi-admin-web-dev.onrender.com'}
+ if(($Superadministrator -or $ResendSuperadminInvitation) -and [string]::IsNullOrWhiteSpace($env:SIMERTPI_SMTP_ENCRYPTION_KEY)){
+  $keySecure=Read-Host 'Pegue la clave SIMERTPI_SMTP_ENCRYPTION_KEY previamente verificada en Render (entrada oculta)' -AsSecureString
+  $keyPointer=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($keySecure)
+  $keyString=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($keyPointer)
+  try{$keyBytes=[Convert]::FromBase64String($keyString)}catch{throw 'La clave verificada no tiene formato Base64 valido'}
+  if($keyBytes.Length -ne 32){throw 'La clave SMTP verificada debe corresponder a 256 bits'}
+  [Array]::Clear($keyBytes,0,$keyBytes.Length);$keyBytes=$null
+  $env:SIMERTPI_SMTP_ENCRYPTION_KEY=$keyString
+ }
  # Prefer an already injected, process-scoped managed secret; otherwise prompt without echo.
  if([string]::IsNullOrWhiteSpace($env:DB_PASSWORD)){
   $secure=Read-Host 'Contraseña de conexión PostgreSQL DEV (no contraseña del administrador)' -AsSecureString
@@ -74,4 +89,8 @@ try{
  foreach($name in $names){[Environment]::SetEnvironmentVariable($name,$previous[$name],'Process')}
  if($pointer -ne [IntPtr]::Zero){[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)}
  if($null -ne $secure){$secure.Dispose()}
+ if($null -ne $keySecure){$keySecure.Dispose()}
+ if($keyPointer -ne [IntPtr]::Zero){[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($keyPointer)}
+ if($null -ne $keyBytes){[Array]::Clear($keyBytes,0,$keyBytes.Length)}
+ $keyString=$null
 }

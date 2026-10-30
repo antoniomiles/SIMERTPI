@@ -112,6 +112,43 @@ describe('System email administration', () => {
     expect(page.notice()?.text).toContain('versión 7');
   });
 
+  it('requires an SMTP credential for a first configuration and explains validation errors', () => {
+    const page = fixture.componentInstance;
+    page.form.patchValue({
+      displayName: 'SIMERTPI',
+      from: 'mail@example.test',
+      username: 'mail@example.test',
+      reason: 'setup',
+    });
+    page.saveDraft();
+    expect(api.saveDraft).not.toHaveBeenCalled();
+    expect(page.form.controls.password.hasError('required')).toBe(true);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('credencial nueva');
+  });
+
+  it('cancels provider switch without losing edits and restores the persisted baseline on discard', () => {
+    const page = fixture.componentInstance;
+    page.form.patchValue({ displayName: 'Edited name' });
+    page.form.markAsDirty();
+    vi.spyOn(globalThis, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
+    page.providerChanged('CUSTOM');
+    expect(page.form.controls.provider.value).toBe('GMAIL');
+    expect(page.form.controls.displayName.value).toBe('Edited name');
+    expect(page.canDeactivate()).toBe(true);
+    expect(page.form.controls.displayName.value).toBe('SIMERTPI \u2014 GAD Pi\u00f1as');
+    expect(page.form.pristine).toBe(true);
+  });
+
+  it('asks before leaving a form with unsaved changes', () => {
+    const page = fixture.componentInstance;
+    page.form.controls.displayName.setValue('Unsaved');
+    page.form.markAsDirty();
+    vi.spyOn(globalThis, 'confirm').mockReturnValueOnce(false);
+    expect(page.canDeactivate()).toBe(false);
+    expect(page.form.controls.displayName.value).toBe('Unsaved');
+  });
+
   it('keeps the form and reports backend errors without claiming success', () => {
     const page = fixture.componentInstance;
     page.form.patchValue({

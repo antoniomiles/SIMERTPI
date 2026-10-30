@@ -80,6 +80,8 @@ public class SmtpConfigurationService {
                 if (supplied.length > 512) throw new IllegalArgumentException("La contraseña SMTP supera el tamaño permitido");
                 encrypted = cipher.encrypt(supplied);
             } finally { java.util.Arrays.fill(supplied, '\0'); }
+        } else if (credentialSource != null && !credentialSource.matches(candidate)) {
+            throw new IllegalArgumentException("Ingrese una credencial nueva al cambiar el proveedor, servidor o usuario SMTP");
         } else if (credentialSource != null) {
             encrypted = new SmtpCredentialCipher.Encrypted(credentialSource.nonce(), credentialSource.ciphertext());
         } else {
@@ -248,7 +250,7 @@ public class SmtpConfigurationService {
     }
 
     private Existing latestDraftOrActive() {
-        try { return jdbc.queryForObject("SELECT credential_nonce, credential_ciphertext FROM identity.admin_smtp_configuration WHERE state IN ('DRAFT','ACTIVE') AND credential_ciphertext IS NOT NULL ORDER BY CASE state WHEN 'DRAFT' THEN 0 ELSE 1 END LIMIT 1", (rs, row) -> new Existing(rs.getBytes(1), rs.getBytes(2))); }
+        try { return jdbc.queryForObject("SELECT provider, smtp_host, smtp_username, credential_nonce, credential_ciphertext FROM identity.admin_smtp_configuration WHERE state IN ('DRAFT','ACTIVE') AND credential_ciphertext IS NOT NULL ORDER BY CASE state WHEN 'DRAFT' THEN 0 ELSE 1 END LIMIT 1", (rs, row) -> new Existing(rs.getString(1), rs.getString(2), rs.getString(3), rs.getBytes(4), rs.getBytes(5))); }
         catch (EmptyResultDataAccessException none) { return null; }
     }
     private Stored latestDraft() { try { return jdbc.queryForObject("SELECT id,version,provider,display_name,from_address,smtp_host,smtp_port,security_mode,smtp_username,credential_nonce,credential_ciphertext,state,updated_at FROM identity.admin_smtp_configuration WHERE state='DRAFT'", (rs,row)->stored(rs)); } catch (EmptyResultDataAccessException none) { return null; } }
@@ -277,7 +279,12 @@ public class SmtpConfigurationService {
     public record ActiveCredential(SmtpTransport.SmtpSettings settings,char[] password,long version) {
         @Override public String toString() { return "ActiveCredential[version="+version+", password=redacted]"; }
     }
-    private record Existing(byte[] nonce,byte[] ciphertext) {
+    private record Existing(String provider,String host,String username,byte[] nonce,byte[] ciphertext) {
+        private boolean matches(SmtpCandidate candidate) {
+            return provider.equals(candidate.provider())
+                    && host.equalsIgnoreCase(candidate.host().trim())
+                    && username.equalsIgnoreCase(candidate.username().trim());
+        }
         @Override public String toString() { return "ExistingCredential[encrypted=true]"; }
     }
     private record Stored(UUID id,long version,String provider,String displayName,String fromAddress,String host,int port,String security,String username,byte[] nonce,byte[] ciphertext,String state,OffsetDateTime updatedAt) {

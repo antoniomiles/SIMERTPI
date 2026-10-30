@@ -7,6 +7,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest(properties = {
         "simertpi.smtp.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
@@ -16,6 +17,23 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SmtpConfigurationPostgresIntegrationTest extends AbstractPostgresIntegrationTest {
     @Autowired SmtpConfigurationService service;
     @Autowired JdbcTemplate jdbc;
+
+    @Test void refusesToCarryCredentialAcrossProviderServerOrUserChangeButKeepsSameAccountCredential() {
+        var original = new SmtpCandidate("GMAIL", "SIMERTPI QA", "sender@example.test", "smtp.gmail.com",
+                587, "STARTTLS", "sender@example.test", "same-account-secret".toCharArray());
+        var saved = service.saveDraft(original, "qa-smtp-user", "SMTP identity fixture");
+        var sameAccount = new SmtpCandidate("GMAIL", "SIMERTPI QA", "other-from@example.test", "SMTP.GMAIL.COM",
+                587, "STARTTLS", "sender@example.test", new char[0]);
+        assertThat(service.saveDraft(sameAccount, "qa-smtp-user", "retain matching credential").credentialConfigured()).isTrue();
+
+        var changedAccount = new SmtpCandidate("GMAIL", "SIMERTPI QA", "sender@example.test", "smtp.gmail.com",
+                587, "STARTTLS", "different@example.test", new char[0]);
+        assertThatThrownBy(() -> service.saveDraft(changedAccount, "qa-smtp-user", "must replace credential"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("credencial nueva");
+        assertThat(jdbc.queryForObject("SELECT state FROM identity.admin_smtp_configuration WHERE id=?", String.class, saved.id()))
+                .isEqualTo("SUPERSEDED");
+    }
 
     @Test void draftCredentialIsEncryptedAndReturnedConfigurationNeverContainsIt() {
         char[] password = "test-app-password-never-plaintext".toCharArray();
