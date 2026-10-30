@@ -59,6 +59,17 @@ export const NAVIGATION: readonly NavigationGroup[] = [
       { label: 'Personal municipal', icon: 'personnel', path: 'personal' },
       { label: 'Usuarios, roles y permisos', icon: 'roles', path: 'access' },
       {
+        label: 'Configuración del sistema',
+        icon: 'settings',
+        children: [
+          {
+            label: 'Correo electrónico',
+            description: 'Configuración segura del correo institucional.',
+            path: 'system/email',
+          },
+        ],
+      },
+      {
         label: 'Tarifas y horarios',
         icon: 'tariffs',
         children: [

@@ -1,5 +1,8 @@
 package ec.gob.simertpi.application.identity.admin;
 import ec.gob.simertpi.application.audit.AuditService;
+import ec.gob.simertpi.application.identity.InspectorAccountService;
+import ec.gob.simertpi.application.identity.smtp.SmtpCandidate;
+import ec.gob.simertpi.application.identity.smtp.SmtpConfigurationService;
 import ec.gob.simertpi.domain.identity.entity.User;
 import ec.gob.simertpi.domain.identity.repository.*;
 import java.nio.*;
@@ -12,19 +15,52 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 @Service
 public class AdminBootstrapService {
- private final UserRepository users;private final RoleRepository roles;private final PasswordEncoder encoder;private final JdbcTemplate jdbc;private final AuditService audit;
- public AdminBootstrapService(UserRepository users,RoleRepository roles,PasswordEncoder encoder,JdbcTemplate jdbc,AuditService audit){this.users=users;this.roles=roles;this.encoder=encoder;this.jdbc=jdbc;this.audit=audit;}
+ private final UserRepository users;private final RoleRepository roles;private final PasswordEncoder encoder;private final JdbcTemplate jdbc;private final AuditService audit;private final InspectorAccountService invitations;private final SmtpConfigurationService smtp;
+ public AdminBootstrapService(UserRepository users,RoleRepository roles,PasswordEncoder encoder,JdbcTemplate jdbc,AuditService audit,InspectorAccountService invitations,SmtpConfigurationService smtp){this.users=users;this.roles=roles;this.encoder=encoder;this.jdbc=jdbc;this.audit=audit;this.invitations=invitations;this.smtp=smtp;}
  public record Identity(String username,String email,String firstName,String lastName) {}
  @Transactional
  public UUID createFirstAdmin(Identity identity,CharSequence password,String authorization) {
   return createFirst(identity,password,authorization,"SIMERTPI_ADMIN");
  }
+ /** Creates the first IT_ADMIN as a disabled account with no password; the invitation secret is returned once to the local CLI only. */
  @Transactional
- public UUID createFirstSuperadmin(Identity identity,CharSequence password,String authorization) {
-  return createFirst(identity,password,authorization,"IT_ADMIN");
+ public InitialSuperadminBootstrap createFirstSuperadminInvite(Identity identity,String authorization,SmtpCandidate smtpCandidate) {
+  validateIdentity(identity);
+  if(authorization==null||!authorization.matches("[A-Za-z0-9._:/-]{3,100}"))throw new IllegalArgumentException("Invalid bootstrap approval");
+  var actor=org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+  if(actor==null||!actor.isAuthenticated()||actor.getAuthorities().stream().noneMatch(a->a.getAuthority().equals("BOOTSTRAP_OPERATOR")))throw new IllegalStateException("Explicit bootstrap operator required");
+  jdbc.execute("SELECT pg_advisory_xact_lock(25250342)");
+  if(Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM identity.user_roles ur JOIN identity.roles r ON r.id=ur.role_id WHERE r.code='IT_ADMIN')",Boolean.class)))throw new IllegalStateException("An IT_ADMIN account already exists");
+  String normalizedUsername=identity.username().trim();String normalizedEmail=identity.email().trim().toLowerCase(Locale.ROOT);
+  jdbc.query("SELECT pg_advisory_xact_lock(hashtextextended('username:' || lower(?), 0))",rs->null,normalizedUsername);
+  jdbc.query("SELECT pg_advisory_xact_lock(hashtextextended(lower(?), 0))",rs->null,normalizedEmail);
+  if(users.existsByUsernameIgnoreCase(normalizedUsername)||users.existsByEmailIgnoreCase(normalizedEmail))throw new IllegalStateException("Identity already exists; no promotion performed");
+  var smtpResult=smtp.bootstrap(smtpCandidate,"BOOTSTRAP:"+actor.getName(),"Initial SMTP setup for approved DEV superadministrator invitation: "+authorization);
+  if(!"ACTIVE".equals(smtpResult.status()))throw new IllegalStateException("SMTP bootstrap did not activate a verified configuration");
+  var invitation=invitations.createWithRoles(normalizedUsername,normalizedEmail,identity.firstName(),identity.lastName(),null,List.of("IT_ADMIN"));
+  User stored=users.findByUsernameWithRoles(normalizedUsername).orElseThrow();
+  if(stored.isEnabled()||stored.getPasswordHash()!=null||stored.getRoles().size()!=1||!stored.getRoles().iterator().next().getCode().equals("IT_ADMIN")||!invitation.activationPending())throw new IllegalStateException("Bootstrap invitation verification failed");
+  audit.success("ADMIN_BOOTSTRAP_PENDING","USER",stored.getId(),null,Map.of("approvalId",authorization,"role","IT_ADMIN","activationExpiresAt",invitation.activationExpiresAt().toString()));
+  return new InitialSuperadminBootstrap(new PendingSuperadmin(stored.getId(),invitation.activationToken(),invitation.activationExpiresAt()),smtpResult);
  }
+ @Transactional
+ public PendingSuperadmin reissueFirstSuperadminInvite(Identity identity,String authorization){
+  validateIdentity(identity);requireBootstrapOperator();
+  if(authorization==null||!authorization.matches("[A-Za-z0-9._:/-]{3,100}"))throw new IllegalArgumentException("Invalid bootstrap approval");
+  jdbc.execute("SELECT pg_advisory_xact_lock(25250342)");
+  if(!smtp.configured())throw new IllegalStateException("Verified active SMTP configuration required");
+  String username=identity.username().trim();String email=identity.email().trim().toLowerCase(Locale.ROOT);
+  User target=users.findByUsernameWithRoles(username).orElseThrow(()->new IllegalStateException("No matching pending bootstrap account"));
+  if(!email.equalsIgnoreCase(target.getEmail())||target.isEnabled()||target.getPasswordHash()!=null||target.getRoles().size()!=1||!target.getRoles().iterator().next().getCode().equals("IT_ADMIN"))throw new IllegalStateException("Only the matching pending bootstrap Superadministrator invitation can be reissued");
+  Boolean createdByBootstrap=jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM audit.functional_audit_log WHERE action='ADMIN_BOOTSTRAP_PENDING' AND resource_id=? AND metadata->>'role'='IT_ADMIN' AND result='SUCCESS')",Boolean.class,target.getId());
+  if(!Boolean.TRUE.equals(createdByBootstrap))throw new IllegalStateException("Target account was not created by the protected bootstrap");
+  var issued=invitations.reissueInvite(target.getId());
+  audit.success("ADMIN_BOOTSTRAP_INVITATION_REISSUED","USER",target.getId(),null,Map.of("approvalId",authorization,"role","IT_ADMIN","activationExpiresAt",issued.expiresAt().toString()));
+  return new PendingSuperadmin(target.getId(),issued.activationToken(),issued.expiresAt());
+ }
+ private void requireBootstrapOperator(){var actor=org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();if(actor==null||!actor.isAuthenticated()||actor.getAuthorities().stream().noneMatch(a->a.getAuthority().equals("BOOTSTRAP_OPERATOR")))throw new IllegalStateException("Explicit bootstrap operator required");}
  private UUID createFirst(Identity identity,CharSequence password,String authorization,String roleCode) {
-  if(identity==null||identity.username()==null||!identity.username().matches("[A-Za-z0-9][A-Za-z0-9._-]{2,99}")||identity.email()==null||identity.email().length()>255||!identity.email().matches("[^\\s@]+@[^\\s@]+\\.[^\\s@]+")||identity.firstName()==null||identity.firstName().isBlank()||identity.firstName().length()>100||identity.lastName()==null||identity.lastName().isBlank()||identity.lastName().length()>100)throw new IllegalArgumentException("Invalid bootstrap identity");
+  validateIdentity(identity);
   if(password==null||Character.codePointCount(password,0,password.length())<16||StandardCharsets.UTF_8.encode(CharBuffer.wrap(password)).remaining()>72||authorization==null||!authorization.matches("[A-Za-z0-9._:/-]{3,100}"))throw new IllegalArgumentException("Invalid bootstrap input");
   var actor=org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
   if(actor==null||!actor.isAuthenticated()||actor.getAuthorities().stream().noneMatch(a->a.getAuthority().equals("BOOTSTRAP_OPERATOR")))throw new IllegalStateException("Explicit bootstrap operator required");
@@ -42,4 +78,7 @@ public class AdminBootstrapService {
   audit.success("ADMIN_BOOTSTRAP","USER",stored.getId(),null,Map.of("approvalId",authorization,"role",roleCode));
   return stored.getId();
  }
+ private static void validateIdentity(Identity identity){if(identity==null||identity.username()==null||!identity.username().matches("[A-Za-z0-9][A-Za-z0-9._-]{2,99}")||identity.email()==null||identity.email().length()>255||!identity.email().matches("[^\\s@]+@[^\\s@]+\\.[^\\s@]+")||identity.firstName()==null||identity.firstName().isBlank()||identity.firstName().length()>100||identity.lastName()==null||identity.lastName().isBlank()||identity.lastName().length()>100)throw new IllegalArgumentException("Invalid bootstrap identity");}
+ public record PendingSuperadmin(UUID id,String activationToken,OffsetDateTime expiresAt){@Override public String toString(){return "PendingSuperadmin[id="+id+", activationToken=redacted]";}}
+ public record InitialSuperadminBootstrap(PendingSuperadmin invitation,SmtpConfigurationService.BootstrapResult smtp){@Override public String toString(){return "InitialSuperadminBootstrap[invitation="+invitation+", smtp="+smtp+"]";}}
 }

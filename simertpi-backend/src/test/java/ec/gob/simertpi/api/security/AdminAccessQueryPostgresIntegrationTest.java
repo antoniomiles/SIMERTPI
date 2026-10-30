@@ -81,9 +81,9 @@ class AdminAccessQueryPostgresIntegrationTest extends AbstractPostgresIntegratio
         String body = result.getResponse().getContentAsString();
         assertThat(result.getResponse().getHeader("Cache-Control")).contains("no-store");
         assertThat(body).contains("CITIZEN", "INSPECTOR", "SUPERVISOR", "SIMERTPI_ADMIN",
-                "COLLECTIONS", "FINANCE", "IT_ADMIN", "AUDITOR", "assignedAccounts");
-        assertThat(body).doesNotContain("permissions", "password", "activationToken");
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM identity.roles", Integer.class)).isEqualTo(8);
+                "COLLECTIONS", "FINANCE", "IT_ADMIN", "AUDITOR", "SECRETARIA", "userCount", "permissions");
+        assertThat(body).doesNotContain("password", "activationToken");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM identity.roles", Integer.class)).isEqualTo(9);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit.functional_audit_log WHERE actor_id=? AND action='ADMIN_ROLES_VIEWED' AND result='SUCCESS'", Integer.class, adminId)).isPositive();
     }
 

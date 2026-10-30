@@ -34,6 +34,7 @@ const roleCatalog: AdminRoleSummary[] = [
     displayName: 'Superadministrador',
     description: 'Administración integral',
     assignedAccounts: 1,
+    enabled: true, protectedRole: true, portalEnabled: true, rowVersion: 0, userCount: 1, permissions: [], createdAt: '2026-10-18T00:00:00Z', updatedAt: '2026-10-18T00:00:00Z',
   },
   {
     code: 'SIMERTPI_ADMIN',
@@ -41,12 +42,14 @@ const roleCatalog: AdminRoleSummary[] = [
     displayName: 'Administrador',
     description: 'Administración municipal',
     assignedAccounts: 1,
+    enabled: true, protectedRole: true, portalEnabled: true, rowVersion: 0, userCount: 1, permissions: [], createdAt: '2026-10-18T00:00:00Z', updatedAt: '2026-10-18T00:00:00Z',
   },
   {
     code: 'INSPECTOR',
     name: 'Inspector municipal',
     description: 'Rol del personal de inspección',
     assignedAccounts: 1,
+    enabled: true, protectedRole: true, portalEnabled: true, rowVersion: 0, userCount: 1, permissions: ['inspections.view'], createdAt: '2026-10-18T00:00:00Z', updatedAt: '2026-10-18T00:00:00Z',
   },
 ];
 
@@ -62,12 +65,15 @@ describe('Users and roles administration', () => {
     createAccount: ReturnType<typeof vi.fn>;
     assignRoles: ReturnType<typeof vi.fn>;
     permissions: ReturnType<typeof vi.fn>;
+    role: ReturnType<typeof vi.fn>;
+    roleHistory: ReturnType<typeof vi.fn>;
+    createRole: ReturnType<typeof vi.fn>;
+    updateRole: ReturnType<typeof vi.fn>;
+    updateRoleStatus: ReturnType<typeof vi.fn>;
   };
   let preview = false;
   let activeRoles: string[] = ['IT_ADMIN'];
-  const permissionResponse = { roles: [
-    { roleCode: 'IT_ADMIN', roleName: 'Superadministrador', permissions: ['USERS_READ', 'USERS_MANAGE_ALL', 'USERS_MANAGE_INSPECTORS', 'ROLES_ASSIGN'] },
-  ] };
+  const permissionResponse = [{ code: 'dashboard.view', moduleCode: 'dashboard', actionCode: 'view', name: 'Ver panel', description: 'Consulta', assignable: true }];
 
   beforeEach(async () => {
     preview = false;
@@ -77,12 +83,17 @@ describe('Users and roles administration', () => {
       roles: vi.fn().mockReturnValue(of(roleCatalog)),
       updateAccount: vi.fn().mockReturnValue(of(accountPage.content[0])),
       updateStatus: vi.fn().mockReturnValue(of(accountPage.content[0])),
-      createInspector: vi.fn().mockReturnValue(of({ ...accountPage.content[0], activationToken: 'one-time', activationExpiresAt: '2026-10-30T00:00:00Z' })),
-      reissueInspectorActivation: vi.fn().mockReturnValue(of({ activationToken: 'new-token', expiresAt: '2026-10-30T00:00:00Z' })),
-      reissueAdminActivation: vi.fn().mockReturnValue(of({ activationToken: 'admin-token', activationExpiresAt: '2026-10-30T00:00:00Z' })),
-      createAccount: vi.fn().mockReturnValue(of({ ...accountPage.content[0], activationToken: 'one-time', activationExpiresAt: '2026-10-30T00:00:00Z' })),
+      createInspector: vi.fn().mockReturnValue(of({ ...accountPage.content[0], deliveryStatus: 'ACCEPTED_BY_PROVIDER', activationExpiresAt: '2026-10-30T00:00:00Z' })),
+      reissueInspectorActivation: vi.fn().mockReturnValue(of({ deliveryStatus: 'ACCEPTED_BY_PROVIDER', activationExpiresAt: '2026-10-30T00:00:00Z' })),
+      reissueAdminActivation: vi.fn().mockReturnValue(of({ deliveryStatus: 'ACCEPTED_BY_PROVIDER', activationExpiresAt: '2026-10-30T00:00:00Z' })),
+      createAccount: vi.fn().mockReturnValue(of({ account: accountPage.content[0], deliveryStatus: 'ACCEPTED_BY_PROVIDER', activationExpiresAt: '2026-10-30T00:00:00Z' })),
       assignRoles: vi.fn().mockReturnValue(of(accountPage.content[0])),
       permissions: vi.fn().mockReturnValue(of(permissionResponse)),
+      role: vi.fn().mockReturnValue(of(roleCatalog[0])),
+      roleHistory: vi.fn().mockReturnValue(of([])),
+      createRole: vi.fn().mockReturnValue(of(roleCatalog[0])),
+      updateRole: vi.fn().mockReturnValue(of(roleCatalog[0])),
+      updateRoleStatus: vi.fn().mockReturnValue(of(roleCatalog[0])),
     };
     await TestBed.configureTestingModule({
       imports: [UsersRoles],
@@ -118,6 +129,34 @@ describe('Users and roles administration', () => {
     expect(fixture.nativeElement.textContent).toContain('Cuentas encontradas');
   });
 
+  it('creates a custom role with only selected assignable permissions', () => {
+    const page = TestBed.createComponent(UsersRoles).componentInstance;
+    page.openRoleCreate();
+    page.roleForm.setValue({ code: 'SECRETARIA', name: 'Secretaría', description: 'Consulta autorizada', permissions: ['dashboard.view'], reason: '' });
+    page.saveRole();
+    expect(api.createRole).toHaveBeenCalledWith({ code: 'SECRETARIA', name: 'Secretaría', description: 'Consulta autorizada', permissions: ['dashboard.view'] });
+    expect(page.roleDialog()).toBeNull();
+    expect(page.notice()?.kind).toBe('success');
+  });
+
+  it('updates a custom role with optimistic concurrency and a required reason', () => {
+    const custom: AdminRoleSummary = { code: 'SECRETARIA', name: 'Secretaría', description: 'Consulta', enabled: true, protectedRole: false, portalEnabled: true, rowVersion: 3, userCount: 0, permissions: ['dashboard.view'], createdAt: '2026-10-18T00:00:00Z', updatedAt: '2026-10-20T00:00:00Z' };
+    const page = TestBed.createComponent(UsersRoles).componentInstance;
+    page.openRoleEdit(custom);
+    page.roleForm.setValue({ code: 'SECRETARIA', name: 'Secretaría', description: 'Consulta actualizada', permissions: ['dashboard.view'], reason: 'Ajuste autorizado' });
+    page.saveRole();
+    expect(api.updateRole).toHaveBeenCalledWith('SECRETARIA', expect.objectContaining({ updatedAt: custom.updatedAt, rowVersion: 3, reason: 'Ajuste autorizado', permissions: ['dashboard.view'] }));
+  });
+
+  it('prevents editing protected roles and loads role history through the read API', () => {
+    const page = TestBed.createComponent(UsersRoles).componentInstance;
+    page.openRoleEdit(roleCatalog[0]);
+    expect(page.roleDialog()).toBeNull();
+    page.openRoleHistory(roleCatalog[2]);
+    expect(api.roleHistory).toHaveBeenCalledWith('INSPECTOR');
+    expect(page.roleDialog()).toBe('history');
+  });
+
   it('sends server filters and keeps pagination bounded to returned pages', () => {
     const page = TestBed.createComponent(UsersRoles).componentInstance;
     page.filters.setValue({ query: 'user', role: 'INSPECTOR', status: 'disabled' });
@@ -127,7 +166,7 @@ describe('Users and roles administration', () => {
     expect(page.hasNext()).toBe(false);
   });
 
-  it('shows the database role catalog without presenting it as an editable permission matrix', () => {
+  it('shows the server permission catalog and role-management actions to Superadministrador', () => {
     const fixture = TestBed.createComponent(UsersRoles);
     fixture.detectChanges();
     fixture.componentInstance.setTab('roles');
@@ -143,6 +182,7 @@ describe('Users and roles administration', () => {
       fixture.nativeElement.querySelectorAll('#roles-panel .section-heading button'),
     ).toHaveLength(1);
     expect(fixture.nativeElement.textContent).toContain('Roles registrados');
+    expect(fixture.nativeElement.textContent).toContain('Crear rol personalizado');
     expect(fixture.nativeElement.textContent).toContain('El backend vuelve a validar autorización');
   });
 
@@ -198,7 +238,7 @@ describe('Users and roles administration', () => {
     expect(page.operationError()).toContain('conflicto');
   });
 
-  it('creates an inspector using the existing-role flow and exposes the one-time token only in the dialog', () => {
+  it('creates an inspector through the invitation service and displays delivery status without a token', () => {
     const fixture = TestBed.createComponent(UsersRoles);
     fixture.detectChanges();
     const page = fixture.componentInstance;
@@ -207,12 +247,12 @@ describe('Users and roles administration', () => {
     page.createInspector();
     expect(api.createAccount).toHaveBeenCalledWith(expect.objectContaining({ username: 'new.inspector', phone: null, roles: ['INSPECTOR'], reason: 'Alta autorizada' }));
     expect(api.createInspector).not.toHaveBeenCalled();
-    expect(page.operation()).toBe('activation');
-    expect(page.activationSecret()?.token).toBe('one-time');
+    expect(page.operation()).toBeNull();
+    expect(page.deliveryResult()?.status).toBe('ACCEPTED_BY_PROVIDER');
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('one-time');
-    page.clearActivationSecret();
-    expect(page.activationSecret()).toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('proveedor aceptó');
+    expect(fixture.nativeElement.textContent).not.toContain('one-time');
+    expect(fixture.nativeElement.textContent).not.toContain('token de activación');
   });
 
   it('allows SIMERTPI_ADMIN to manage only inspectors without loading role or permission catalogs', () => {
@@ -244,7 +284,7 @@ describe('Users and roles administration', () => {
       username: 'new.inspector', email: 'new@example.invalid', firstName: 'New', lastName: 'Inspector',
       phone: null, roles: ['INSPECTOR'], reason: 'Alta de inspector',
     });
-    expect(page.activationSecret()?.token).toBe('one-time');
+    expect(page.deliveryResult()?.status).toBe('ACCEPTED_BY_PROVIDER');
     expect(page.notice()?.kind).toBe('success');
   });
 
@@ -267,7 +307,8 @@ describe('Users and roles administration', () => {
     expect(api.reissueAdminActivation).toHaveBeenCalledWith('pending-admin', {
       reason: 'Enlace vencido', updatedAt: pendingAdmin.updatedAt,
     });
-    expect(page.activationSecret()?.token).toBe('admin-token');
+    expect(page.deliveryResult()?.status).toBe('ACCEPTED_BY_PROVIDER');
+    expect(fixture.nativeElement.textContent).not.toContain('admin-token');
     expect(page.notice()?.kind).toBe('success');
     activeRoles = ['SIMERTPI_ADMIN'];
     const municipal = TestBed.createComponent(UsersRoles).componentInstance;

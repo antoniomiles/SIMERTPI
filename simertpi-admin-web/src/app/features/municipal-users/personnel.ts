@@ -22,7 +22,7 @@ export class Personnel implements OnInit {
   readonly directoryError = signal('');
   readonly directory = signal<InspectorDirectory | null>(null);
   readonly activation = signal<InspectorCreated | null>(null);
-  readonly reissuedActivation = signal<{ username: string; token: string; expiresAt: string } | null>(null);
+  readonly reissuedActivation = signal<{ username: string; deliveryStatus: 'ACCEPTED_BY_PROVIDER' | 'UNCONFIGURED' | 'FAILED'; expiresAt: string } | null>(null);
   readonly previewMessage = signal('');
   readonly preview = inject(ActivatedRoute, { optional: true })?.snapshot.pathFromRoot.some((route) => route.data['preview'] === true) ?? false;
   private readonly api = inject(MunicipalPersonnelApi);
@@ -122,7 +122,7 @@ export class Personnel implements OnInit {
     if (this.preview) return;
     this.reissuedActivation.set(null);
     this.api.reissueActivation(row.id).subscribe({
-      next: (result) => this.reissuedActivation.set({ username: row.username, token: result.activationToken, expiresAt: result.expiresAt }),
+      next: (result) => this.reissuedActivation.set({ username: row.username, deliveryStatus: result.deliveryStatus, expiresAt: result.activationExpiresAt }),
       error: (error: unknown) => this.directoryError.set(this.message(error)),
     });
   }
@@ -130,6 +130,12 @@ export class Personnel implements OnInit {
   dismissActivation() {
     this.activation.set(null);
     this.reissuedActivation.set(null);
+  }
+
+  deliveryMessage(status: 'ACCEPTED_BY_PROVIDER' | 'UNCONFIGURED' | 'FAILED') {
+    if (status === 'ACCEPTED_BY_PROVIDER') return 'El proveedor aceptó el mensaje; esto no confirma su entrega al destinatario.';
+    if (status === 'UNCONFIGURED') return 'El proveedor de correo no está configurado; la invitación no se envió.';
+    return 'El proveedor de correo informó un error; puedes reintentar la invitación.';
   }
 
   previousPage() { if (this.page > 0) this.load(this.page - 1); }

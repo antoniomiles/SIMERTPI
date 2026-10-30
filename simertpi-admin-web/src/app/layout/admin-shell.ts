@@ -54,9 +54,32 @@ export class AdminShell {
   readonly signingOut = signal(false);
   private readonly router = inject(Router);
   readonly groups = NAVIGATION;
+  readonly visibleGroups = () => {
+    const identity = this.session.identity();
+    const permissions = identity?.permissions;
+    const roles = identity?.roles ?? [];
+    return NAVIGATION.map((group) => ({
+      ...group,
+      items: group.items.flatMap((item) => {
+        if (item.children) {
+          const children = item.children.filter((child) => {
+            if (child.path === 'system/email' && !roles.includes('IT_ADMIN')) return false;
+            return permissions === undefined || this.canView(child.path, permissions, roles);
+          });
+          return children.length ? [{ ...item, children }] : [];
+        }
+        if (item.path)
+          return permissions === undefined || this.canView(item.path, permissions, roles)
+            ? [item]
+            : [];
+        return [item];
+      }),
+    })).filter((group) => group.items.length > 0);
+  };
   readonly opened = signal(false);
   readonly tariffsMenuExpanded = signal(false);
   readonly zonesMenuExpanded = signal(false);
+  readonly systemMenuExpanded = signal(false);
   readonly compact = signal(window.matchMedia('(max-width: 960px)').matches);
   readonly tooltip = signal<NavigationTooltip | null>(null);
   readonly preview = inject(ActivatedRoute).snapshot.data['preview'] === true;
@@ -66,6 +89,7 @@ export class AdminShell {
   constructor() {
     this.tariffsMenuExpanded.set(!this.isCollapsed() && this.isTariffsActive());
     this.zonesMenuExpanded.set(!this.isCollapsed() && this.isZonesActive());
+    this.systemMenuExpanded.set(!this.isCollapsed() && this.isSystemEmailActive());
     const destroy = inject(DestroyRef);
     destroy.onDestroy(() => {
       if (this.hideTimer) clearTimeout(this.hideTimer);
@@ -79,6 +103,7 @@ export class AdminShell {
         this.opened.set(false);
         this.tariffsMenuExpanded.set(!this.isCollapsed() && this.isTariffsActive());
         this.zonesMenuExpanded.set(!this.isCollapsed() && this.isZonesActive());
+        this.systemMenuExpanded.set(!this.isCollapsed() && this.isSystemEmailActive());
         this.hideTooltip();
         afterNextRender(() => document.getElementById('main-content')?.focus(), {
           injector: this.injector,
@@ -112,6 +137,7 @@ export class AdminShell {
       this.preference.toggle();
       this.tariffsMenuExpanded.set(!this.isCollapsed() && this.isTariffsActive());
       this.zonesMenuExpanded.set(!this.isCollapsed() && this.isZonesActive());
+      this.systemMenuExpanded.set(!this.isCollapsed() && this.isSystemEmailActive());
       return;
     }
     this.opened.update((value) => !value);
@@ -148,16 +174,98 @@ export class AdminShell {
     const expanding = !this.tariffsMenuExpanded();
     this.tariffsMenuExpanded.set(expanding);
   }
-  isTariffsActive() { return this.router.url.startsWith(this.base + '/tariffs'); }
-  isZonesActive() { return ['/zones','/streets','/spaces'].some(path => this.router.url.startsWith(this.base + path)); }
-  isNavigationActive(label: string) { return label === 'Tarifas y horarios' ? this.isTariffsActive() : label === 'Zonas y espacios' ? this.isZonesActive() : false; }
-  isNavigationExpanded(label: string) { return label === 'Tarifas y horarios' ? this.tariffsMenuExpanded() : label === 'Zonas y espacios' ? this.zonesMenuExpanded() : false; }
-  toggleNavigationMenu(label: string) { if (label === 'Zonas y espacios') this.toggleZonesMenu(); else this.toggleTariffsMenu(); }
-  private toggleZonesMenu() {
-    if (this.isCollapsed()) { this.preference.toggle(); this.zonesMenuExpanded.set(true); return; }
-    this.zonesMenuExpanded.update(value => !value);
+  isTariffsActive() {
+    return this.router.url.startsWith(this.base + '/tariffs');
   }
-  childRoute(path: string) { return [this.base, ...path.split('/')]; }
+  isSystemEmailActive() {
+    return this.router.url.startsWith(this.base + '/system/email');
+  }
+  isZonesActive() {
+    return ['/zones', '/streets', '/spaces'].some((path) =>
+      this.router.url.startsWith(this.base + path),
+    );
+  }
+  isNavigationActive(label: string) {
+    return label === 'Tarifas y horarios'
+      ? this.isTariffsActive()
+      : label === 'Zonas y espacios'
+        ? this.isZonesActive()
+        : label === 'Configuración del sistema'
+          ? this.isSystemEmailActive()
+          : false;
+  }
+  isNavigationExpanded(label: string) {
+    return label === 'Tarifas y horarios'
+      ? this.tariffsMenuExpanded()
+      : label === 'Zonas y espacios'
+        ? this.zonesMenuExpanded()
+        : label === 'Configuración del sistema'
+          ? this.systemMenuExpanded()
+          : false;
+  }
+  navigationSubmenuId(label: string) {
+    return label === 'Tarifas y horarios'
+      ? 'tariffs-navigation'
+      : label === 'Zonas y espacios'
+        ? 'zones-navigation'
+        : 'system-navigation';
+  }
+  toggleNavigationMenu(label: string) {
+    if (label === 'Zonas y espacios') this.toggleZonesMenu();
+    else if (label === 'Configuración del sistema') this.toggleSystemMenu();
+    else this.toggleTariffsMenu();
+  }
+  private toggleZonesMenu() {
+    if (this.isCollapsed()) {
+      this.preference.toggle();
+      this.zonesMenuExpanded.set(true);
+      return;
+    }
+    this.zonesMenuExpanded.update((value) => !value);
+  }
+  private toggleSystemMenu() {
+    if (this.isCollapsed()) {
+      this.preference.toggle();
+      this.systemMenuExpanded.set(true);
+      return;
+    }
+    this.systemMenuExpanded.update((value) => !value);
+  }
+  childRoute(path: string) {
+    return [this.base, ...path.split('/')];
+  }
+  private canView(path: string, permissions: readonly string[], roles: readonly string[]) {
+    if (roles.includes('IT_ADMIN')) return true;
+    if (path === 'system/email') return false;
+    const key = path.startsWith('tariffs')
+      ? 'tariffs.view'
+      : path === 'dashboard'
+        ? 'dashboard.view'
+        : path === 'access'
+          ? 'users.view'
+          : path === 'personal'
+            ? 'users.view'
+            : path === 'audit'
+              ? 'audit.view'
+              : path === 'map' || path === 'spaces'
+                ? 'spaces.view'
+                : path === 'zones'
+                  ? 'zones.view'
+                  : path === 'streets'
+                    ? 'streets.view'
+                    : path === 'parking-sessions'
+                      ? 'sessions.view'
+                      : path === 'inspections'
+                        ? 'inspections.view'
+                        : path === 'violations'
+                          ? 'violations.view'
+                          : path === 'payments'
+                            ? 'payments.view'
+                            : path === 'reports'
+                              ? 'reports.view'
+                              : undefined;
+    return !key || permissions.includes(key);
+  }
   showTooltip(event: Event, key: string, pending = false) {
     if (!this.isCollapsed()) return;
     this.keepTooltip();

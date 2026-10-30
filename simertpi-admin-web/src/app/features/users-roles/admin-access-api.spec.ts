@@ -43,12 +43,12 @@ describe('Administrative access API', () => {
     req.flush([]);
   });
 
-  it('loads role capabilities from the explicit read-only permission endpoint', () => {
+  it('loads assignable permission definitions from the catalog endpoint', () => {
     TestBed.inject(AdminAccessApi).permissions().subscribe();
-    const req = TestBed.inject(HttpTestingController).expectOne('/api/v1/admin/access/permissions');
+    const req = TestBed.inject(HttpTestingController).expectOne('/api/v1/admin/access/permission-catalog');
     expect(req.request.method).toBe('GET');
     expect(req.request.body).toBeNull();
-    req.flush({ roles: [{ roleCode: 'INSPECTOR', roleName: 'Inspector', permissions: ['inspection:read'] }] });
+    req.flush([{ code: 'dashboard.view', moduleCode: 'dashboard', actionCode: 'view', name: 'Ver panel', description: 'Consulta del panel', assignable: true }]);
   });
 
   it('creates an administrative account with only the selected existing roles and reason', () => {
@@ -62,7 +62,7 @@ describe('Administrative access API', () => {
     expect(req.request.body.roles).toEqual(['INSPECTOR']);
     expect(req.request.body.reason).toBe('Alta autorizada');
     expect(req.request.withCredentials).toBe(true);
-    req.flush({ activationToken: 'one-time', activationExpiresAt: '2026-10-30T00:00:00Z' });
+    req.flush({ account: { id: 'user-1', username: 'ops.user', email: 'ops@example.invalid', firstName: 'Ops', lastName: 'User', phone: null, roles: ['INSPECTOR'], enabled: false, activationPending: true, createdAt: '2026-10-29T00:00:00Z', updatedAt: '2026-10-29T00:00:00Z' }, deliveryStatus: 'ACCEPTED_BY_PROVIDER', activationExpiresAt: '2026-10-30T00:00:00Z' });
   });
 
   it('assigns or revokes roles only through the versioned protected endpoint', () => {
@@ -110,13 +110,13 @@ describe('Administrative access API', () => {
     const create = TestBed.inject(HttpTestingController).expectOne('/api/v1/admin/inspectors');
     expect(create.request.method).toBe('POST');
     expect(create.request.withCredentials).toBe(true);
-    create.flush({ activationToken: 'one-time' });
+    create.flush({ id: 'user-1', username: 'inspector.1', email: 'inspector@example.invalid', firstName: 'Inspector', lastName: 'Uno', phone: null, enabled: false, activationPending: true, deliveryStatus: 'UNCONFIGURED', activationExpiresAt: '2026-10-30T00:00:00Z' });
     api.reissueInspectorActivation('user-1').subscribe();
     completeCsrfPreflight();
     const reissue = TestBed.inject(HttpTestingController).expectOne('/api/v1/admin/inspectors/user-1/activation');
     expect(reissue.request.method).toBe('POST');
     expect(reissue.request.withCredentials).toBe(true);
-    reissue.flush({ activationToken: 'one-time-again', expiresAt: '2026-10-30T00:00:00Z' });
+    reissue.flush({ deliveryStatus: 'FAILED', expiresAt: '2026-10-30T00:00:00Z' });
   });
 
   it('reissues a pending administrative invitation with reason and optimistic version', () => {
@@ -128,6 +128,23 @@ describe('Administrative access API', () => {
     expect(req.request.method).toBe('POST');
     expect(req.request.body).toEqual({ reason: 'Enlace vencido', updatedAt: '2026-10-28T10:00:00Z' });
     expect(req.request.withCredentials).toBe(true);
-    req.flush({ activationToken: 'one-time', activationExpiresAt: '2026-10-30T10:00:00Z' });
+    req.flush({ deliveryStatus: 'ACCEPTED_BY_PROVIDER', activationExpiresAt: '2026-10-30T10:00:00Z' });
+  });
+
+  it('creates a custom role with selected catalog permissions', () => {
+    TestBed.inject(AdminAccessApi).createRole({ code: 'SECRETARIA', name: 'Secretaría', description: 'Consulta', permissions: ['dashboard.view'] }).subscribe();
+    completeCsrfPreflight();
+    const req = TestBed.inject(HttpTestingController).expectOne('/api/v1/admin/access/roles');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ code: 'SECRETARIA', name: 'Secretaría', description: 'Consulta', permissions: ['dashboard.view'] });
+    req.flush({ code: 'SECRETARIA', name: 'Secretaría', description: 'Consulta', enabled: true, protectedRole: false, portalEnabled: true, rowVersion: 0, userCount: 0, permissions: ['dashboard.view'], createdAt: '2026-10-29T00:00:00Z', updatedAt: '2026-10-29T00:00:00Z' });
+  });
+
+  it('loads role detail and history without mutating data', () => {
+    const api = TestBed.inject(AdminAccessApi);
+    api.role('SECRETARIA').subscribe();
+    TestBed.inject(HttpTestingController).expectOne('/api/v1/admin/access/roles/SECRETARIA').flush({ code: 'SECRETARIA', name: 'Secretaría', description: null, enabled: true, protectedRole: false, portalEnabled: true, rowVersion: 0, userCount: 0, permissions: [], createdAt: '2026-10-29T00:00:00Z', updatedAt: '2026-10-29T00:00:00Z' });
+    api.roleHistory('SECRETARIA').subscribe();
+    TestBed.inject(HttpTestingController).expectOne('/api/v1/admin/access/roles/SECRETARIA/history').flush([]);
   });
 });

@@ -22,22 +22,28 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import static org.assertj.core.api.Assertions.*;
 class AdminBootstrapPostgresIntegrationTest {
  static PostgreSQLContainer<?> pg;static ConfigurableApplicationContext context;
- static AdminBootstrapService service;static UserRepository users;static JdbcTemplate jdbc;static PasswordEncoder encoder;
+ static AdminBootstrapService service;static UserRepository users;static JdbcTemplate jdbc;static PasswordEncoder encoder;static ec.gob.simertpi.application.identity.smtp.SmtpConfigurationService smtp;
  private static final String PASSWORD="isolated-bootstrap-fixture-2026";
  @BeforeAll static void setup(){
   System.setProperty("logging.level.root","OFF");
   pg=new PostgreSQLContainer<>("postgres:16.15").withDatabaseName("admin_bootstrap_test").withUsername("isolated").withPassword(UUID.randomUUID().toString());pg.start();
   Flyway.configure().dataSource(pg.getJdbcUrl(),pg.getUsername(),pg.getPassword()).load().migrate();
   Map<String,Object> settings=new HashMap<>();settings.put("spring.datasource.url",pg.getJdbcUrl());settings.put("spring.datasource.username",pg.getUsername());settings.put("spring.datasource.password",pg.getPassword());settings.put("spring.jpa.hibernate.ddl-auto","none");settings.put("spring.jpa.show-sql",false);settings.put("spring.flyway.enabled",false);settings.put("logging.level.root","OFF");settings.put("spring.main.banner-mode","off");
-  context=new SpringApplicationBuilder(AdminBootstrapConfiguration.class).web(WebApplicationType.NONE).initializers(c->c.getEnvironment().getPropertySources().addFirst(new MapPropertySource("isolated",settings))).run();
-  service=context.getBean(AdminBootstrapService.class);users=context.getBean(UserRepository.class);jdbc=context.getBean(JdbcTemplate.class);encoder=context.getBean(PasswordEncoder.class);
+  context=new SpringApplicationBuilder(AdminBootstrapConfiguration.class,TestSmtpOverride.class).web(WebApplicationType.NONE).initializers(c->c.getEnvironment().getPropertySources().addFirst(new MapPropertySource("isolated",settings))).run();
+  service=context.getBean(AdminBootstrapService.class);users=context.getBean(UserRepository.class);jdbc=context.getBean(JdbcTemplate.class);encoder=context.getBean(PasswordEncoder.class);smtp=context.getBean(ec.gob.simertpi.application.identity.smtp.SmtpConfigurationService.class);
  }
- @BeforeEach void clearFixtureAdmins(){jdbc.update("DELETE FROM identity.user_roles WHERE role_id IN (SELECT id FROM identity.roles WHERE code='SIMERTPI_ADMIN')");SecurityContextHolder.getContext().setAuthentication(operator());}
+ @BeforeEach void clearFixtureAdmins(){jdbc.update("DELETE FROM identity.user_roles WHERE role_id IN (SELECT id FROM identity.roles WHERE code IN ('SIMERTPI_ADMIN','IT_ADMIN'))");org.mockito.Mockito.reset(smtp);org.mockito.Mockito.when(smtp.bootstrap(org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString())).thenReturn(new ec.gob.simertpi.application.identity.smtp.SmtpConfigurationService.BootstrapResult(1,"ACTIVE","GMAIL","fixture@example.invalid","smtp.gmail.com",587,"STARTTLS",OffsetDateTime.now()));SecurityContextHolder.getContext().setAuthentication(operator());}
  @AfterEach void clearActor(){SecurityContextHolder.clearContext();}
  @AfterAll static void close(){if(context!=null)context.close();if(pg!=null)pg.stop();}
  static UsernamePasswordAuthenticationToken operator(){return UsernamePasswordAuthenticationToken.authenticated("BOOTSTRAP:isolated-operator",null,List.of(new SimpleGrantedAuthority("BOOTSTRAP_OPERATOR")));}
  static AdminBootstrapService.Identity identity(String username){return new AdminBootstrapService.Identity(username,username+"@example.invalid","Isolated","Admin");}
  @Test void nonHttpContextDoesNotHaveFlywayOrScheduling(){assertThat(context.getEnvironment().getProperty("spring.main.web-application-type")).isNotEqualTo("servlet");assertThat(context.getBeansOfType(Flyway.class)).isEmpty();assertThat(context.containsBean("dispatcherServlet")).isFalse();assertThat(context.containsBean("org.springframework.context.annotation.internalScheduledAnnotationProcessor")).isFalse();}
+ @Test void firstSuperadminCliRequiresExactApprovedDevIdentityAndExplicitTypedConfirmation(){
+  assertThat(AdminBootstrapCli.isApprovedDevSuperadmin("superadmin.simertpi.dev","ANTOXAVI1992@OUTLOOK.COM","CONFIRM DEV SUPERADMIN")).isTrue();
+  assertThat(AdminBootstrapCli.isApprovedDevSuperadmin("another-user","antoxavi1992@outlook.com","CONFIRM DEV SUPERADMIN")).isFalse();
+  assertThat(AdminBootstrapCli.isApprovedDevSuperadmin("superadmin.simertpi.dev","another@example.invalid","CONFIRM DEV SUPERADMIN")).isFalse();
+  assertThat(AdminBootstrapCli.isApprovedDevSuperadmin("superadmin.simertpi.dev","antoxavi1992@outlook.com","yes")).isFalse();
+ }
  @Test void createsOnlyFirstAdminAuditsAndNeverMutatesOtherAccounts(){
   String citizen="fixture-"+UUID.randomUUID();User existing=new User();existing.setId(UUID.randomUUID());existing.setUsername(citizen);existing.setEmail(citizen+"@example.invalid");existing.setFirstName("Existing");existing.setLastName("Citizen");existing.setEnabled(true);existing.setPasswordHash(encoder.encode("unrelated-fixture-only"));existing.setCreatedAt(OffsetDateTime.now());existing.setUpdatedAt(existing.getCreatedAt());users.saveAndFlush(existing);
   long count=users.count();String before=existing.getPasswordHash();String name="bootstrap-"+UUID.randomUUID();
@@ -48,12 +54,42 @@ class AdminBootstrapPostgresIntegrationTest {
   assertThat(users.findById(id).orElseThrow().getPasswordHash().equals(createdHash)).isTrue();
   assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit.functional_audit_log WHERE action='ADMIN_BOOTSTRAP' AND resource_id=? AND actor_name='BOOTSTRAP:isolated-operator'",Integer.class,id)).isEqualTo(1);
  }
- @Test void createsFirstSuperadministratorWithItAdminRoleAndRejectsSecondBootstrap(){
-  String name="superadmin-"+UUID.randomUUID();UUID id=service.createFirstSuperadmin(identity(name),CharBuffer.wrap(PASSWORD.toCharArray()),"approved-local-fixture");
-  User created=users.findByUsernameWithRoles(name).orElseThrow();assertThat(created.isEnabled()).isTrue();assertThat(created.getRoles().stream().map(r->r.getCode()).toList()).containsExactly("IT_ADMIN");
-  assertThatThrownBy(()->service.createFirstSuperadmin(identity("second-super-"+UUID.randomUUID()),PASSWORD,"approved-local-fixture")).isInstanceOf(IllegalStateException.class);
-  assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit.functional_audit_log WHERE action='ADMIN_BOOTSTRAP' AND resource_id=? AND metadata->>'role'='IT_ADMIN' AND result='SUCCESS'",Integer.class,id)).isEqualTo(1);
+ @Test void createsFirstSuperadministratorPendingActivationWithoutPasswordAndRejectsDuplicateBootstrap(){
+  String name="superadmin-"+UUID.randomUUID();var candidate=new ec.gob.simertpi.application.identity.smtp.SmtpCandidate("GMAIL","Fixture SMTP","fixture@example.invalid","smtp.gmail.com",587,"STARTTLS","fixture@example.invalid","fixture-password".toCharArray());var createdBootstrap=service.createFirstSuperadminInvite(identity(name),"approved-local-fixture",candidate);var pending=createdBootstrap.invitation();UUID id=pending.id();
+  assertThat(org.mockito.Mockito.mockingDetails(smtp).getInvocations()).anyMatch(call->call.getMethod().getName().equals("bootstrap"));
+  User created=users.findByUsernameWithRoles(name).orElseThrow();assertThat(created.isEnabled()).isFalse();assertThat(created.getPasswordHash()).isNull();assertThat(created.getRoles().stream().map(r->r.getCode()).toList()).containsExactly("IT_ADMIN");
+  assertThat(pending.activationToken()).matches("[A-Za-z0-9_-]{43}");
+  assertThat(jdbc.queryForObject("SELECT expires_at > CURRENT_TIMESTAMP AND expires_at <= CURRENT_TIMESTAMP + INTERVAL '24 hours' + INTERVAL '2 seconds' FROM identity.inspector_activation_tokens WHERE user_id=?",Boolean.class,id)).isTrue();
+  assertThat(jdbc.queryForObject("SELECT token_hash <> ? FROM identity.inspector_activation_tokens WHERE user_id=?",Boolean.class,pending.activationToken(),id)).isTrue();
+  context.getBean(ec.gob.simertpi.application.identity.InspectorAccountService.class).activate(pending.activationToken(),"Fixture-activation-password-2026");
+  User activated=users.findByUsernameWithRoles(name).orElseThrow();assertThat(activated.isEnabled()).isTrue();assertThat(encoder.matches("Fixture-activation-password-2026",activated.getPasswordHash())).isTrue();
+  assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM identity.inspector_activation_tokens WHERE user_id=?",Integer.class,id)).isZero();
+  assertThatThrownBy(()->service.createFirstSuperadminInvite(identity("second-super-"+UUID.randomUUID()),"approved-local-fixture",candidate)).isInstanceOf(IllegalStateException.class);
+  assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit.functional_audit_log WHERE action='ADMIN_BOOTSTRAP_PENDING' AND resource_id=? AND metadata->>'role'='IT_ADMIN' AND result='SUCCESS'",Integer.class,id)).isEqualTo(1);
  }
+ @Test void failedSmtpVerificationCreatesNoSuperadministratorOrActivationToken(){
+  String name="superadmin-smtp-failed-"+UUID.randomUUID();var candidate=new ec.gob.simertpi.application.identity.smtp.SmtpCandidate("GMAIL","Fixture SMTP","fixture@example.invalid","smtp.gmail.com",587,"STARTTLS","fixture@example.invalid","fixture-password".toCharArray());
+  org.mockito.Mockito.when(smtp.bootstrap(org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString())).thenThrow(new IllegalStateException("fixture connection rejected"));
+  assertThatThrownBy(()->service.createFirstSuperadminInvite(identity(name),"approved-local-fixture",candidate)).isInstanceOf(IllegalStateException.class);
+  assertThat(users.existsByUsernameIgnoreCase(name)).isFalse();assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM identity.inspector_activation_tokens t JOIN identity.users u ON u.id=t.user_id WHERE u.username=?",Integer.class,name)).isZero();
+ }
+ @Test void resendRotatesOnlyTheBootstrapPendingSuperadminToken(){
+  String name="superadmin-resend-"+UUID.randomUUID();var candidate=new ec.gob.simertpi.application.identity.smtp.SmtpCandidate("GMAIL","Fixture SMTP","fixture@example.invalid","smtp.gmail.com",587,"STARTTLS","fixture@example.invalid","fixture-password".toCharArray());
+  var original=service.createFirstSuperadminInvite(identity(name),"approved-local-fixture",candidate).invitation();
+  jdbc.update("UPDATE identity.inspector_activation_tokens SET created_at=CURRENT_TIMESTAMP-INTERVAL '61 seconds' WHERE user_id=?",original.id());org.mockito.Mockito.when(smtp.configured()).thenReturn(true);
+  var renewed=service.reissueFirstSuperadminInvite(identity(name),"approved-resend-fixture");
+  assertThat(renewed.activationToken()).isNotEqualTo(original.activationToken());assertThat(users.findByUsernameWithRoles(name).orElseThrow().getPasswordHash()).isNull();
+  var invitations=context.getBean(ec.gob.simertpi.application.identity.InspectorAccountService.class);
+  assertThat(invitations.validateActivation(original.activationToken(),null).status()).isEqualTo("INVALID");assertThat(invitations.validateActivation(renewed.activationToken(),null).status()).isEqualTo("VALID");
+  assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit.functional_audit_log WHERE action='ADMIN_BOOTSTRAP_INVITATION_REISSUED' AND resource_id=? AND result='SUCCESS'",Integer.class,original.id())).isEqualTo(1);
+ }
+ @Test void resendRejectsPendingItAdminNotCreatedByBootstrap(){
+  String name="untrusted-pending-"+UUID.randomUUID();var created=context.getBean(ec.gob.simertpi.application.identity.InspectorAccountService.class).createWithRoles(name,name+"@example.invalid","Untrusted","Pending",null,List.of("IT_ADMIN"));org.mockito.Mockito.when(smtp.configured()).thenReturn(true);
+  assertThatThrownBy(()->service.reissueFirstSuperadminInvite(identity(name),"approved-resend-fixture")).isInstanceOf(IllegalStateException.class);
+  assertThat(context.getBean(ec.gob.simertpi.application.identity.InspectorAccountService.class).validateActivation(created.activationToken(),null).status()).isEqualTo("VALID");
+ }
+ @org.springframework.boot.test.context.TestConfiguration(proxyBeanMethods=false)
+ static class TestSmtpOverride { @org.springframework.context.annotation.Bean @org.springframework.context.annotation.Primary ec.gob.simertpi.application.identity.smtp.SmtpConfigurationService smtpConfigurationService(){return org.mockito.Mockito.mock(ec.gob.simertpi.application.identity.smtp.SmtpConfigurationService.class);} }
  @Test void refusesPromotionAndRequiresExplicitOperator(){
   User user=new User();String name="existing-"+UUID.randomUUID();user.setId(UUID.randomUUID());user.setUsername(name);user.setEmail(name+"@example.invalid");user.setFirstName("Existing");user.setLastName("Account");user.setEnabled(true);user.setCreatedAt(OffsetDateTime.now());user.setUpdatedAt(user.getCreatedAt());users.saveAndFlush(user);
   assertThatThrownBy(()->service.createFirstAdmin(identity(name),PASSWORD,"CP25.3-C-LOCAL")).isInstanceOf(IllegalStateException.class);
@@ -70,8 +106,11 @@ class AdminBootstrapPostgresIntegrationTest {
  @Test void bootstrapParserKeepsLegacyModeAndRequiresExplicitSuperadminMode(){
   assertThat(AdminBootstrapCli.parseMode(new String[]{"--bootstrap-dev-admin"})).isEqualTo(AdminBootstrapCli.BootstrapMode.DEV_ADMIN);
   assertThat(AdminBootstrapCli.parseMode(new String[]{"--bootstrap-dev-superadmin"})).isEqualTo(AdminBootstrapCli.BootstrapMode.DEV_SUPERADMIN);
+  assertThat(AdminBootstrapCli.parseMode(new String[]{"--resend-dev-superadmin-invitation"})).isEqualTo(AdminBootstrapCli.BootstrapMode.RESEND_SUPERADMIN);
   assertThat(AdminBootstrapCli.run(new String[]{"--bootstrap-dev-admin","--bootstrap-dev-superadmin"})).isEqualTo(1);
   assertThatThrownBy(()->AdminBootstrapCli.parseMode(new String[]{"--bootstrap-prod-superadmin"})).isInstanceOf(IllegalArgumentException.class);
+  assertThatCode(()->AdminBootstrapCli.verifyPortalUrl("https://simertpi-admin-web-dev.onrender.com")).doesNotThrowAnyException();
+  for(String bad:List.of("http://simertpi-admin-web-dev.onrender.com","https://user@example.invalid","https://example.invalid?token=x","https://example.invalid#token=x"))assertThatThrownBy(()->AdminBootstrapCli.verifyPortalUrl(bad)).isInstanceOf(IllegalArgumentException.class);
  }
  @Test void exactDevHostDatabasePortAndVerifiedTlsAreRequired(){
   String host=AdminBootstrapCli.RESOURCE+".internal",good="jdbc:postgresql://"+host+":5432/simertpi?sslmode=verify-full";

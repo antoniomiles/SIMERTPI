@@ -23,6 +23,15 @@ describe('AdminSessionState access identities', () => {
     expect(state.identity()?.roles).toEqual(['IT_ADMIN']);
   });
 
+  it('accepts an enabled custom portal role only when the server supplies effective permissions', () => {
+    const state = TestBed.inject(AdminSessionState);
+    state.accept({ ...identity(['SECRETARIA']), permissions: ['dashboard.view', 'reports.view'] });
+    expect(state.authenticated()).toBe(true);
+    expect(state.hasPermission('reports.view')).toBe(true);
+    expect(state.hasPermission('tariffs.view')).toBe(false);
+    expect(() => state.accept(identity(['SECRETARIA']))).toThrow('Administrative identity required');
+  });
+
   it('continues to reject non-administrative and disabled identities', () => {
     const state = TestBed.inject(AdminSessionState);
     expect(() => state.accept(identity(['CITIZEN']))).toThrow('Administrative identity required');

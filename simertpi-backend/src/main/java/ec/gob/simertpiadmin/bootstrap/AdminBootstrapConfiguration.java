@@ -1,6 +1,7 @@
 package ec.gob.simertpiadmin.bootstrap;
 import ec.gob.simertpi.application.identity.admin.AdminBootstrapService;
 import ec.gob.simertpi.application.audit.AuditService;
+import ec.gob.simertpi.application.identity.InspectorAccountService;
 import ec.gob.simertpi.config.PasswordEncodingConfiguration;
 import ec.gob.simertpi.domain.identity.entity.User;
 import ec.gob.simertpi.domain.identity.repository.UserRepository;
@@ -15,5 +16,8 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 @EnableAutoConfiguration(exclude={FlywayAutoConfiguration.class,SecurityAutoConfiguration.class})
 @EntityScan(basePackageClasses=User.class)
 @EnableJpaRepositories(basePackageClasses=UserRepository.class)
-@Import({AdminBootstrapService.class,AuditService.class,PasswordEncodingConfiguration.class})
+@ComponentScan(basePackages={"ec.gob.simertpi.application.identity.invitation","ec.gob.simertpi.application.identity.smtp"})
+@Import({AdminBootstrapService.class,AuditService.class,PasswordEncodingConfiguration.class,InspectorAccountService.class,
+        ec.gob.simertpi.infrastructure.identity.smtp.SmtpInfrastructureConfiguration.class,
+        ec.gob.simertpi.infrastructure.identity.invitation.InvitationEmailConfiguration.class})
 public class AdminBootstrapConfiguration {}

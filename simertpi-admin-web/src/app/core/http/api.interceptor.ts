@@ -38,11 +38,25 @@ export const apiInterceptor: HttpInterceptorFn = (request, next) => {
     state = inject(AdminSessionState),
     csrf = inject(AdminCsrfCoordinator),
     router = inject(Router);
+  const target = new URL(request.url, document.location.origin);
+  const publicActivationEndpoints = new Set([
+    '/api/v1/municipal/auth/activation/validate',
+    '/api/v1/municipal/auth/activate',
+  ]);
+  if (target.origin === document.location.origin
+      && request.method.toUpperCase() === 'POST'
+      && publicActivationEndpoints.has(target.pathname)) {
+    // Public one-time-token flow; it must not carry the administrative session
+    // cookie, CSRF token, or any request to a non-local API origin.
+    return next(request.clone({ withCredentials: false })).pipe(
+      timeout(ADMIN_API_TIMEOUT_MS),
+      catchError((error: unknown) => throwError(() => normalizeError(error))),
+    );
+  }
   if (!config.administrativeApiEnabled)
     return throwError(
       () => new PortalError('unavailable', 'La API administrativa aún no está habilitada.'),
     );
-  const target = new URL(request.url, document.location.origin);
   if (target.origin !== document.location.origin || !target.pathname.startsWith('/api/v1/admin/'))
     return throwError(() => new PortalError('forbidden', 'Destino administrativo no autorizado.'));
   const credentialed = request.clone({ withCredentials: true });

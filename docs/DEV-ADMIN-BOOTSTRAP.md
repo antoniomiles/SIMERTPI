@@ -1,5 +1,12 @@
 # Bootstrap del primer SIMERTPI_ADMIN — propuesta no ejecutada en DEV
 
+Este es el modo heredado de bootstrap de `SIMERTPI_ADMIN`, distinto del flujo
+de primer Superadministrador. No usarlo para inicializar la autoridad principal
+definida en V51. El wrapper requiere seleccionar explícitamente
+`-MunicipalAdministrator`; el alta del primer `IT_ADMIN` usa la guía
+[`DEV-SUPERADMIN-BOOTSTRAP.md`](DEV-SUPERADMIN-BOOTSTRAP.md), no solicita
+contraseña al operador y exige SMTP verificado antes de crear la invitación.
+
 Estado: herramienta implementada y persistencia validada con PostgreSQL 16 aislado.
 Se requiere autorización expresa futura para despliegue, migración y creación de cuenta.
 No hay comando que se ejecute automáticamente al arrancar el backend.

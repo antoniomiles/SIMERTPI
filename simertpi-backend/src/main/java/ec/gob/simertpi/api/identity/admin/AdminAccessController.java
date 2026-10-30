@@ -33,10 +33,16 @@ import jakarta.validation.constraints.NotNull;
 public class AdminAccessController {
     private final AdminAccessQueryService access;
     private final AdminAccessManagementService management;
+    private final ec.gob.simertpi.application.identity.admin.AdminRoleManagementService roleManagement;
+    private final ec.gob.simertpi.application.identity.invitation.ActivationInvitationDeliveryService invitationDelivery;
 
-    public AdminAccessController(AdminAccessQueryService access, AdminAccessManagementService management) {
+    public AdminAccessController(AdminAccessQueryService access, AdminAccessManagementService management,
+                                 ec.gob.simertpi.application.identity.admin.AdminRoleManagementService roleManagement,
+                                 ec.gob.simertpi.application.identity.invitation.ActivationInvitationDeliveryService invitationDelivery) {
         this.access = access;
         this.management = management;
+        this.roleManagement = roleManagement;
+        this.invitationDelivery = invitationDelivery;
     }
 
     public record Account(UUID id, String username, String email, String firstName, String lastName, String phone,
@@ -44,6 +50,7 @@ public class AdminAccessController {
                           OffsetDateTime createdAt, OffsetDateTime updatedAt) { }
 
     public record UserPage(List<Account> content, int page, int size, long totalElements, int totalPages) { }
+    public record CreateAccountDeliveryResponse(Account account, String deliveryStatus, OffsetDateTime activationExpiresAt) { }
 
     public record RoleSummary(String code, String name, String displayName, String description, long assignedAccounts) { }
     public record RolePermission(String roleCode, String roleName, List<String> permissions) { }
@@ -67,9 +74,7 @@ public class AdminAccessController {
                                      @NotNull OffsetDateTime updatedAt) {
         @Override public String toString() { return "UpdateRolesRequest[roles=" + roles + ", reason=redacted]"; }
     }
-    public record ActivationResponse(String activationToken, OffsetDateTime activationExpiresAt) {
-        @Override public String toString() { return "ActivationResponse[activationToken=redacted]"; }
-    }
+    public record ActivationResponse(String deliveryStatus, OffsetDateTime activationExpiresAt) { }
 
     public record UpdateAccountRequest(
             @NotBlank @Email @Size(max = 255) String email,
@@ -95,8 +100,9 @@ public class AdminAccessController {
     }
 
     @GetMapping("/roles")
-    public ResponseEntity<List<RoleSummary>> roles(org.springframework.security.core.Authentication authentication) {
-        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(access.roles(authentication.getName()));
+    public ResponseEntity<List<ec.gob.simertpi.application.identity.admin.AdminRoleManagementService.Role>> roles(
+            org.springframework.security.core.Authentication authentication) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(roleManagement.roles(authentication.getName()));
     }
 
     @GetMapping("/permissions")
@@ -104,11 +110,70 @@ public class AdminAccessController {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(access.permissions(authentication.getName()));
     }
 
-    @PostMapping("/users")
-    public ResponseEntity<CreateAccountResponse> create(@Valid @RequestBody CreateAccountRequest request,
+    public record CreateRoleRequest(
+            @NotBlank @Pattern(regexp = "^[A-Za-z][A-Za-z0-9_]{1,49}$") String code,
+            @NotBlank @Size(max = 100) String name,
+            @Size(max = 255) String description,
+            @NotNull @Size(max = 100) List<@NotBlank @Size(max = 80) String> permissions) { }
+    public record UpdateRoleRequest(
+            @NotBlank @Size(max = 100) String name,
+            @Size(max = 255) String description,
+            @NotNull @Size(max = 100) List<@NotBlank @Size(max = 80) String> permissions,
+            @NotNull OffsetDateTime updatedAt, @Min(0) long rowVersion,
+            @NotBlank @Size(max = 500) String reason) { }
+    public record RoleStatusRequest(@NotNull Boolean enabled, @NotNull OffsetDateTime updatedAt,
+                                    @Min(0) long rowVersion, @NotBlank @Size(max = 500) String reason) { }
+
+    @GetMapping("/permission-catalog")
+    public ResponseEntity<List<ec.gob.simertpi.application.identity.admin.AdminRoleManagementService.Permission>> permissionCatalog(
             org.springframework.security.core.Authentication authentication) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(roleManagement.catalog(authentication.getName()));
+    }
+
+    @GetMapping("/roles/{code}")
+    public ResponseEntity<ec.gob.simertpi.application.identity.admin.AdminRoleManagementService.Role> role(
+            @PathVariable String code, org.springframework.security.core.Authentication authentication) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(roleManagement.get(code, authentication.getName()));
+    }
+
+    @GetMapping("/roles/{code}/history")
+    public ResponseEntity<List<ec.gob.simertpi.application.identity.admin.AdminRoleManagementService.History>> roleHistory(
+            @PathVariable String code, org.springframework.security.core.Authentication authentication) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(roleManagement.history(code, authentication.getName()));
+    }
+
+    @PostMapping("/roles")
+    public ResponseEntity<ec.gob.simertpi.application.identity.admin.AdminRoleManagementService.Role> createRole(
+            @Valid @RequestBody CreateRoleRequest request, org.springframework.security.core.Authentication authentication) {
+        var created = roleManagement.create(new ec.gob.simertpi.application.identity.admin.AdminRoleManagementService.CreateRequest(
+                request.code(), request.name(), request.description(), request.permissions()), authentication.getName());
+        return ResponseEntity.status(201).cacheControl(CacheControl.noStore()).body(created);
+    }
+
+    @PutMapping("/roles/{code}")
+    public ResponseEntity<ec.gob.simertpi.application.identity.admin.AdminRoleManagementService.Role> updateRole(
+            @PathVariable String code, @Valid @RequestBody UpdateRoleRequest request,
+            org.springframework.security.core.Authentication authentication) {
+        var updated = roleManagement.update(code, new ec.gob.simertpi.application.identity.admin.AdminRoleManagementService.UpdateRequest(
+                request.name(), request.description(), request.permissions(), request.updatedAt(), request.rowVersion(), request.reason()), authentication.getName());
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(updated);
+    }
+
+    @PutMapping("/roles/{code}/status")
+    public ResponseEntity<ec.gob.simertpi.application.identity.admin.AdminRoleManagementService.Role> updateRoleStatus(
+            @PathVariable String code, @Valid @RequestBody RoleStatusRequest request,
+            org.springframework.security.core.Authentication authentication) {
+        var updated = roleManagement.setEnabled(code, new ec.gob.simertpi.application.identity.admin.AdminRoleManagementService.StatusRequest(
+                request.enabled(), request.updatedAt(), request.rowVersion(), request.reason()), authentication.getName());
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(updated);
+    }
+    @PostMapping("/users")
+    public ResponseEntity<CreateAccountDeliveryResponse> create(@Valid @RequestBody CreateAccountRequest request,
+            org.springframework.security.core.Authentication authentication) {
+        var issued = management.createAccount(request, authentication.getName());
+        var delivery = invitationDelivery.deliver(issued.account().id(), issued.activationToken(), issued.activationExpiresAt(), authentication.getName());
         return ResponseEntity.status(201).cacheControl(CacheControl.noStore())
-                .body(management.createAccount(request, authentication.getName()));
+                .body(new CreateAccountDeliveryResponse(issued.account(), delivery.status(), delivery.expiresAt()));
     }
 
     @PutMapping("/users/{userId}/roles")
@@ -123,8 +188,9 @@ public class AdminAccessController {
             @Valid @RequestBody AdminAccessManagementService.ActivationRequest request,
             org.springframework.security.core.Authentication authentication) {
         var response = management.reissueActivation(userId, request, authentication.getName());
+        var delivery = invitationDelivery.deliver(userId, response.activationToken(), response.activationExpiresAt(), authentication.getName());
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
-                .body(new ActivationResponse(response.activationToken(), response.activationExpiresAt()));
+                .body(new ActivationResponse(delivery.status(), delivery.expiresAt()));
     }
 
     @PutMapping("/users/{userId}")

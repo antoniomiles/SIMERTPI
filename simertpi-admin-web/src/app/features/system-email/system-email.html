@@ -1,0 +1,373 @@
+<app-page-heading
+  title="Configuración del sistema"
+  description="Administra el servicio institucional de correo electrónico."
+/>
+
+@if (!isSuperAdmin()) {
+  <section class="access-denied" role="alert">
+    <h2>Acceso restringido</h2>
+    <p>Solo el Superadministrador puede consultar o modificar la configuración de correo.</p>
+  </section>
+} @else {
+  @if (notice(); as message) {
+    <div
+      class="toast"
+      [class.toast-error]="message.kind === 'error'"
+      [class.toast-success]="message.kind === 'success'"
+      role="status"
+      aria-live="polite"
+    >
+      <span>{{ message.text }}</span>
+      <button
+        type="button"
+        class="toast-close"
+        aria-label="Cerrar notificación"
+        (click)="notice.set(null)"
+      >
+        ×
+      </button>
+    </div>
+  }
+
+  @if (state() === 'loading') {
+    <div class="load-state" role="status" aria-live="polite">
+      <span class="spinner" aria-hidden="true"></span><span>Cargando configuración de correo…</span>
+    </div>
+  } @else if (state() === 'error') {
+    <div class="load-error" role="alert">
+      <p>{{ error() }}</p>
+      <button class="button button-secondary" type="button" (click)="reload()">Reintentar</button>
+    </div>
+  } @else {
+    <div class="email-layout">
+      <section class="panel configuration-panel" aria-labelledby="smtp-title">
+        <header class="panel-heading">
+          <div>
+            <p class="eyebrow">Administración · Superadministrador</p>
+            <h2 id="smtp-title">Correo electrónico</h2>
+            <p>Configure SMTP para enviar invitaciones y notificaciones del sistema.</p>
+          </div>
+          <span
+            class="state-badge"
+            [class.state-active]="data()?.active"
+            [class.state-empty]="!data()?.active"
+          >
+            {{ data()?.active ? 'Configuración activa' : 'Sin configuración activa' }}
+          </span>
+        </header>
+
+        <div class="security-note" role="note">
+          <span class="note-mark" aria-hidden="true">i</span>
+          <p>
+            Las credenciales se transmiten únicamente al guardar un reemplazo. El servidor nunca
+            devuelve la contraseña. Deje el campo vacío para conservar la credencial guardada.
+          </p>
+        </div>
+
+        <form [formGroup]="form" (ngSubmit)="saveDraft()" novalidate>
+          <section class="form-section" aria-labelledby="provider-heading">
+            <div class="section-heading">
+              <span class="section-number">1</span>
+              <div>
+                <h3 id="provider-heading">Proveedor</h3>
+                <p>Elija Gmail o un servidor SMTP compatible.</p>
+              </div>
+            </div>
+            <div class="provider-row">
+              <label
+                class="provider-option"
+                [class.selected]="form.controls.provider.value === 'GMAIL'"
+              >
+                <input
+                  type="radio"
+                  formControlName="provider"
+                  value="GMAIL"
+                  (change)="useGmailDefaults()"
+                />
+                <span><strong>Gmail</strong><small>SMTP de Google con STARTTLS</small></span>
+              </label>
+              <label
+                class="provider-option"
+                [class.selected]="form.controls.provider.value === 'CUSTOM'"
+              >
+                <input type="radio" formControlName="provider" value="CUSTOM" />
+                <span
+                  ><strong>SMTP personalizado</strong
+                  ><small>Servidor institucional autorizado</small></span
+                >
+              </label>
+            </div>
+          </section>
+
+          <section class="form-section" aria-labelledby="sender-heading">
+            <div class="section-heading">
+              <span class="section-number">2</span>
+              <div>
+                <h3 id="sender-heading">Identidad del remitente</h3>
+                <p>Datos visibles para los destinatarios.</p>
+              </div>
+            </div>
+            <div class="field-grid">
+              <label class="field"
+                ><span>Nombre del remitente <b>*</b></span
+                ><input
+                  formControlName="displayName"
+                  autocomplete="organization-title"
+                  maxlength="120"
+                  placeholder="SIMERTPI — GAD Piñas"
+                /><small>Nombre que aparecerá en el mensaje.</small></label
+              >
+              <label class="field"
+                ><span>Correo remitente <b>*</b></span
+                ><input
+                  formControlName="from"
+                  type="email"
+                  autocomplete="email"
+                  maxlength="254"
+                  placeholder="notificaciones@municipio.gob.ec"
+                /><small>Debe estar autorizado por el proveedor.</small></label
+              >
+            </div>
+          </section>
+
+          <section class="form-section" aria-labelledby="server-heading">
+            <div class="section-heading">
+              <span class="section-number">3</span>
+              <div>
+                <h3 id="server-heading">Servidor SMTP</h3>
+                <p>Use TLS seguro; no se permite SMTP sin cifrado.</p>
+              </div>
+            </div>
+            <div class="field-grid server-grid">
+              <label class="field"
+                ><span>Servidor <b>*</b></span
+                ><input
+                  formControlName="host"
+                  autocomplete="url"
+                  maxlength="253"
+                  placeholder="smtp.gmail.com"
+                /><small>Nombre DNS, no se admiten direcciones locales.</small></label
+              >
+              <label class="field"
+                ><span>Puerto <b>*</b></span
+                ><input
+                  formControlName="port"
+                  type="number"
+                  min="1"
+                  max="65535"
+                  inputmode="numeric"
+                /><small>Puerto autorizado del proveedor.</small></label
+              >
+              <label class="field"
+                ><span>Seguridad <b>*</b></span
+                ><select formControlName="security">
+                  <option value="STARTTLS">STARTTLS</option>
+                  <option value="SMTPS">TLS implícito (SMTPS)</option></select
+                ><small>La conexión se cifra antes de autenticar.</small></label
+              >
+              <label class="field"
+                ><span>Usuario SMTP <b>*</b></span
+                ><input
+                  formControlName="username"
+                  autocomplete="username"
+                  maxlength="254"
+                  placeholder="cuenta@dominio.com"
+                /><small>Cuenta autenticada del proveedor.</small></label
+              >
+              <label class="field field-wide"
+                ><span>Contraseña de aplicación</span
+                ><input
+                  formControlName="password"
+                  type="password"
+                  autocomplete="new-password"
+                  maxlength="512"
+                  placeholder="{{
+                    data()?.draft?.credentialConfigured || data()?.active?.credentialConfigured
+                      ? 'Configurada; escriba solo para reemplazarla'
+                      : 'Ingrese la credencial SMTP'
+                  }}"
+                /><small class="credential-state"
+                  ><span
+                    class="credential-dot"
+                    [class.configured]="
+                      data()?.draft?.credentialConfigured || data()?.active?.credentialConfigured
+                    "
+                  ></span
+                  >{{
+                    data()?.draft?.credentialConfigured || data()?.active?.credentialConfigured
+                      ? 'Credencial configurada'
+                      : 'Credencial aún no configurada'
+                  }}. Nunca se muestra el valor guardado.</small
+                ></label
+              >
+            </div>
+          </section>
+
+          <section class="form-section reason-section" aria-labelledby="reason-heading">
+            <div class="section-heading">
+              <span class="section-number">4</span>
+              <div>
+                <h3 id="reason-heading">Motivo administrativo</h3>
+                <p>Obligatorio al guardar, activar o desactivar la configuración.</p>
+              </div>
+            </div>
+            <label class="field"
+              ><span>Motivo <b>*</b></span
+              ><textarea
+                formControlName="reason"
+                rows="2"
+                maxlength="500"
+                placeholder="Describa brevemente el cambio administrativo"
+              ></textarea>
+            </label>
+          </section>
+
+          <div class="form-actions">
+            <button class="button button-primary" type="submit" [disabled]="busy()">
+              {{ operation() === 'save' ? 'Guardando borrador…' : 'Guardar borrador' }}
+            </button>
+            <button
+              class="button button-secondary"
+              type="button"
+              (click)="testConnection()"
+              [disabled]="busy() || !data()?.draft"
+            >
+              {{ operation() === 'connection' ? 'Probando conexión…' : 'Probar conexión' }}
+            </button>
+            <button
+              class="button button-secondary"
+              type="button"
+              (click)="sendTestEmail()"
+              [disabled]="busy() || !data()?.draft || !data()?.testRecipientConfigured"
+            >
+              {{ operation() === 'test-email' ? 'Enviando prueba…' : 'Enviar correo de prueba' }}
+            </button>
+            <button
+              class="button button-primary"
+              type="button"
+              (click)="activate()"
+              [disabled]="busy() || !data()?.draft"
+            >
+              {{ operation() === 'activate' ? 'Activando…' : 'Activar configuración' }}
+            </button>
+            @if (data()?.active) {
+              <button
+                class="button button-danger"
+                type="button"
+                (click)="disable()"
+                [disabled]="busy()"
+              >
+                {{ operation() === 'disable' ? 'Desactivando…' : 'Desactivar' }}
+              </button>
+            }
+          </div>
+          @if (data()?.testRecipientConfigured) {
+            <p class="test-recipient-note">
+              El envío de prueba utiliza el destinatario establecido por el servidor; no es posible
+              cambiarlo desde esta pantalla.
+            </p>
+          } @else {
+            <p class="test-recipient-note muted">
+              El servidor aún no tiene configurado un destinatario de prueba.
+            </p>
+          }
+        </form>
+      </section>
+
+      <aside class="side-column">
+        <section class="panel status-panel" aria-labelledby="status-title">
+          <div class="panel-heading compact">
+            <div>
+              <p class="eyebrow">Estado</p>
+              <h2 id="status-title">Configuración en uso</h2>
+            </div>
+          </div>
+          @if (data()?.active; as active) {
+            <dl class="summary-list">
+              <div>
+                <dt>Proveedor</dt>
+                <dd>{{ active.provider === 'GMAIL' ? 'Gmail' : 'SMTP personalizado' }}</dd>
+              </div>
+              <div>
+                <dt>Remitente</dt>
+                <dd>{{ active.displayName }} &lt;{{ active.from }}&gt;</dd>
+              </div>
+              <div>
+                <dt>Servidor</dt>
+                <dd>{{ active.host }}:{{ active.port }} · {{ active.security }}</dd>
+              </div>
+              <div>
+                <dt>Usuario SMTP</dt>
+                <dd>{{ active.username }}</dd>
+              </div>
+              <div>
+                <dt>Credencial</dt>
+                <dd>
+                  <span class="mini-status" [class.good]="active.credentialConfigured">{{
+                    active.credentialConfigured ? 'Configurada' : 'No configurada'
+                  }}</span>
+                </dd>
+              </div>
+              <div>
+                <dt>Versión</dt>
+                <dd>{{ active.version }}</dd>
+              </div>
+              <div>
+                <dt>Actualizada</dt>
+                <dd>{{ active.updatedAt | date: 'dd/MM/yyyy HH:mm' : 'America/Guayaquil' }}</dd>
+              </div>
+            </dl>
+          } @else {
+            <p class="empty-state">
+              Todavía no hay una configuración activa. Guarde un borrador, pruebe el servidor y
+              actívelo.
+            </p>
+          }
+        </section>
+
+        <section class="panel history-panel" aria-labelledby="history-title">
+          <div class="panel-heading compact">
+            <div>
+              <p class="eyebrow">Trazabilidad</p>
+              <h2 id="history-title">Historial de modificaciones</h2>
+            </div>
+            <span class="count-badge">{{ data()?.history?.length ?? 0 }}</span>
+          </div>
+          @if (data()?.history?.length) {
+            <ol class="history-list">
+              @for (entry of data()?.history ?? []; track trackHistory($index, entry)) {
+                <li>
+                  <span class="history-dot" aria-hidden="true"></span>
+                  <div class="history-content">
+                    <div class="history-top">
+                      <strong>{{ historyAction(entry.action) }}</strong
+                      ><span class="history-result" [class.failed]="entry.result === 'FAILURE'">{{
+                        entry.result
+                      }}</span>
+                    </div>
+                    <p>
+                      {{ entry.actor || 'Responsable no registrado' }} · versión {{ entry.version }}
+                      @if (entry.provider || entry.host || entry.from) {
+                        · {{ entry.provider === 'GMAIL' ? 'Gmail' : 'SMTP personalizado' }}
+                        {{ entry.host ? '· ' + entry.host : '' }}
+                        {{ entry.from ? '· ' + entry.from : '' }}
+                      }
+                    </p>
+                    @if (entry.reason) {
+                      <p class="history-reason">Motivo: {{ entry.reason }}</p>
+                    }
+                    <time [attr.datetime]="entry.occurredAt">{{
+                      entry.occurredAt | date: 'dd/MM/yyyy HH:mm' : 'America/Guayaquil'
+                    }}</time>
+                  </div>
+                </li>
+              }
+            </ol>
+          } @else {
+            <p class="empty-state">No hay cambios registrados todavía.</p>
+          }
+        </section>
+      </aside>
+    </div>
+  }
+}

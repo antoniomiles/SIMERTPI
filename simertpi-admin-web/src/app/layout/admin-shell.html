@@ -29,7 +29,7 @@
       ><span class="tag">{{ environmentLabel }}</span>
     </div>
     <nav aria-label="Módulos del portal">
-      @for (group of groups; track group.label) {
+      @for (group of visibleGroups(); track group.label) {
         <div class="nav-group" role="group" [attr.aria-label]="group.label">
           <p class="nav-group-label">{{ group.label }}</p>
           @for (item of group.items; track item.label) {
@@ -40,7 +40,7 @@
                 [class.active]="isNavigationActive(item.label)"
                 [attr.aria-label]="item.label"
                 [attr.aria-expanded]="isNavigationExpanded(item.label)"
-                [attr.aria-controls]="item.label === 'Tarifas y horarios' ? 'tariffs-navigation' : 'zones-navigation'"
+                [attr.aria-controls]="navigationSubmenuId(item.label)"
                 [attr.aria-describedby]="
                   tooltip()?.key === item.label ? 'navigation-tooltip' : null
                 "
@@ -55,7 +55,7 @@
                 <span class="nav-disclosure-mark" aria-hidden="true">{{ isNavigationExpanded(item.label) ? '−' : '+' }}</span>
               </button>
               @if (isNavigationExpanded(item.label)) {
-                <div class="nav-submenu" [id]="item.label === 'Tarifas y horarios' ? 'tariffs-navigation' : 'zones-navigation'" [attr.aria-label]="'Opciones de ' + item.label">
+                <div class="nav-submenu" [id]="navigationSubmenuId(item.label)" [attr.aria-label]="'Opciones de ' + item.label">
                   @for (child of children; track child.path) {
                     <a
                       class="nav-subitem"

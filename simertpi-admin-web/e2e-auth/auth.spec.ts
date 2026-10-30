@@ -1,5 +1,7 @@
 import { expect,test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 const password='chrome-isolated-fixture-2026';
 async function login(page: import('@playwright/test').Page,name='qa.admin',secret=password){
  await page.goto('/login');await page.getByLabel('Usuario',{exact:true}).fill(name);await page.getByLabel('Contraseña',{exact:true}).fill(secret);await page.getByRole('button',{name:'Iniciar sesión'}).click();
@@ -43,16 +45,26 @@ test('superadministrator invites an administrator and the administrator cannot e
  await invite.locator('[formControlName="email"]').fill('qa.created.admin@example.invalid');
  await invite.locator('[formControlName="firstName"]').fill('Cuenta');
  await invite.locator('[formControlName="lastName"]').fill('Administradora E2E');
- await invite.getByRole('checkbox', { name: /^Administrador\b/ }).check();
+ await invite.getByRole('checkbox', { name: /^Administrador SIMERTPI\b/ }).check();
  await invite.locator('[formControlName="reason"]').fill('Prueba E2E de aprovisionamiento administrativo');
  const createdResponsePromise = page.waitForResponse(response => response.request().method() === 'POST'
    && new URL(response.url()).pathname === '/api/v1/admin/access/users');
  await invite.getByRole('button', { name: 'Crear cuenta', exact: true }).click();
  const createdResponse = await createdResponsePromise;
  expect(createdResponse.status()).toBe(201);
- const activationTokenField = invite.getByLabel('Token de un solo uso');
- await expect(activationTokenField).toHaveValue(/^[A-Za-z0-9_-]{43}$/);
- const activationToken = await activationTokenField.inputValue();
+ const mailboxPath = resolve(process.cwd(), '../simertpi-backend/target/admin-browser-mailbox.tsv');
+ await expect.poll(async () => {
+   try { return (await readFile(mailboxPath, 'utf8')).split(/\r?\n/).some(line => line.startsWith('qa.created.admin\t')); }
+   catch { return false; }
+ }, { message: 'La invitación aceptada por el proveedor de prueba debe aparecer en la bandeja aislada' }).toBe(true);
+ const invitation = (await readFile(mailboxPath, 'utf8')).split(/\r?\n/)
+   .find(line => line.startsWith('qa.created.admin\t'))?.split('\t')[1];
+ expect(invitation).toBeTruthy();
+ const activationToken = new URL(invitation!).hash.match(/^#token=([A-Za-z0-9_-]{43})$/)?.[1];
+ expect(activationToken, 'El correo de prueba debe contener un token con el formato seguro esperado').toBeTruthy();
+ const apiValidation = await page.request.post('/api/v1/municipal/auth/activation/validate', { data: { activationToken } });
+ expect(apiValidation.status()).toBe(200);
+ expect(await apiValidation.json()).toMatchObject({ status: 'VALID' });
  const createdLookup = await page.request.get('/api/v1/admin/access/users?q=qa.created.admin');
  expect(createdLookup.status()).toBe(200);
  const createdDirectory = await createdLookup.json() as { content: Array<{ id: string; username: string; roles: string[]; activationPending: boolean }> };
@@ -60,16 +72,28 @@ test('superadministrator invites an administrator and the administrator cannot e
  const createdAccount = createdDirectory.content[0];
  expect(createdAccount).toMatchObject({ username: 'qa.created.admin', roles: ['SIMERTPI_ADMIN'], activationPending: true });
 
- const activation = await page.request.post('/api/v1/municipal/auth/activate', {
-   data: { activationToken, newPassword: 'qa-created-admin-password-2026' },
- });
- expect(activation.status()).toBe(204);
- await invite.getByRole('button', { name: 'Cerrar y borrar token' }).click();
+ const activationPage = await page.context().newPage();
+ const validationResponsePromise = activationPage.waitForResponse(response => response.request().method() === 'POST'
+   && new URL(response.url()).pathname === '/api/v1/municipal/auth/activation/validate', { timeout: 10_000 });
+ await activationPage.goto(invitation!);
+ const validationResponse = await validationResponsePromise;
+ expect(validationResponse.status(), 'La API de activación debe aceptar el token tomado del correo de prueba').toBe(200);
+ expect(await validationResponse.json()).toMatchObject({ status: 'VALID' });
+ await expect(activationPage.locator('#new-password')).toBeVisible();
+ await activationPage.getByLabel('Nueva contraseña').fill('qa-created-admin-password-2026');
+ await activationPage.getByLabel('Confirmar contraseña').fill('qa-created-admin-password-2026');
+ const activationResponse = activationPage.waitForResponse(response => response.request().method() === 'POST'
+   && new URL(response.url()).pathname === '/api/v1/municipal/auth/activate');
+ await activationPage.getByRole('button', { name: 'Activar cuenta' }).click();
+ expect((await activationResponse).status()).toBe(204);
+ await expect(activationPage.getByRole('status')).toContainText('La cuenta se activó correctamente');
+ await activationPage.close();
  await page.getByRole('button', { name: 'Cerrar sesión', exact: true }).click();
 
  await login(page, 'qa.created.admin', 'qa-created-admin-password-2026');
  await expect(page).toHaveURL(/admin\/dashboard$/);
  await expect(page.getByText('Administrador', { exact: true })).toBeVisible();
+ await expect(page.getByRole('link', { name: 'Usuarios, roles y permisos', exact: true })).toBeVisible();
  await page.goto('/admin/access');
  await expect(page.getByRole('button', { name: 'Crear inspector', exact: true })).toBeVisible();
  await expect(page.getByRole('button', { name: 'Crear cuenta', exact: true })).toHaveCount(0);

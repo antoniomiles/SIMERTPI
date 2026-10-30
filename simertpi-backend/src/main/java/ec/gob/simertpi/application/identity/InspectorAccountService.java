@@ -2,6 +2,7 @@ package ec.gob.simertpi.application.identity;
 
 import ec.gob.simertpi.application.audit.AuditService;
 import ec.gob.simertpi.application.audit.Audited;
+import ec.gob.simertpi.application.identity.invitation.ActivationAttemptThrottleService;
 import ec.gob.simertpi.domain.identity.entity.Role;
 import ec.gob.simertpi.domain.identity.entity.User;
 import ec.gob.simertpi.domain.identity.repository.RoleRepository;
@@ -29,21 +30,24 @@ import java.util.UUID;
 public class InspectorAccountService {
     private static final String INSPECTOR = "INSPECTOR";
     private static final SecureRandom RANDOM = new SecureRandom();
-    private static final java.time.Duration ACTIVATION_TTL = java.time.Duration.ofHours(48);
+    private static final java.time.Duration ACTIVATION_TTL = java.time.Duration.ofHours(24);
 
     private final UserRepository users;
     private final RoleRepository roles;
     private final JdbcTemplate jdbc;
     private final PasswordEncoder passwords;
     private final AuditService audit;
+    private final ActivationAttemptThrottleService activationThrottle;
 
     public InspectorAccountService(UserRepository users, RoleRepository roles, JdbcTemplate jdbc,
-                                   PasswordEncoder passwords, AuditService audit) {
+                                   PasswordEncoder passwords, AuditService audit,
+                                   ActivationAttemptThrottleService activationThrottle) {
         this.users = users;
         this.roles = roles;
         this.jdbc = jdbc;
         this.passwords = passwords;
         this.audit = audit;
+        this.activationThrottle = activationThrottle;
     }
 
     @Transactional(readOnly = true)
@@ -113,6 +117,7 @@ public class InspectorAccountService {
                 || !user.getRoles().iterator().next().getCode().equals(INSPECTOR)) {
             throw new InspectorActivationStateException();
         }
+        enforceResendPolicy(userId);
         IssuedActivation activation = issueActivation(userId, OffsetDateTime.now());
         return new ActivationIssued(userId, activation.token(), activation.expiresAt());
     }
@@ -128,12 +133,33 @@ public class InspectorAccountService {
         if (user.isEnabled() || user.getPasswordHash() != null || user.getRoles().isEmpty() || pendingToken == null || pendingToken != 1) {
             throw new InspectorActivationStateException();
         }
+        enforceResendPolicy(userId);
         IssuedActivation activation = issueActivation(userId, OffsetDateTime.now());
         return new ActivationIssued(userId, activation.token(), activation.expiresAt());
     }
 
+    public record ActivationValidation(String status, OffsetDateTime expiresAt) { }
+
+    @Transactional
+    public ActivationValidation validateActivation(String token, String sourceAddress) {
+        if (activationThrottle.isLimited(sourceAddress)) return new ActivationValidation("RATE_LIMITED", null);
+        if (token == null || !token.matches("[A-Za-z0-9_-]{43}")) return new ActivationValidation("INVALID", null);
+        List<OffsetDateTime> expiry = jdbc.query("SELECT expires_at FROM identity.inspector_activation_tokens WHERE token_hash=?",
+                (rs, row) -> rs.getObject(1, OffsetDateTime.class), hash(token));
+        if (expiry.isEmpty()) return new ActivationValidation("INVALID", null);
+        OffsetDateTime expiresAt = expiry.getFirst();
+        return expiresAt.isAfter(OffsetDateTime.now(java.time.ZoneOffset.UTC))
+                ? new ActivationValidation("VALID", expiresAt) : new ActivationValidation("EXPIRED", expiresAt);
+    }
+
     @Transactional
     public void activate(String token, String newPassword) {
+        activate(token, newPassword, null);
+    }
+
+    @Transactional
+    public void activate(String token, String newPassword, String sourceAddress) {
+        if (sourceAddress != null && activationThrottle.isLimited(sourceAddress)) throw new InspectorActivationRejectedException();
         if (token == null || !token.matches("[A-Za-z0-9_-]{43}") || newPassword == null
                 || newPassword.codePointCount(0, newPassword.length()) < 12
                 || newPassword.getBytes(StandardCharsets.UTF_8).length > 72) {
@@ -183,6 +209,21 @@ public class InspectorAccountService {
                 SET token_hash = EXCLUDED.token_hash, expires_at = EXCLUDED.expires_at, created_at = EXCLUDED.created_at
                 """, userId, hash(token), expiresAt, now);
         return new IssuedActivation(token, expiresAt);
+    }
+
+    private void enforceResendPolicy(UUID userId) {
+        OffsetDateTime issuedAt = jdbc.query("SELECT created_at FROM identity.inspector_activation_tokens WHERE user_id=? FOR UPDATE",
+                rs -> rs.next() ? rs.getObject(1, OffsetDateTime.class) : null, userId);
+        Integer attempts = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM identity.activation_delivery_attempts
+                WHERE user_id=? AND attempted_at >= CURRENT_TIMESTAMP-INTERVAL '24 hours'
+                """, Integer.class, userId);
+        if ((issuedAt != null && issuedAt.isAfter(OffsetDateTime.now(java.time.ZoneOffset.UTC).minusSeconds(60)))
+                || (attempts != null && attempts >= 5)) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.TOO_MANY_REQUESTS,
+                    "La invitación se reenvió recientemente o alcanzó el límite diario. Intenta nuevamente más tarde.");
+        }
     }
 
     private static String clean(String value) {

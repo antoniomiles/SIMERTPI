@@ -14,8 +14,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.security.crypto.password.PasswordEncoder;
 /** Test-only real browser server. Always uses the disposable container infrastructure. */
-@SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.DEFINED_PORT,properties={"server.port=8089","server.address=127.0.0.1","logging.level.root=WARN","spring.jpa.show-sql=false","simertpi.admin-auth.allowed-origin=https://localhost:4443","simertpi.admin-auth.idle-ttl=5m","simertpi.admin-auth.absolute-ttl=15m"})
+@SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.DEFINED_PORT,properties={"server.port=8089","server.address=127.0.0.1","logging.level.root=WARN","spring.jpa.show-sql=false","simertpi.admin-auth.allowed-origin=https://localhost:4443","simertpi.admin-auth.idle-ttl=5m","simertpi.admin-auth.absolute-ttl=15m","simertpi.invitation-email.public-base-url=https://localhost:4443","simertpi.smtp.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=","simertpi.smtp.allowed-hosts=smtp.gmail.com","simertpi.smtp.test-recipient=smtp-test@example.invalid","simertpi.smtp.test-email-enabled=true"})
 @EnabledIfSystemProperty(named="simertpi.admin-browser-harness",matches="true")
+@org.springframework.context.annotation.Import({ec.gob.simertpi.testsupport.InvitationMailTestConfiguration.class,ec.gob.simertpi.testsupport.SmtpBrowserTestConfiguration.class})
 class AdminBrowserHarness extends AbstractPostgresIntegrationTest {
  @Autowired UserRepository users;@Autowired RoleRepository roles;@Autowired PasswordEncoder encoder;@Autowired JdbcTemplate jdbc;@Autowired ParkingSessionService parkingSessions;
  @Test void serveDisposableFixturesForChrome()throws Exception {
@@ -129,6 +130,10 @@ class AdminBrowserHarness extends AbstractPostgresIntegrationTest {
    verifyAdminHierarchyPersisted();
    return;
   }
+  if (Boolean.getBoolean("simertpi.admin-browser-harness.smtp-only")) {
+   verifySmtpConfigurationPersisted();
+   return;
+  }
   org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.tariffs WHERE code='E2E-TAR-GENERAL-V2' AND amount=0.30 AND valid_to='2030-12-23T03:06:00Z'::timestamptz",Integer.class)).isEqualTo(1);
   org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.tariffs WHERE code='E2E-TAR-END-NOW' AND valid_to IS NOT NULL",Integer.class)).isEqualTo(1);
   org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT count(*) FROM parking.tariffs WHERE code='E2E-TAR-END-SCHEDULED' AND valid_to IS NOT NULL AND valid_to > CURRENT_TIMESTAMP",Integer.class)).isEqualTo(1);
@@ -160,6 +165,14 @@ class AdminBrowserHarness extends AbstractPostgresIntegrationTest {
       AND action IN ('ADMIN_USER_INVITED','INVITED_ACCOUNT_ACTIVATED')
       AND result='SUCCESS' AND metadata::text NOT ILIKE '%activationToken%'
     """,Integer.class)).isGreaterThanOrEqualTo(2);
+ }
+
+ private void verifySmtpConfigurationPersisted() {
+  String submittedPassword="qa-smtp-app-password-not-real";
+  org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT count(*) FROM identity.admin_smtp_configuration WHERE provider='GMAIL' AND display_name='SIMERTPI QA' AND from_address='qa.smtp@example.invalid' AND smtp_host='smtp.gmail.com' AND smtp_port=587 AND security_mode='STARTTLS' AND smtp_username='qa.smtp@example.invalid' AND state='ACTIVE' AND credential_ciphertext<>convert_to(?,'UTF8')",Integer.class,submittedPassword)).isEqualTo(1);
+  org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT count(*) FROM identity.admin_smtp_test_attempt WHERE test_kind='CONNECTION' AND result='SUCCESS'",Integer.class)).isEqualTo(1);
+  org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT count(*) FROM identity.admin_smtp_test_attempt WHERE test_kind='EMAIL' AND result='SUCCESS' AND recipient_fingerprint IS NOT NULL",Integer.class)).isEqualTo(1);
+  org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("SELECT count(*) FROM audit.functional_audit_log WHERE resource_type='SMTP_CONFIGURATION' AND action IN ('SMTP_DRAFT_SAVED','SMTP_CONNECTION_TESTED','SMTP_TEST_EMAIL_SENT','SMTP_CONFIGURATION_ACTIVATED') AND result='SUCCESS' AND metadata::text NOT ILIKE ?",Integer.class,"%"+submittedPassword+"%")).isEqualTo(4);
  }
 
  private void verifyMapTransitionsPersisted() {

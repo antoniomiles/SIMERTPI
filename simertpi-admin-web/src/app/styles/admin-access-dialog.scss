@@ -118,6 +118,15 @@ app-users-roles {
     color: #8e4036;
     font-size: 0.83rem;
   }
+  .access-dialog.role-editor { width: min(100%, 50rem); }
+  .role-create-button { margin: 0.3rem 0 0.75rem; }
+  .role-editor .role-choice { max-height: min(45dvh, 26rem); overflow: auto; }
+  .role-editor .role-choice-option small { line-height: 1.4; }
+  .role-permission-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: .4rem 1rem; padding-left: 1.2rem; }
+  .role-history-list { display: grid; gap: .55rem; }
+  .role-history-list article { padding: .65rem .75rem; border: 1px solid #e0e8e2; border-radius: .45rem; background: #fafcfb; }
+  .role-history-list span { display: block; color: #64736a; font-size: .76rem; }
+  .role-history-list p { margin: .3rem 0 0; font-size: .82rem; }
   .access-toast {
     position: fixed;
     z-index: 1600;

@@ -29,6 +29,12 @@ public class AdminReportsQueryService {
     @Audited(action = "ADMIN_REPORTS_VIEWED", resourceType = "ADMIN_REPORT")
     @Transactional(readOnly = true)
     public AdminReportResponse load(LocalDate from, LocalDate to) {
+        return load(from, to, true);
+    }
+
+    @Audited(action = "ADMIN_REPORTS_VIEWED", resourceType = "ADMIN_REPORT")
+    @Transactional(readOnly = true)
+    public AdminReportResponse load(LocalDate from, LocalDate to, boolean includeFinancial) {
         OffsetDateTime fromAt = from.atStartOfDay(timeZone).toOffsetDateTime();
         OffsetDateTime toExclusive = to.plusDays(1).atStartOfDay(timeZone).toOffsetDateTime();
         MapSqlParameterSource params = new MapSqlParameterSource()
@@ -97,6 +103,12 @@ public class AdminReportsQueryService {
                 rs.getString("code"), rs.getString("name"), rs.getLong("configured_spaces"),
                 rs.getLong("active_spaces")));
 
+        if (!includeFinancial) {
+            return new AdminReportResponse(from, to, timeZone.getId(),
+                    new AdminReportResponse.Operational(sessionsStarted, sessionsByStatus, sessionsByZone,
+                            dailySessions, recordedDuration, spacesByZone),
+                    new AdminReportResponse.Financial(List.of(), List.of(), List.of(), List.of()));
+        }
         List<AdminReportResponse.PaymentStatusAmount> paymentsByCurrentStatus = jdbc.query("""
                 SELECT p.status, p.currency, COUNT(*) AS item_count, SUM(p.amount) AS amount
                 FROM payments.payments p

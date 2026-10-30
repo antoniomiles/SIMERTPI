@@ -3,10 +3,13 @@ import { writeFileSync, existsSync, unlinkSync } from 'node:fs';
 import { resolve } from 'node:path';
 const backend=resolve('../simertpi-backend');const stop=resolve(backend,'target/admin-browser.stop');
 if(existsSync(stop))unlinkSync(stop);
+const mailbox=resolve(backend,'target/admin-browser-mailbox.tsv');
+if(existsSync(mailbox))unlinkSync(mailbox);
 const args=['--batch-mode','--no-transfer-progress','-Dtest=AdminBrowserHarness','-Dsimertpi.admin-browser-harness=true','test'];
 if(process.env.SIMERTPI_ADMIN_BROWSER_CATALOG_ONLY==='true')args.splice(args.length-1,0,'-Dsimertpi.admin-browser-harness.catalog-only=true');
 if(process.env.SIMERTPI_ADMIN_BROWSER_MAP_ONLY==='true')args.splice(args.length-1,0,'-Dsimertpi.admin-browser-harness.map-only=true');
 if(process.env.SIMERTPI_ADMIN_BROWSER_IDENTITY_ONLY==='true')args.splice(args.length-1,0,'-Dsimertpi.admin-browser-harness.identity-only=true');
+if(process.env.SIMERTPI_ADMIN_BROWSER_SMTP_ONLY==='true')args.splice(args.length-1,0,'-Dsimertpi.admin-browser-harness.smtp-only=true');
 if(process.env.SIMERTPI_ADMIN_BROWSER_TARIFF_ONLY==='true')args.splice(args.length-1,0,'-Dsimertpi.admin-browser-harness.tariff-only=true');
 const child=process.platform==='win32'?spawn('cmd.exe',['/d','/s','/c','mvn.cmd '+args.join(' ')],{cwd:backend,stdio:'inherit',windowsHide:true}):spawn('mvn',args,{cwd:backend,stdio:'inherit'});
 function finish(){try{writeFileSync(stop,'stop');}catch{} }

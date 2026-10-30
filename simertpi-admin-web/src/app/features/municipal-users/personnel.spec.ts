@@ -7,7 +7,7 @@ import { PortalError } from '../../core/http/portal-error';
 const inspector: InspectorCreated = {
   id: 'inspector-1', username: 'test.inspector', email: 'inspector@example.invalid',
   firstName: 'Test', lastName: 'Inspector', phone: null, enabled: false,
-  activationPending: true, activationToken: 'A'.repeat(43), activationExpiresAt: '2026-10-19T00:00:00Z',
+  activationPending: true, deliveryStatus: 'ACCEPTED_BY_PROVIDER', activationExpiresAt: '2026-10-19T00:00:00Z',
 };
 const directory: InspectorDirectory = {
   content: [{ ...inspector, role: 'INSPECTOR', createdAt: '2026-10-17T00:00:00Z' }],
@@ -23,7 +23,7 @@ describe('Municipal personnel connected flows', () => {
   beforeEach(async () => {
     list = vi.fn().mockReturnValue(of(directory));
     create = vi.fn().mockReturnValue(of(inspector));
-    reissue = vi.fn().mockReturnValue(of({ activationToken: 'B'.repeat(43), expiresAt: '2026-10-20T00:00:00Z' }));
+    reissue = vi.fn().mockReturnValue(of({ deliveryStatus: 'UNCONFIGURED', activationExpiresAt: '2026-10-20T00:00:00Z' }));
     api = { list, create, reissueActivation: reissue } as unknown as MunicipalPersonnelApi;
     await TestBed.configureTestingModule({
       imports: [Personnel],
@@ -50,7 +50,7 @@ describe('Municipal personnel connected flows', () => {
     page.submit();
     expect(create).toHaveBeenCalledTimes(1);
     expect(create).toHaveBeenCalledWith({ username: 'new.inspector', firstName: 'Ana', lastName: 'Paz', email: 'ana@example.invalid', phone: undefined });
-    expect(page.activation()?.activationToken).toBe('A'.repeat(43));
+    expect(page.activation()?.deliveryStatus).toBe('ACCEPTED_BY_PROVIDER');
     expect(Object.keys(page.form.controls)).not.toContain('role');
     expect(Object.keys(page.form.controls)).not.toContain('password');
     expect(list).toHaveBeenCalledTimes(2);
@@ -68,13 +68,17 @@ describe('Municipal personnel connected flows', () => {
     expect(page.errorMessage()).toContain('Ya existe');
   });
 
-  it('shows one-time activation token in memory and clears it when dismissed', () => {
+  it('shows email delivery status and never exposes an activation token', () => {
     const fixture = TestBed.createComponent(Personnel);
     fixture.detectChanges();
     const page = fixture.componentInstance;
     page.form.setValue({ username: 'new.inspector', firstName: 'Ana', lastName: 'Paz', email: 'ana@example.invalid', phone: '' });
     page.submit();
-    expect(page.activation()?.activationToken).toBe('A'.repeat(43));
+    expect(page.activation()?.deliveryStatus).toBe('ACCEPTED_BY_PROVIDER');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain('A'.repeat(43));
+    expect(fixture.nativeElement.textContent).toContain('No se muestra en el portal');
+    expect(fixture.nativeElement.textContent).toContain('24 horas');
     page.dismissActivation();
     expect(page.activation()).toBeNull();
   });

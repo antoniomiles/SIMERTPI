@@ -11,22 +11,22 @@
   <section class="notice inline-notice" role="status" aria-labelledby="activation-title">
     <strong id="activation-title">Inspector registrado; falta activar la cuenta</strong>
     <p>
-      Entregue este código una sola vez al inspector mediante un canal seguro. Vence el
-      {{ issued.activationExpiresAt | date: 'medium' }}. El código se guarda solo en esta vista y
-      no puede recuperarse después de cerrar o recargar la página.
+      El enlace de activación tiene vigencia de 24 horas y vence el
+      {{ issued.activationExpiresAt | date: 'medium' }}. No se muestra en el portal; si el correo
+      no fue aceptado por el proveedor, reintente la invitación.
     </p>
     <p><strong>Usuario:</strong> {{ issued.username }}</p>
-    <code class="activation-code">{{ issued.activationToken }}</code>
-    <button class="button secondary" type="button" (click)="dismissActivation()">Ocultar código</button>
+    <p>{{ deliveryMessage(issued.deliveryStatus) }}</p>
+    <button class="button secondary" type="button" (click)="dismissActivation()">Cerrar aviso</button>
   </section>
 }
 
 @if (reissuedActivation(); as issued) {
   <section class="notice inline-notice" role="status" aria-labelledby="reissued-title">
-    <strong id="reissued-title">Nuevo código de activación para {{ issued.username }}</strong>
-    <p>El código anterior dejó de ser válido. Entregue este código mediante un canal seguro; vence el {{ issued.expiresAt | date: 'medium' }}.</p>
-    <code class="activation-code">{{ issued.token }}</code>
-    <button class="button secondary" type="button" (click)="dismissActivation()">Ocultar código</button>
+    <strong id="reissued-title">Nueva invitación de activación para {{ issued.username }}</strong>
+    <p>El enlace anterior dejó de ser válido. La nueva invitación vence el {{ issued.expiresAt | date: 'medium' }}.</p>
+    <p>{{ deliveryMessage(issued.deliveryStatus) }}</p>
+    <button class="button secondary" type="button" (click)="dismissActivation()">Cerrar aviso</button>
   </section>
 }
 
@@ -171,7 +171,7 @@
         <span class="feature-icon blue" aria-hidden="true">⚿</span>
         <div>
           <h3>Activación segura de acceso</h3>
-          <p>Se generará un código aleatorio de un solo uso, válido por 48 horas. No se genera ni se muestra una contraseña.</p>
+          <p>Se enviará una invitación de un solo uso válida por 24 horas. El inspector establecerá su propia contraseña al activar la cuenta.</p>
         </div>
       </div>
       <div class="form-actions">

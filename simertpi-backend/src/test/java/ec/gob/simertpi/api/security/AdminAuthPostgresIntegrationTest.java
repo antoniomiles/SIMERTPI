@@ -86,6 +86,8 @@ class AdminAuthPostgresIntegrationTest extends AbstractPostgresIntegrationTest {
   Cookie session=cookie(result,AdminAuthenticationService.COOKIE);
   var mapper=new com.fasterxml.jackson.databind.ObjectMapper();
   var loginIdentity=mapper.readTree(result.getResponse().getContentAsString());
+  assertThat(mapper.convertValue(loginIdentity.get("permissions"),String[].class))
+          .contains("dashboard.view","users.view","inspectors.manage","reports.view");
   var storedAtLogin=jdbc.queryForObject("SELECT idle_expires_at FROM identity.admin_web_sessions WHERE token_hash=?",java.time.OffsetDateTime.class,AdminAuthenticationService.hash(session.getValue()));
   assertThat(java.time.OffsetDateTime.parse(loginIdentity.get("sessionExpiresAt").asText()).truncatedTo(java.time.temporal.ChronoUnit.MICROS)).isEqualTo(storedAtLogin);
 

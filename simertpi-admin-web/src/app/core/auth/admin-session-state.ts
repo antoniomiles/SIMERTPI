@@ -3,6 +3,8 @@ export interface AdminIdentity {
   readonly userId: string;
   readonly username: string;
   readonly roles: readonly string[];
+  /** Effective permission codes supplied by the backend; absent only for legacy sessions. */
+  readonly permissions?: readonly string[];
   readonly enabled: boolean;
   readonly sessionExpiresAt: string;
   readonly absoluteExpiresAt: string;
@@ -30,10 +32,19 @@ export class AdminSessionState {
   }
 
   accept(identity: AdminIdentity) {
-    if (!identity.enabled || !identity.roles.some((role) => ADMIN_ROLES.has(role)))
+    const hasAdminRole = identity.roles.some((role) => ADMIN_ROLES.has(role));
+    const hasAdministrativeCapability = (identity.permissions?.length ?? 0) > 0;
+    if (!identity.enabled || (!hasAdminRole && !hasAdministrativeCapability))
       throw new Error('Administrative identity required');
     this.value.set(identity);
     this.lastServerSyncAt = Date.now();
+  }
+  hasPermission(permission: string): boolean {
+    const identity = this.value();
+    if (!identity?.enabled) return false;
+    if (identity.permissions !== undefined) return identity.permissions.includes(permission);
+    // Compatibility for sessions issued by V50 before the permission claim existed.
+    return identity.roles.some((role) => ADMIN_ROLES.has(role));
   }
   clear() {
     this.value.set(null);

@@ -70,6 +70,7 @@ class AdminAccessSuperadminPostgresIntegrationTest extends AbstractPostgresInteg
                 "pending-" + UUID.randomUUID(), "pending-" + UUID.randomUUID() + "@example.invalid",
                 "Test", "Account", null, List.of("IT_ADMIN"), "Invitación inicial"), actor);
         UUID id = invited.account().id();
+        jdbc.update("UPDATE identity.inspector_activation_tokens SET created_at=CURRENT_TIMESTAMP-INTERVAL '2 minutes' WHERE user_id=?", id);
         var reissued = management.reissueActivation(id,
                 new AdminAccessManagementService.ActivationRequest("Reemitir invitación", invited.account().updatedAt()), actor);
         assertThat(reissued.toString()).doesNotContain(reissued.activationToken());

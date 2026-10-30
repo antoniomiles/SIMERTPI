@@ -28,7 +28,7 @@ public class AdminReportsController {
     @GetMapping
     public ResponseEntity<AdminReportResponse> get(
             @RequestParam(required = false) String from,
-            @RequestParam(required = false) String to) {
+            @RequestParam(required = false) String to, org.springframework.security.core.Authentication authentication) {
         LocalDate fromDate = parseDate(from);
         LocalDate toDate = parseDate(to);
         if (fromDate == null || toDate == null || fromDate.isAfter(toDate)
@@ -37,9 +37,15 @@ public class AdminReportsController {
                     "A valid date range of at most 366 days is required");
         }
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
-                .body(reports.load(fromDate, toDate));
+                .body(reports.load(fromDate, toDate, canViewFinancial(authentication)));
     }
 
+    private static boolean canViewFinancial(org.springframework.security.core.Authentication authentication) {
+        if (authentication == null) return false;
+        return authentication.getAuthorities().stream().map(org.springframework.security.core.GrantedAuthority::getAuthority)
+                .anyMatch(value -> value.equals("IT_ADMIN") || value.equals("SIMERTPI_ADMIN")
+                        || value.equals("PERM:reports.financial.view"));
+    }
     private static LocalDate parseDate(String value) {
         if (value == null || value.isBlank()) return null;
         try {

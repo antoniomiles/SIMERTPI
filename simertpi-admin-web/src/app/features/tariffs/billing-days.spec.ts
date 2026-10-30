@@ -217,8 +217,10 @@ describe('Billing days configuration screen', () => {
       reason: 'Approved correction', beforeState: { monday: true }, afterState: { monday: false },
     }];
     api.billingCalendarHistory.mockReturnValue(of(history));
-    const showModal = HTMLDialogElement.prototype.showModal;
-    HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
+    Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
+      configurable: true,
+      value(this: HTMLDialogElement) { this.setAttribute('open', ''); },
+    });
     try {
       const fixture = TestBed.createComponent(BillingDays); fixture.detectChanges();
       const page = fixture.componentInstance; page.openHistory(calendar); fixture.detectChanges();
@@ -228,7 +230,7 @@ describe('Billing days configuration screen', () => {
       expect(text).toContain('Approved correction');
       expect(text).toContain('No disponible para este registro hist\u00f3rico anterior.');
       expect(fixture.nativeElement.querySelector('.history-state-comparison pre')?.textContent).toContain('monday');
-    } finally { HTMLDialogElement.prototype.showModal = showModal; }
+    } finally { /* The test DOM requires the configurable dialog polyfill. */ }
   });
 
   it('does not call APIs or prefill a calendar in local preview', () => {

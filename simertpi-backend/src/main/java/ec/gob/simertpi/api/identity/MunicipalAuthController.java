@@ -36,14 +36,25 @@ public class MunicipalAuthController {
         @Override public String toString() { return "MunicipalRefreshRequest[redacted]"; }
     }
 
+    public record ActivationTokenRequest(@NotBlank @Pattern(regexp = "[A-Za-z0-9_-]{43}") String activationToken) {
+        @Override public String toString() { return "ActivationTokenRequest[redacted]"; }
+    }
     public record ActivateRequest(@NotBlank @Pattern(regexp = "[A-Za-z0-9_-]{43}") String activationToken,
                                   @NotBlank @Size(min = 12, max = 72) String newPassword) {
         @Override public String toString() { return "MunicipalActivateRequest[redacted]"; }
     }
 
+    @PostMapping("/activation/validate")
+    public ResponseEntity<InspectorAccountService.ActivationValidation> validateActivation(
+            @RequestBody ActivationTokenRequest request, jakarta.servlet.http.HttpServletRequest servletRequest) {
+        return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .header(HttpHeaders.PRAGMA, "no-cache")
+                .body(inspectors.validateActivation(request.activationToken(), servletRequest.getRemoteAddr()));
+    }
+
     @PostMapping("/activate")
-    public ResponseEntity<Void> activate(@Valid @RequestBody ActivateRequest request) {
-        inspectors.activate(request.activationToken(), request.newPassword());
+    public ResponseEntity<Void> activate(@RequestBody ActivateRequest request, jakarta.servlet.http.HttpServletRequest servletRequest) {
+        inspectors.activate(request.activationToken(), request.newPassword(), servletRequest.getRemoteAddr());
         return ResponseEntity.noContent().header(HttpHeaders.CACHE_CONTROL, "no-store")
                 .header(HttpHeaders.PRAGMA, "no-cache").build();
     }

@@ -20,7 +20,11 @@ export function createPortalServer({root, upstream, allowLoopback = false, authT
   let pathname;try{pathname=decodeURIComponent(new URL(req.url,'http://localhost').pathname);}catch{res.writeHead(400);res.end();return;}
   if(pathname==='/healthz'){res.writeHead(200,{'Content-Type':'text/plain'});res.end('ok');return;}
   if(pathname==='/api'||pathname.startsWith('/api/')){
-   if(!pathname.startsWith('/api/v1/admin/')){res.writeHead(404);res.end();return;}
+   const publicActivationPost=req.method==='POST'&&[
+    '/api/v1/municipal/auth/activation/validate',
+    '/api/v1/municipal/auth/activate',
+   ].includes(pathname);
+   if(!pathname.startsWith('/api/v1/admin/')&&!publicActivationPost){res.writeHead(404);res.end();return;}
    const headers={...req.headers,host:target.host};
    const suppliedCorrelation=req.headers['x-correlation-id'];
    const correlationId=typeof suppliedCorrelation==='string'&&/^[A-Za-z0-9._:-]{1,128}$/.test(suppliedCorrelation)

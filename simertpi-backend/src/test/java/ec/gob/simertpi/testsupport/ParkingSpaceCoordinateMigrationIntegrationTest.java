@@ -35,7 +35,7 @@ class ParkingSpaceCoordinateMigrationIntegrationTest extends AbstractPostgresInt
                 assertThat(rows.getBigDecimal("latitude")).isEqualByComparingTo("-3.6812345");
                 assertThat(rows.getBigDecimal("longitude")).isEqualByComparingTo("-79.6812345");
             }
-            assertThat(after.info().current().getVersion().toString()).isEqualTo("50");
+            assertThat(after.info().current().getVersion().toString()).isEqualTo("52");
         } finally { dropDatabase(pg,database); }
     }
 

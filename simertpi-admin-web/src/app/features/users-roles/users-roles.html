@@ -15,7 +15,7 @@
       inspectores mediante el flujo seguro de activación. Los roles y permisos se aplican en el
       backend; los controles disponibles se limitan a tus capacidades y al alcance de tu cuenta.
     </p>
-    <p>El enlace de activación se muestra una sola vez y debe entregarse por un canal seguro.</p>
+    <p>Al crear una cuenta o reenviar una invitación, aquí se mostrará el estado informado por el proveedor de correo y la vigencia del enlace. El token no se muestra en el portal.</p>
   </div>
 </section>
 
@@ -63,6 +63,13 @@
     description="La administración de cuentas requiere un rol administrativo habilitado."
   />
 } @else if (tab() === 'users') {
+  @if (deliveryResult(); as delivery) {
+    <section class="access-note" role="status" aria-live="polite">
+      <strong>{{ delivery.status === 'ACCEPTED_BY_PROVIDER' ? 'Invitación aceptada por el proveedor' : delivery.status === 'UNCONFIGURED' ? 'Correo pendiente de configuración' : 'No se pudo enviar la invitación' }}</strong>
+      <p>{{ deliveryMessage(delivery.status, 'La cuenta quedó registrada') }} Vence: {{ formatTimestamp(delivery.expiresAt) }}.</p>
+      <button class="button secondary" type="button" (click)="deliveryResult.set(null)">Cerrar</button>
+    </section>
+  }
   <section class="panel" id="accounts-panel" role="tabpanel" aria-labelledby="accounts-tab">
     <div class="summary-grid" aria-label="Resumen de cuentas">
       <article class="summary-card">
@@ -320,6 +327,7 @@
         <span aria-hidden="true">↻</span> Actualizar
       </button>
     </div>
+    @if (isSuperAdmin()) { <button class="button primary role-create-button" type="button" (click)="openRoleCreate()">Crear rol personalizado</button> }
     @if (rolesState() === 'loading') {
       <app-data-state
         kind="loading"
@@ -340,20 +348,11 @@
         description="El catálogo de roles está vacío."
       />
     } @else {
-      <section class="permissions-panel" aria-label="Capacidades devueltas por el servidor">
-        <h3>Capacidades por rol</h3>
+      <section class="permissions-panel" aria-label="Catálogo de permisos">
+        <h3>Permisos disponibles para asignación</h3>
         <div class="permissions-grid">
-          @for (rolePermission of permissionCatalog(); track rolePermission.roleCode) {
-            <article class="permission-card">
-              <div><strong>{{ rolePermission.roleName }}</strong><code>{{ rolePermission.roleCode }}</code></div>
-              <ul>
-                @for (permission of rolePermission.permissions; track permission) {
-                  <li>{{ permissionLabel(permission) }}</li>
-                } @empty {
-                  <li>Sin capacidades informadas</li>
-                }
-              </ul>
-            </article>
+          @for (permission of permissionCatalog(); track permission.code) {
+            <article class="permission-card"><strong>{{ permission.name }}</strong><code>{{ permission.code }}</code><small>{{ permission.moduleCode }} · {{ permission.actionCode }}</small><p>{{ permission.description }}</p></article>
           }
         </div>
       </section>
@@ -367,7 +366,10 @@
               <th scope="col">Código</th>
               <th scope="col">Rol</th>
               <th scope="col">Descripción</th>
+              <th scope="col">Permisos</th>
+              <th scope="col">Estado</th>
               <th scope="col">Cuentas vinculadas</th>
+              <th scope="col">Acciones</th>
             </tr>
           </thead>
           <tbody>
@@ -381,8 +383,11 @@
                 </td>
                 <td>{{ role.description || 'Sin descripción registrada' }}</td>
                 <td>
-                  <span class="assigned-count">{{ role.assignedAccounts }}</span>
+                  <span class="assigned-count">{{ role.permissions.length }}</span>
                 </td>
+                <td><span class="status" [ngClass]="role.enabled ? 'enabled' : 'disabled'">{{ role.enabled ? 'Habilitado' : 'Deshabilitado' }}</span></td>
+                <td><span class="assigned-count">{{ role.userCount }}</span></td>
+                <td><div class="row-actions"><button class="button compact secondary" type="button" (click)="openRoleDetail(role)">Ver</button><button class="button compact secondary" type="button" (click)="openRoleHistory(role)">Historial</button>@if (!role.protectedRole) { <button class="button compact secondary" type="button" (click)="openRoleEdit(role)">Editar</button>@if (role.userCount === 0) { <button class="button compact danger-soft" type="button" (click)="openRoleStatus(role)">{{ role.enabled ? 'Desactivar' : 'Activar' }}</button> } }</div></td>
               </tr>
             }
           </tbody>
@@ -394,6 +399,37 @@
       </p>
     }
   </section>
+}
+
+@if (roleDialog(); as dialog) {
+  <div class="access-backdrop" (click)="closeRoleDialog()">
+    <section class="access-dialog role-editor" role="dialog" aria-modal="true" aria-labelledby="role-dialog-title" (click)="$event.stopPropagation()">
+      @if (dialog === 'create' || dialog === 'edit') {
+        <form [formGroup]="roleForm" (ngSubmit)="saveRole()">
+          <header><div><span class="section-kicker">ROLES Y PERMISOS</span><h2 id="role-dialog-title">{{ dialog === 'create' ? 'Crear rol personalizado' : 'Editar rol' }}</h2><p>Solo se pueden conceder permisos registrados en el catálogo del servidor.</p></div><button class="icon-close" type="button" aria-label="Cerrar" (click)="closeRoleDialog()">×</button></header>
+          <div class="dialog-fields">
+            @if (dialog === 'create') { <label>Código<input formControlName="code" maxlength="50" placeholder="SECRETARIA" /></label> }
+            <label>Nombre visible<input formControlName="name" maxlength="100" /></label>
+            <label class="wide">Descripción<textarea formControlName="description" rows="2" maxlength="500"></textarea></label>
+            <fieldset class="role-choice wide"><legend>Permisos disponibles</legend><div class="role-choice-grid">
+              @for (permission of permissionCatalog(); track permission.code) {
+                <label class="role-choice-option"><input type="checkbox" [checked]="roleForm.controls.permissions.value.includes(permission.code)" (change)="toggleRolePermission(permission.code, $any($event.target).checked)" /><span><strong>{{ permission.name }}</strong><small>{{ permission.moduleCode }} · {{ permission.actionCode }} — {{ permission.description }}</small></span></label>
+              }
+            </div></fieldset>
+            @if (dialog === 'edit') { <label class="wide">Motivo del cambio<textarea formControlName="reason" rows="2" maxlength="500"></textarea></label> }
+          </div>
+          @if (roleDialogError()) { <p class="operation-error" role="alert">{{ roleDialogError() }}</p> }
+          <footer><button class="button secondary" type="button" (click)="closeRoleDialog()" [disabled]="saving()">Cancelar</button><button class="button primary" type="submit" [disabled]="saving()">{{ saving() ? 'Guardando…' : 'Guardar rol' }}</button></footer>
+        </form>
+      } @else if (dialog === 'status') {
+        <form [formGroup]="roleStatusForm" (ngSubmit)="saveRoleStatus()"><header><div><span class="section-kicker">ESTADO DEL ROL</span><h2 id="role-dialog-title">{{ selectedRole()?.enabled ? 'Desactivar rol' : 'Activar rol' }}</h2><p>{{ selectedRole()?.name }} · {{ selectedRole()?.code }}</p></div><button class="icon-close" type="button" aria-label="Cerrar" (click)="closeRoleDialog()">×</button></header><p class="dialog-note">El cambio quedará en auditoría. Solo se permite cambiar el estado cuando el rol no tiene cuentas asignadas.</p><label>Motivo<textarea formControlName="reason" rows="3" maxlength="500"></textarea></label>@if (roleDialogError()) { <p class="operation-error" role="alert">{{ roleDialogError() }}</p> }<footer><button class="button secondary" type="button" (click)="closeRoleDialog()">Cancelar</button><button class="button primary" type="submit" [disabled]="saving()">Confirmar</button></footer></form>
+      } @else if (dialog === 'detail') {
+        <header><div><span class="section-kicker">DETALLE DEL ROL</span><h2 id="role-dialog-title">{{ selectedRole()?.name }}</h2><p>{{ selectedRole()?.code }}</p></div><button class="icon-close" type="button" aria-label="Cerrar" (click)="closeRoleDialog()">×</button></header><p>{{ selectedRole()?.description || 'Sin descripción' }}</p><p>Estado: {{ selectedRole()?.enabled ? 'Habilitado' : 'Deshabilitado' }} · Usuarios: {{ selectedRole()?.userCount }}</p><ul class="role-permission-list">@for (permission of selectedRole()?.permissions ?? []; track permission) { <li>{{ permission }}</li> }</ul>@if (roleDialogError()) { <p class="operation-error" role="alert">{{ roleDialogError() }}</p> }<footer><button class="button secondary" type="button" (click)="closeRoleDialog()">Cerrar</button></footer>
+      } @else {
+        <header><div><span class="section-kicker">AUDITORÍA</span><h2 id="role-dialog-title">Historial · {{ selectedRole()?.name }}</h2></div><button class="icon-close" type="button" aria-label="Cerrar" (click)="closeRoleDialog()">×</button></header>@if (roleDialogError()) { <p class="operation-error" role="alert">{{ roleDialogError() }}</p> } @else { <div class="role-history-list">@for (entry of roleHistory(); track entry.id) { <article><strong>{{ entry.action }}</strong><span>{{ entry.actor || 'Responsable no disponible' }} · {{ formatTimestamp(entry.occurredAt) }}</span><p>Resultado: {{ entry.result }}</p><pre>{{ formatHistoryMetadata(entry.metadata) }}</pre></article> } @empty { <p>No hay cambios registrados para este rol.</p> }</div> }<footer><button class="button secondary" type="button" (click)="closeRoleDialog()">Cerrar</button></footer>
+      }
+    </section>
+  </div>
 }
 
 @if (notice(); as message) {

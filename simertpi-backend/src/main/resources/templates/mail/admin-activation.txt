@@ -1,0 +1,19 @@
+SIMERTPI | Activación de tu cuenta
+
+Estimado/a {{name}}:
+
+Te informamos que se ha creado una cuenta de acceso al Sistema Municipal de Estacionamiento Rotativo Tarifado de Piñas (SIMERTPI).
+
+Usuario: {{username}}
+Rol asignado: {{role}}
+
+Para comenzar a utilizar el sistema, activa tu cuenta y establece una contraseña personal:
+{{activationUrl}}
+
+El enlace es personal, de un solo uso y vence el {{expiry}}. Si ha vencido, solicita una nueva invitación al administrador del sistema.
+
+Si no reconoces esta solicitud, no actives la cuenta y comunícate con el administrador de SIMERTPI.
+
+Atentamente,
+Administración del Sistema SIMERTPI
+Gobierno Autónomo Descentralizado Municipal de Piñas.

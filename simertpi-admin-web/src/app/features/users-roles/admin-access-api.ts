@@ -1,6 +1,7 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { PORTAL_CONFIG } from '../../core/config/portal-config';
+import { map } from 'rxjs';
 
 export interface AdminAccount {
   id: string;
@@ -12,6 +13,7 @@ export interface AdminAccount {
   roles: string[];
   enabled: boolean;
   activationPending: boolean;
+  activationExpiresAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -60,9 +62,20 @@ export interface CreateInspectorRequest {
   phone: string | null;
 }
 
-export interface CreatedInspectorAccount extends Omit<AdminAccount, 'createdAt' | 'updatedAt'> {
-  activationToken: string;
+export type DeliveryStatus = 'ACCEPTED_BY_PROVIDER' | 'UNCONFIGURED' | 'FAILED';
+export interface AccountCreationResponse {
+  account: AdminAccount;
+  deliveryStatus: DeliveryStatus;
   activationExpiresAt: string;
+}
+export interface ActivationDeliveryResponse {
+  deliveryStatus: DeliveryStatus;
+  activationExpiresAt: string;
+}
+export interface CreatedInspectorAccount {
+  id: string; username: string; email: string; firstName: string; lastName: string;
+  phone: string | null; enabled: boolean; activationPending: boolean;
+  deliveryStatus: DeliveryStatus; activationExpiresAt: string;
 }
 
 export interface AdminAccountPage {
@@ -76,9 +89,17 @@ export interface AdminAccountPage {
 export interface AdminRoleSummary {
   code: string;
   name: string;
-  displayName?: string;
   description: string | null;
-  assignedAccounts: number;
+  enabled: boolean;
+  protectedRole: boolean;
+  portalEnabled: boolean;
+  rowVersion: number;
+  userCount: number;
+  permissions: string[];
+  createdAt: string;
+  updatedAt: string;
+  displayName?: string;
+  assignedAccounts?: number;
 }
 
 export interface AdminRolePermissions {
@@ -88,7 +109,36 @@ export interface AdminRolePermissions {
 }
 
 export interface AdminPermissionCatalog {
-  roles: AdminRolePermissions[];
+  code: string;
+  moduleCode: string;
+  actionCode: string;
+  name: string;
+  description: string;
+  assignable: boolean;
+}
+export interface AdminPermissionDefinition {
+  code: string;
+  name: string;
+  description: string;
+  moduleCode: string;
+  actionCode: string;
+  assignable: boolean;
+}
+export interface AdminRoleHistoryEntry {
+  id: string;
+  action: string;
+  actor: string | null;
+  occurredAt: string;
+  result: string;
+  metadata: Record<string, unknown>;
+}
+export interface RoleMutationRequest {
+  name: string;
+  description: string;
+  permissions: string[];
+  updatedAt?: string;
+  rowVersion?: number;
+  reason?: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -110,11 +160,31 @@ export class AdminAccessApi {
   }
 
   permissions() {
-    return this.http.get<AdminPermissionCatalog>(`${this.base}/permissions`);
+    return this.http.get<AdminPermissionDefinition[]>(`${this.base}/permission-catalog`);
+  }
+
+  role(code: string) {
+    return this.http.get<AdminRoleSummary>(`${this.base}/roles/${encodeURIComponent(code)}`);
+  }
+
+  roleHistory(code: string) {
+    return this.http.get<AdminRoleHistoryEntry[]>(`${this.base}/roles/${encodeURIComponent(code)}/history`);
+  }
+
+  createRole(request: RoleMutationRequest & { code: string }) {
+    return this.http.post<AdminRoleSummary>(`${this.base}/roles`, request);
+  }
+
+  updateRole(code: string, request: RoleMutationRequest) {
+    return this.http.put<AdminRoleSummary>(`${this.base}/roles/${encodeURIComponent(code)}`, request);
+  }
+
+  updateRoleStatus(code: string, request: Pick<RoleMutationRequest, 'updatedAt' | 'rowVersion' | 'reason'> & { enabled: boolean }) {
+    return this.http.put<AdminRoleSummary>(`${this.base}/roles/${encodeURIComponent(code)}/status`, request);
   }
 
   createAccount(request: CreateAdminAccountRequest) {
-    return this.http.post<CreatedInspectorAccount>(`${this.base}/users`, request);
+    return this.http.post<AccountCreationResponse>(`${this.base}/users`, request);
   }
 
   assignRoles(id: string, request: AssignAdminRolesRequest) {
@@ -136,14 +206,14 @@ export class AdminAccessApi {
 
   reissueInspectorActivation(id: string) {
     const base = `${this.config.apiBaseUrl.replace(/\/$/, '')}/admin/inspectors`;
-    return this.http.post<{ activationToken: string; expiresAt: string }>(
+    return this.http.post<{ deliveryStatus: DeliveryStatus; expiresAt: string }>(
       `${base}/${encodeURIComponent(id)}/activation`,
       {},
-    );
+    ).pipe(map((response) => ({ deliveryStatus: response.deliveryStatus, activationExpiresAt: response.expiresAt })));
   }
 
   reissueAdminActivation(id: string, request: ReissueAdminActivationRequest) {
-    return this.http.post<{ activationToken: string; activationExpiresAt: string }>(
+    return this.http.post<ActivationDeliveryResponse>(
       `${this.base}/users/${encodeURIComponent(id)}/activation`, request,
     );
   }

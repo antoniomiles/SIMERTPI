@@ -13,6 +13,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
@@ -25,9 +26,12 @@ import java.util.UUID;
 @Validated
 public class AdminInspectorController {
     private final InspectorAccountService inspectors;
+    private final ec.gob.simertpi.application.identity.invitation.ActivationInvitationDeliveryService invitationDelivery;
 
-    public AdminInspectorController(InspectorAccountService inspectors) {
+    public AdminInspectorController(InspectorAccountService inspectors,
+            ec.gob.simertpi.application.identity.invitation.ActivationInvitationDeliveryService invitationDelivery) {
         this.inspectors = inspectors;
+        this.invitationDelivery = invitationDelivery;
     }
 
     public record CreateRequest(
@@ -44,13 +48,8 @@ public class AdminInspectorController {
                                 OffsetDateTime createdAt) { }
     public record Directory(List<InspectorView> content, int page, int size, long totalElements, int totalPages) { }
     public record Created(UUID id, String username, String email, String firstName, String lastName,
-                          String phone, boolean enabled, boolean activationPending,
-                          String activationToken, OffsetDateTime activationExpiresAt) {
-        @Override public String toString() { return "CreatedInspector[id=" + id + ", activationToken=redacted]"; }
-    }
-    public record Activation(String activationToken, OffsetDateTime expiresAt) {
-        @Override public String toString() { return "InspectorActivation[activationToken=redacted]"; }
-    }
+                          String phone, boolean enabled, boolean activationPending, String deliveryStatus, OffsetDateTime activationExpiresAt) { }
+    public record Activation(String deliveryStatus, OffsetDateTime expiresAt) { }
 
     @GetMapping
     public ResponseEntity<Directory> directory(
@@ -66,20 +65,20 @@ public class AdminInspectorController {
     }
 
     @PostMapping
-    public ResponseEntity<Created> create(@Valid @RequestBody CreateRequest request) {
-        var created = inspectors.create(request.username(), request.email(), request.firstName(),
-                request.lastName(), request.phone());
+    public ResponseEntity<Created> create(@Valid @RequestBody CreateRequest request, Authentication authentication) {
+        var created = inspectors.create(request.username(), request.email(), request.firstName(), request.lastName(), request.phone());
+        var delivery = invitationDelivery.deliver(created.id(), created.activationToken(), created.activationExpiresAt(), authentication.getName());
         return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore()).body(
                 new Created(created.id(), created.username(), created.email(), created.firstName(), created.lastName(),
-                        created.phone(), created.enabled(), created.activationPending(), created.activationToken(),
-                        created.activationExpiresAt()));
+                        created.phone(), created.enabled(), created.activationPending(), delivery.status(), delivery.expiresAt()));
     }
 
     @PostMapping("/{userId}/activation")
-    public ResponseEntity<Activation> reissueActivation(@PathVariable UUID userId) {
+    public ResponseEntity<Activation> reissueActivation(@PathVariable UUID userId, Authentication authentication) {
         var issued = inspectors.reissueActivation(userId);
+        var delivery = invitationDelivery.deliver(userId, issued.activationToken(), issued.expiresAt(), authentication.getName());
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
-                .body(new Activation(issued.activationToken(), issued.expiresAt()));
+                .body(new Activation(delivery.status(), delivery.expiresAt()));
     }
 
     private static InspectorView view(InspectorDirectoryProjection user) {

@@ -8,13 +8,20 @@ param(
  [Parameter(Mandatory=$true)][string]$JavaHome,
  [string]$BackendDirectory,
  [switch]$PreflightOnly,
- [switch]$Superadministrator
+ [switch]$Superadministrator,
+ [switch]$MunicipalAdministrator,
+ [switch]$ResendSuperadminInvitation
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 if([string]::IsNullOrWhiteSpace($BackendDirectory)){$BackendDirectory=Join-Path $PSScriptRoot '../simertpi-backend'}
 if($ExpectedHost -notmatch '^dpg-db1hq55g1s2s73a8e340-a\.[a-z]+-postgres\.render\.com$'){throw 'Solo se admite el hostname externo DEV aprobado'}
 if($Operator -notmatch '^[A-Za-z0-9._:@/-]{3,100}$' -or $ApprovalId -notmatch '^[A-Za-z0-9._:/-]{3,100}$'){throw 'Operador o aprobación inválidos'}
+$modeCount=0
+if($Superadministrator){$modeCount++}
+if($MunicipalAdministrator){$modeCount++}
+if($ResendSuperadminInvitation){$modeCount++}
+if($modeCount -ne 1){throw 'Indique exactamente un modo: -Superadministrator, -MunicipalAdministrator o -ResendSuperadminInvitation'}
 $java=Join-Path $JavaHome 'bin/java.exe'
 if(!(Test-Path -LiteralPath $java -PathType Leaf)){throw 'Java 21 no disponible'}
 $probe=New-Object Diagnostics.ProcessStartInfo; $probe.FileName=$java; $probe.Arguments='-version'; $probe.UseShellExecute=$false; $probe.RedirectStandardError=$true; $probe.CreateNoWindow=$true; $process=[Diagnostics.Process]::Start($probe); $version=$process.StandardError.ReadToEnd(); $process.WaitForExit()
@@ -46,8 +53,9 @@ try{
   $pointer=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
   $env:DB_PASSWORD=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
  }
- $bootstrapMode=if($Superadministrator){'--bootstrap-dev-superadmin'}else{'--bootstrap-dev-admin'}
+ $bootstrapMode=if($ResendSuperadminInvitation){'--resend-dev-superadmin-invitation'}elseif($Superadministrator){'--bootstrap-dev-superadmin'}else{'--bootstrap-dev-admin'}
  $arguments=@('-cp',('"'+$classpath+'"'),'ec.gob.simertpiadmin.bootstrap.AdminBootstrapCli',$bootstrapMode,"--expected-host=$ExpectedHost","--expected-db-user=$ExpectedDbUser","--operator=$Operator","--approval-id=$ApprovalId"); $process=Start-Process -FilePath $java -ArgumentList $arguments -NoNewWindow -Wait -PassThru
+ if($process.ExitCode -eq 2){throw 'La cuenta permanece pendiente pero el proveedor no confirmó la invitación; verificar estado por auditoría y usar el modo de reenvío autorizado antes de reintentar'}
  if($process.ExitCode -ne 0){throw 'Bootstrap detenido; consultar resultado por vía autorizada antes de reintentar'}
 }finally{
  foreach($name in $names){[Environment]::SetEnvironmentVariable($name,$previous[$name],'Process')}

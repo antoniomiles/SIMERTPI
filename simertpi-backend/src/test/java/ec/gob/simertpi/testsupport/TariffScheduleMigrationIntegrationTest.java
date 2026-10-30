@@ -39,9 +39,9 @@ class TariffScheduleMigrationIntegrationTest extends AbstractPostgresIntegration
 
         Flyway after = Flyway.configure().dataSource(url, postgres.getUsername(), postgres.getPassword())
                 .outOfOrder(false).cleanDisabled(true).load();
-        assertThat(after.migrate().migrationsExecuted).isEqualTo(6);
+        assertThat(after.migrate().migrationsExecuted).isEqualTo(8);
         after.validate();
-        assertThat(after.info().current().getVersion().toString()).isEqualTo("50");
+        assertThat(after.info().current().getVersion().toString()).isEqualTo("52");
         try (var connection = after.getConfiguration().getDataSource().getConnection();
              var statement = connection.prepareStatement("""
                      SELECT code,name,amount,currency,valid_from,valid_to,active,normative_reference,

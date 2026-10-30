@@ -11,6 +11,17 @@ spring:
     password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
 
+  mail:
+    host: ${SIMERTPI_SMTP_HOST:}
+    port: ${SIMERTPI_SMTP_PORT:587}
+    username: ${SIMERTPI_SMTP_USERNAME:}
+    password: ${SIMERTPI_SMTP_PASSWORD:}
+    properties:
+      mail.smtp.auth: ${SIMERTPI_SMTP_AUTH:true}
+      mail.smtp.starttls.enable: ${SIMERTPI_SMTP_STARTTLS:true}
+      mail.smtp.starttls.required: ${SIMERTPI_SMTP_STARTTLS_REQUIRED:true}
+      mail.debug: false
+
   jpa:
     show-sql: false
     properties:
@@ -33,6 +44,10 @@ server:
   shutdown: graceful
 
 management:
+  health:
+    # Invitation email is optional; missing SMTP credentials must not fail API health.
+    mail:
+      enabled: ${SIMERTPI_MAIL_HEALTH_ENABLED:false}
   endpoints:
     web:
       exposure:
@@ -73,6 +88,16 @@ simertpi:
     idle-ttl: ${SIMERTPI_ADMIN_AUTH_IDLE_TTL:15m}
     absolute-ttl: ${SIMERTPI_ADMIN_AUTH_ABSOLUTE_TTL:8h}
     allowed-origin: ${SIMERTPI_ADMIN_WEB_ORIGIN:}
+  invitation-email:
+    provider: ${SIMERTPI_INVITATION_EMAIL_PROVIDER:UNCONFIGURED}
+    from: ${SIMERTPI_INVITATION_EMAIL_FROM:}
+    public-base-url: ${SIMERTPI_PUBLIC_BASE_URL:}
+  smtp:
+    encryption-key: ${SIMERTPI_SMTP_ENCRYPTION_KEY:}
+    # SMTP egress allowlist: smtp.gmail.com is available by default; each custom host must be explicitly approved.
+    allowed-hosts: ${SIMERTPI_SMTP_ALLOWED_HOSTS:smtp.gmail.com}
+    test-recipient: ${SIMERTPI_SMTP_TEST_RECIPIENT:}
+    test-email-enabled: ${SIMERTPI_SMTP_TEST_EMAIL_ENABLED:false}
   parking:
     availability:
       # UX threshold, not a municipal duration/tolerance rule.

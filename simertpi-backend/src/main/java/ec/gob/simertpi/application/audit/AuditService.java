@@ -85,12 +85,13 @@ public class AuditService {
             return currentRequest() == null ? new Actor(null, "SYSTEM", "SYSTEM")
                     : new Actor(null, "ANONYMOUS", "PUBLIC");
         }
-        String role = auth.getAuthorities().stream().map(a -> a.getAuthority()).sorted()
-                .collect(java.util.stream.Collectors.joining(","));
+        String role = auth.getAuthorities().stream().map(a -> a.getAuthority())
+                .filter(authority -> !authority.startsWith("PERM:") && !"ADMIN_PORTAL".equals(authority))
+                .sorted().collect(java.util.stream.Collectors.joining(","));
         if (role.isBlank()) role = "AUTHENTICATED";
         UUID userId = jdbc.query("SELECT id FROM identity.users WHERE username = ?", rs ->
                 rs.next() ? rs.getObject(1, UUID.class) : null, auth.getName());
-        return new Actor(userId, truncate(auth.getName(), 150), role);
+        return new Actor(userId, truncate(auth.getName(), 150), truncate(role, 100));
     }
 
     private Map<String, Object> safeMetadata(Map<String, ?> source) {

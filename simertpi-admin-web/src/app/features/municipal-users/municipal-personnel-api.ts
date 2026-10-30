@@ -1,6 +1,7 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { PORTAL_CONFIG } from '../../core/config/portal-config';
+import { map } from 'rxjs';
 
 export interface InspectorDirectoryItem {
   id: string;
@@ -31,14 +32,22 @@ export interface CreateInspector {
   phone?: string;
 }
 
-export interface InspectorCreated extends Omit<InspectorDirectoryItem, 'role' | 'createdAt'> {
-  activationToken: string;
+export interface InspectorCreated {
+  id: string;
+  username: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  phone: string | null;
+  enabled: boolean;
+  activationPending: boolean;
+  deliveryStatus: 'ACCEPTED_BY_PROVIDER' | 'UNCONFIGURED' | 'FAILED';
   activationExpiresAt: string;
 }
 
 export interface InspectorActivation {
-  activationToken: string;
-  expiresAt: string;
+  deliveryStatus: 'ACCEPTED_BY_PROVIDER' | 'UNCONFIGURED' | 'FAILED';
+  activationExpiresAt: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -60,6 +69,8 @@ export class MunicipalPersonnelApi {
   }
 
   reissueActivation(id: string) {
-    return this.http.post<InspectorActivation>(`${this.endpoint}/${encodeURIComponent(id)}/activation`, {});
+    return this.http.post<{ deliveryStatus: InspectorActivation['deliveryStatus']; expiresAt?: string; activationExpiresAt?: string }>(`${this.endpoint}/${encodeURIComponent(id)}/activation`, {}).pipe(
+      map((response) => ({ deliveryStatus: response.deliveryStatus, activationExpiresAt: response.activationExpiresAt ?? response.expiresAt ?? '' })),
+    );
   }
 }

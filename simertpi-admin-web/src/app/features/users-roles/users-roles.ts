@@ -3,12 +3,12 @@ import { Component, DestroyRef, HostListener, OnInit, inject, signal } from '@an
 import { ActivatedRoute } from '@angular/router';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { debounceTime, distinctUntilChanged, map } from 'rxjs';
+import { debounceTime, distinctUntilChanged } from 'rxjs';
 import { AdminSession } from '../../core/auth/admin-session';
 import { normalizeError } from '../../core/http/portal-error';
 import { DataState } from '../../shared/ui/data-state';
 import { PageHeading } from '../../shared/ui/page-heading';
-import { AdminAccessApi, AdminAccountPage, AdminRoleSummary, AdminRolePermissions } from './admin-access-api';
+import { AdminAccessApi, AdminAccountPage, AdminRoleSummary, AdminPermissionDefinition, AdminRoleHistoryEntry, DeliveryStatus } from './admin-access-api';
 
 type ViewState = 'loading' | 'error' | 'empty' | 'ready';
 type AccountStatus = 'all' | 'enabled' | 'disabled';
@@ -31,13 +31,19 @@ export class UsersRoles implements OnInit {
   readonly rolesState = signal<ViewState>(this.preview ? 'empty' : 'loading');
   readonly directory = signal<AdminAccountPage | null>(null);
   readonly roleCatalog = signal<AdminRoleSummary[]>([]);
-  readonly permissionCatalog = signal<AdminRolePermissions[]>([]);
+  readonly permissionCatalog = signal<AdminPermissionDefinition[]>([]);
+  readonly roleDialog = signal<'create' | 'edit' | 'status' | 'detail' | 'history' | null>(null);
+  readonly selectedRole = signal<AdminRoleSummary | null>(null);
+  readonly roleHistory = signal<AdminRoleHistoryEntry[]>([]);
+  readonly roleDialogError = signal('');
   readonly selectedAccount = signal<AdminAccountPage['content'][number] | null>(null);
   readonly operation = signal<'edit' | 'status' | 'invite' | 'activation' | 'roles' | null>(null);
   readonly identity = inject(AdminSession).identity;
   readonly saving = signal(false);
   readonly operationError = signal('');
   readonly notice = signal<{ kind: 'success' | 'error'; message: string } | null>(null);
+  readonly deliveryResult = signal<{ status: DeliveryStatus; expiresAt: string } | null>(null);
+  // Kept null-only for the legacy dialog template; invitation secrets are no longer returned by the API.
   readonly activationSecret = signal<{ token: string; expiresAt: string } | null>(null);
   readonly profileForm = this.builder.nonNullable.group({
     email: ['', [Validators.required, Validators.email, Validators.maxLength(255)]],
@@ -65,6 +71,14 @@ export class UsersRoles implements OnInit {
     roles: [[] as string[]],
     reason: ['', [Validators.required, Validators.maxLength(500)]],
   });
+  readonly roleForm = this.builder.nonNullable.group({
+    code: ['', [Validators.required, Validators.pattern(/^[A-Z][A-Z0-9_]{1,49}$/)]],
+    name: ['', [Validators.required, Validators.maxLength(100)]],
+    description: ['', [Validators.maxLength(500)]],
+    permissions: [[] as string[]],
+    reason: ['', [Validators.maxLength(500)]],
+  });
+  readonly roleStatusForm = this.builder.nonNullable.group({ reason: ['', [Validators.required, Validators.maxLength(500)]] });
   readonly usersError = signal('');
   readonly rolesError = signal('');
   readonly filters = this.builder.nonNullable.group({
@@ -134,7 +148,7 @@ export class UsersRoles implements OnInit {
   loadPermissions() {
     if (this.preview || !this.isSuperAdmin()) return;
     this.api.permissions().subscribe({
-      next: (result) => this.permissionCatalog.set(result.roles),
+      next: (result) => this.permissionCatalog.set(result.filter((permission) => permission.assignable)),
       error: (error: unknown) => this.showNotice(
         'error', normalizeError(error).message || 'No se pudieron consultar los permisos.',
       ),
@@ -150,15 +164,15 @@ export class UsersRoles implements OnInit {
   }
 
   canManageAllAccounts() {
-    return this.isSuperAdmin() && this.hasCapability('USERS_MANAGE_ALL');
+    return this.isSuperAdmin();
   }
 
   canManageInspectors() {
-    return this.isAdmin() || (this.isSuperAdmin() && this.hasCapability('USERS_MANAGE_INSPECTORS'));
+    return this.isAdmin() || this.isSuperAdmin();
   }
 
   canAssignRoles() {
-    return this.canManageAllAccounts() && this.hasCapability('ROLES_ASSIGN');
+    return this.isSuperAdmin();
   }
 
   canManageAccount(account: AdminAccountPage['content'][number]) {
@@ -183,10 +197,10 @@ export class UsersRoles implements OnInit {
   }
 
   hasCapability(capability: string) {
-    const assignedRoles = this.identity()?.roles ?? [];
-    return this.permissionCatalog().some((role) =>
-      assignedRoles.includes(role.roleCode) && role.permissions.includes(capability),
-    );
+    const identity = this.identity();
+    if (!identity) return false;
+    if (identity.permissions !== undefined) return identity.permissions.includes(capability);
+    return identity.roles.some((role) => role === 'IT_ADMIN' || role === 'SIMERTPI_ADMIN');
   }
 
   visibleRoleOptions() {
@@ -271,7 +285,7 @@ export class UsersRoles implements OnInit {
   openActivation(account: AdminAccountPage['content'][number]) {
     if (!this.canReissueActivation(account)) return;
     this.selectedAccount.set(account);
-    this.activationSecret.set(null);
+    this.deliveryResult.set(null);
     this.activationForm.reset({ reason: '' });
     this.operationError.set('');
     this.startOperation('activation');
@@ -282,12 +296,12 @@ export class UsersRoles implements OnInit {
     this.operation.set(null);
     this.operationError.set('');
     this.selectedAccount.set(null);
-    this.activationSecret.set(null);
+    this.deliveryResult.set(null);
   }
 
   @HostListener('document:keydown.escape')
   onEscape() {
-    if (this.operation() === 'activation' && this.activationSecret()) {
+    if (this.operation() === 'activation' && this.deliveryResult()) {
       this.clearActivationSecret();
       return;
     }
@@ -333,7 +347,7 @@ export class UsersRoles implements OnInit {
       next: () => {
         this.saving.set(false);
         this.closeOperation();
-        this.showNotice('success', `La cuenta se ${account.enabled ? 'deshabilitó' : 'habilitó'} correctamente.`);
+        this.showNotice('success', 'El estado de la cuenta se actualizó correctamente.');
         this.loadUsers();
         this.loadRoles();
       },
@@ -368,9 +382,9 @@ export class UsersRoles implements OnInit {
     }).subscribe({
       next: (created) => {
         this.saving.set(false);
-        this.activationSecret.set({ token: created.activationToken, expiresAt: created.activationExpiresAt });
-        this.operation.set('activation');
-        this.showNotice('success', `La cuenta ${this.isSuperAdmin() ? 'administrativa' : 'de inspector'} se creó. El enlace de activación se muestra una sola vez.`);
+        this.deliveryResult.set({ status: created.deliveryStatus, expiresAt: created.activationExpiresAt });
+        this.operation.set(null);
+        this.showNotice(created.deliveryStatus === 'FAILED' ? 'error' : 'success', this.deliveryMessage(created.deliveryStatus, 'La cuenta fue creada'));
         this.loadUsers(0);
         this.loadRoles();
       },
@@ -419,9 +433,7 @@ export class UsersRoles implements OnInit {
     this.saving.set(true);
     this.operationError.set('');
     const result = account.roles.includes('INSPECTOR')
-      ? this.api.reissueInspectorActivation(account.id).pipe(map((issued) => ({
-          activationToken: issued.activationToken, activationExpiresAt: issued.expiresAt,
-        })))
+      ? this.api.reissueInspectorActivation(account.id)
       : this.api.reissueAdminActivation(account.id, {
           reason: this.activationForm.controls.reason.value.trim(),
           updatedAt: account.updatedAt,
@@ -429,17 +441,106 @@ export class UsersRoles implements OnInit {
     result.subscribe({
       next: (issued) => {
         this.saving.set(false);
-        this.activationSecret.set({ token: issued.activationToken, expiresAt: issued.activationExpiresAt });
-        this.showNotice('success', 'Se emitió un nuevo enlace de activación.');
+        this.deliveryResult.set({ status: issued.deliveryStatus, expiresAt: issued.activationExpiresAt });
+        this.operation.set(null);
+        this.showNotice(issued.deliveryStatus === 'FAILED' ? 'error' : 'success', this.deliveryMessage(issued.deliveryStatus, 'Se registró una nueva invitación'));
       },
       error: (error: unknown) => this.failOperation(error, 'No se pudo emitir el enlace de activación.'),
     });
   }
 
   clearActivationSecret() {
-    this.activationSecret.set(null);
+    this.deliveryResult.set(null);
     this.closeOperation();
   }
+
+  deliveryMessage(status: DeliveryStatus, action: string) {
+    if (status === 'ACCEPTED_BY_PROVIDER') return `${action}. El proveedor aceptó el mensaje; esto no confirma su entrega.`;
+    if (status === 'UNCONFIGURED') return `${action}, pero el correo no se envió porque el proveedor no está configurado.`;
+    return `${action}, pero falló el envío del correo. Reintenta la invitación.`;
+  }
+
+  openRoleCreate() {
+    if (!this.isSuperAdmin()) return;
+    this.selectedRole.set(null);
+    this.roleForm.reset({ code: '', name: '', description: '', permissions: [], reason: '' });
+    this.roleForm.controls.reason.clearValidators();
+    this.roleForm.controls.reason.updateValueAndValidity();
+    this.roleDialogError.set('');
+    this.roleDialog.set('create');
+  }
+
+  openRoleEdit(role: AdminRoleSummary) {
+    if (!this.isSuperAdmin() || role.protectedRole) return;
+    this.selectedRole.set(role);
+    this.roleForm.reset({ code: role.code, name: role.name, description: role.description ?? '', permissions: [...role.permissions], reason: '' });
+    this.roleForm.controls.reason.setValidators([Validators.required, Validators.maxLength(500)]);
+    this.roleForm.controls.reason.updateValueAndValidity();
+    this.roleDialogError.set('');
+    this.roleDialog.set('edit');
+  }
+
+  openRoleStatus(role: AdminRoleSummary) {
+    if (!this.isSuperAdmin() || role.protectedRole || role.userCount > 0) return;
+    this.selectedRole.set(role);
+    this.roleStatusForm.reset({ reason: '' });
+    this.roleDialogError.set('');
+    this.roleDialog.set('status');
+  }
+
+  openRoleDetail(role: AdminRoleSummary) {
+    if (!this.isSuperAdmin()) return;
+    this.selectedRole.set(role);
+    this.roleDialogError.set('');
+    this.roleDialog.set('detail');
+    this.api.role(role.code).subscribe({ next: value => this.selectedRole.set(value), error: error => this.roleDialogError.set(normalizeError(error).message) });
+  }
+
+  openRoleHistory(role: AdminRoleSummary) {
+    if (!this.isSuperAdmin()) return;
+    this.selectedRole.set(role);
+    this.roleHistory.set([]);
+    this.roleDialogError.set('');
+    this.roleDialog.set('history');
+    this.api.roleHistory(role.code).subscribe({ next: value => this.roleHistory.set(value), error: error => this.roleDialogError.set(normalizeError(error).message) });
+  }
+
+  toggleRolePermission(code: string, selected: boolean) {
+    const permissions = new Set(this.roleForm.controls.permissions.value);
+    if (selected) permissions.add(code); else permissions.delete(code);
+    this.roleForm.controls.permissions.setValue([...permissions]);
+  }
+
+  saveRole() {
+    if (!this.isSuperAdmin() || this.saving()) return;
+    this.roleForm.markAllAsTouched();
+    if (this.roleForm.invalid || (this.selectedRole() && !this.roleForm.controls.reason.value.trim())) { this.roleDialogError.set('Completa el código, nombre y motivo del cambio.'); return; }
+    const value = this.roleForm.getRawValue();
+    const existing = this.selectedRole();
+    this.saving.set(true); this.roleDialogError.set('');
+    const request = { name: value.name.trim(), description: value.description.trim(), permissions: value.permissions };
+    const mutation = existing
+      ? this.api.updateRole(existing.code, { ...request, updatedAt: existing.updatedAt, rowVersion: existing.rowVersion, reason: value.reason.trim() })
+      : this.api.createRole({ ...request, code: value.code.trim() });
+    mutation.subscribe({
+      next: () => { this.saving.set(false); this.roleDialog.set(null); this.showNotice('success', existing ? 'El rol se actualizó correctamente.' : 'El rol se creó correctamente.'); this.loadRoles(); this.loadPermissions(); },
+      error: error => { this.saving.set(false); this.roleDialogError.set(normalizeError(error).message || 'No se pudo guardar el rol.'); },
+    });
+  }
+
+  saveRoleStatus() {
+    const role = this.selectedRole();
+    if (!role || role.protectedRole || role.userCount > 0 || this.saving()) return;
+    this.roleStatusForm.markAllAsTouched();
+    if (this.roleStatusForm.invalid) { this.roleDialogError.set('Indica el motivo del cambio de estado.'); return; }
+    this.saving.set(true); this.roleDialogError.set('');
+    this.api.updateRoleStatus(role.code, { enabled: !role.enabled, updatedAt: role.updatedAt, rowVersion: role.rowVersion, reason: this.roleStatusForm.controls.reason.value.trim() }).subscribe({
+      next: () => { this.saving.set(false); this.roleDialog.set(null); this.showNotice('success', `El rol se ${role.enabled ? 'desactivó' : 'activó'} correctamente.`); this.loadRoles(); },
+      error: error => { this.saving.set(false); this.roleDialogError.set(normalizeError(error).message || 'No se pudo cambiar el estado del rol.'); },
+    });
+  }
+
+  closeRoleDialog() { if (!this.saving()) { this.roleDialog.set(null); this.selectedRole.set(null); this.roleDialogError.set(''); } }
 
   private startOperation(operation: 'edit' | 'status' | 'invite' | 'activation' | 'roles') {
     this.operationError.set('');
@@ -490,6 +591,14 @@ export class UsersRoles implements OnInit {
     }).format(new Date(value));
   }
 
+  formatTimestamp(value: string) {
+    return new Intl.DateTimeFormat('es-EC', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/Guayaquil' }).format(new Date(value));
+  }
+
+  formatHistoryMetadata(metadata: Record<string, unknown>) {
+    return JSON.stringify(metadata, null, 2);
+  }
+
   enabledOnPage() {
     return (
       this.directory()?.content.filter((account) => account.enabled && !account.activationPending)
@@ -502,7 +611,7 @@ export class UsersRoles implements OnInit {
   }
 
   assignedAccountCount() {
-    return this.roleCatalog().reduce((total, role) => total + role.assignedAccounts, 0);
+    return this.roleCatalog().reduce((total, role) => total + role.userCount, 0);
   }
 
   previousPage() {
@@ -515,7 +624,7 @@ export class UsersRoles implements OnInit {
 
   ngOnDestroy() {
     if (this.noticeTimer) clearTimeout(this.noticeTimer);
-    this.activationSecret.set(null);
+    this.deliveryResult.set(null);
   }
 
   hasPrevious() {
