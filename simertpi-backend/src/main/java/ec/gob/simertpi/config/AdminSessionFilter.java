@@ -16,10 +16,11 @@ public class AdminSessionFilter extends OncePerRequestFilter {
   response.setHeader("Cache-Control","no-store");response.setHeader("Pragma","no-cache");
   String origin=request.getHeader("Origin");
   String actual=request.getScheme()+"://"+request.getServerName()+((request.getServerPort()==443&&request.isSecure())||(request.getServerPort()==80&&!request.isSecure())?"":":"+request.getServerPort());
-  if("cross-site".equals(request.getHeader("Sec-Fetch-Site"))||(origin!=null&&!origin.equals(allowedOrigin.isBlank()?actual:allowedOrigin))){reject(request,response,403,"ORIGIN_REJECTED");return;}
-  if(request.getHeader("Authorization")!=null){reject(request,response,401,"AUTHORIZATION_HEADER_REJECTED");return;}
   String path=request.getRequestURI();
-  boolean publicRoute=path.equals("/api/v1/admin/auth/login")||path.equals("/api/v1/admin/auth/csrf")||path.equals("/api/v1/admin/auth/logout");
+  boolean microsoftOAuthCallback="GET".equals(request.getMethod())&&path.equals("/api/v1/admin/system/email/oauth/callback");
+  if(!microsoftOAuthCallback&&("cross-site".equals(request.getHeader("Sec-Fetch-Site"))||(origin!=null&&!origin.equals(allowedOrigin.isBlank()?actual:allowedOrigin)))){reject(request,response,403,"ORIGIN_REJECTED");return;}
+  if(request.getHeader("Authorization")!=null){reject(request,response,401,"AUTHORIZATION_HEADER_REJECTED");return;}
+  boolean publicRoute=path.equals("/api/v1/admin/auth/login")||path.equals("/api/v1/admin/auth/csrf")||path.equals("/api/v1/admin/auth/logout")||microsoftOAuthCallback;
   if(!publicRoute){
    String sessionCookie=cookie(request);
    try { request.setAttribute("admin.identity",auth.authenticate(sessionCookie)); }

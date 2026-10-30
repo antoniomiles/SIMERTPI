@@ -33,7 +33,7 @@ public class AdminSmtpConfigurationController {
     public AdminSmtpConfigurationController(SmtpConfigurationService service) { this.service = service; }
 
     public record DraftRequest(
-            @NotBlank @Pattern(regexp = "GMAIL|CUSTOM") String provider,
+            @NotBlank @Pattern(regexp = "GMAIL|CUSTOM|MICROSOFT_OUTLOOK") String provider,
             @NotBlank @Size(max = 150) String displayName,
             @NotBlank @jakarta.validation.constraints.Email @Size(max = 255) String from,
             @NotBlank @Size(max = 253) String host,

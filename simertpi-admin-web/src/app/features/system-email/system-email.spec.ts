@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { of, throwError } from 'rxjs';
 import { AdminSession } from '../../core/auth/admin-session';
 import { SystemEmailApi } from './system-email-api';
-import { SystemEmail } from './system-email';
+import { isSafeMicrosoftAuthorizationUrl, SystemEmail } from './system-email';
 
 describe('System email administration', () => {
   let fixture: ComponentFixture<SystemEmail>;
@@ -13,6 +13,12 @@ describe('System email administration', () => {
     sendTestEmail: vi.fn(),
     activate: vi.fn(),
     disable: vi.fn(),
+    microsoftOAuthStatus: vi.fn(),
+    startMicrosoftOAuth: vi.fn(),
+    testMicrosoftConnection: vi.fn(),
+    sendMicrosoftTestEmail: vi.fn(),
+    activateMicrosoft: vi.fn(),
+    disconnectMicrosoftOAuth: vi.fn(),
   };
   const identity = { userId: 'admin-1', username: 'root', roles: ['IT_ADMIN'], enabled: true };
 
@@ -20,6 +26,17 @@ describe('System email administration', () => {
     vi.clearAllMocks();
     api.get.mockReturnValue(
       of({ active: null, draft: null, history: [], testRecipientConfigured: false }),
+    );
+    api.microsoftOAuthStatus.mockReturnValue(
+      of({
+        state: 'NOT_CONFIGURED',
+        authorizedAccount: null,
+        connectedAt: null,
+        lastRefresh: null,
+        errorCode: null,
+        expiresAt: null,
+        testPassed: false,
+      }),
     );
     api.saveDraft.mockReturnValue(
       of({ status: 'DRAFT_SAVED', version: 1, updatedAt: '2026-10-29T12:00:00Z' }),
@@ -122,5 +139,35 @@ describe('System email administration', () => {
     expect(fixture.nativeElement.textContent).toContain(
       'El servidor aún no tiene configurado un destinatario de prueba.',
     );
+  });
+
+  it('only accepts a Microsoft authorization URL with HTTPS, state, code and PKCE S256', () => {
+    expect(
+      isSafeMicrosoftAuthorizationUrl(
+        'https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?response_type=code&state=s&code_challenge=c&code_challenge_method=S256&scope=offline_access%20https%3A%2F%2Foutlook.office.com%2FSMTP.Send',
+      ),
+    ).toBe(true);
+    expect(
+      isSafeMicrosoftAuthorizationUrl(
+        'https://evil.example/authorize?response_type=code&state=s&code_challenge=c&code_challenge_method=S256&scope=offline_access%20https%3A%2F%2Foutlook.office.com%2FSMTP.Send',
+      ),
+    ).toBe(false);
+    expect(
+      isSafeMicrosoftAuthorizationUrl(
+        'http://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?response_type=code&state=s&code_challenge=c&code_challenge_method=S256&scope=offline_access%20https%3A%2F%2Foutlook.office.com%2FSMTP.Send',
+      ),
+    ).toBe(false);
+    expect(
+      isSafeMicrosoftAuthorizationUrl(
+        'https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?response_type=code&state=s&code_challenge=c&code_challenge_method=plain&scope=offline_access%20https%3A%2F%2Foutlook.office.com%2FSMTP.Send',
+      ),
+    ).toBe(false);
+  });
+
+  it('does not start Microsoft authorization before saving an Outlook draft', () => {
+    const page = fixture.componentInstance;
+    page.startMicrosoftAuthorization();
+    expect(api.startMicrosoftOAuth).not.toHaveBeenCalled();
+    expect(page.notice()?.kind).toBe('error');
   });
 });

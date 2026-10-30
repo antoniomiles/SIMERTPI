@@ -30,6 +30,16 @@ public final class SmtpHostPolicy {
         if (!host.matches("(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*")
                 || host.equals("localhost") || host.endsWith(".localhost") || host.endsWith(".local")
                 || host.endsWith(".internal") || !allowedHosts.contains(host)) reject();
+        validatePublicAddresses(host);
+    }
+
+    /** Validates the fixed Microsoft OAuth SMTP endpoint without permitting it as an arbitrary CUSTOM host. */
+    public void validateMicrosoftOAuthHost(String input) {
+        if (input == null || !"smtp-mail.outlook.com".equalsIgnoreCase(input.trim())) reject();
+        validatePublicAddresses("smtp-mail.outlook.com");
+    }
+
+    private static void validatePublicAddresses(String host) {
         try {
             for (InetAddress address : InetAddress.getAllByName(host)) {
                 if (address.isAnyLocalAddress() || address.isLoopbackAddress() || address.isLinkLocalAddress()

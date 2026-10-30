@@ -1,8 +1,9 @@
 package ec.gob.simertpi.application.identity.admin;
 import ec.gob.simertpi.application.audit.AuditService;
 import ec.gob.simertpi.application.identity.InspectorAccountService;
-import ec.gob.simertpi.application.identity.smtp.SmtpCandidate;
 import ec.gob.simertpi.application.identity.smtp.SmtpConfigurationService;
+import ec.gob.simertpi.application.identity.smtp.MicrosoftOAuthSmtpService;
+import ec.gob.simertpi.application.identity.smtp.SmtpCandidate;
 import ec.gob.simertpi.domain.identity.entity.User;
 import ec.gob.simertpi.domain.identity.repository.*;
 import java.nio.*;
@@ -15,8 +16,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 @Service
 public class AdminBootstrapService {
- private final UserRepository users;private final RoleRepository roles;private final PasswordEncoder encoder;private final JdbcTemplate jdbc;private final AuditService audit;private final InspectorAccountService invitations;private final SmtpConfigurationService smtp;
- public AdminBootstrapService(UserRepository users,RoleRepository roles,PasswordEncoder encoder,JdbcTemplate jdbc,AuditService audit,InspectorAccountService invitations,SmtpConfigurationService smtp){this.users=users;this.roles=roles;this.encoder=encoder;this.jdbc=jdbc;this.audit=audit;this.invitations=invitations;this.smtp=smtp;}
+ private final UserRepository users;private final RoleRepository roles;private final PasswordEncoder encoder;private final JdbcTemplate jdbc;private final AuditService audit;private final InspectorAccountService invitations;private final SmtpConfigurationService smtp;private final MicrosoftOAuthSmtpService microsoftOAuth;
+ public AdminBootstrapService(UserRepository users,RoleRepository roles,PasswordEncoder encoder,JdbcTemplate jdbc,AuditService audit,InspectorAccountService invitations,SmtpConfigurationService smtp,MicrosoftOAuthSmtpService microsoftOAuth){this.users=users;this.roles=roles;this.encoder=encoder;this.jdbc=jdbc;this.audit=audit;this.invitations=invitations;this.smtp=smtp;this.microsoftOAuth=microsoftOAuth;}
  public record Identity(String username,String email,String firstName,String lastName) {}
  @Transactional
  public UUID createFirstAdmin(Identity identity,CharSequence password,String authorization) {
@@ -43,12 +44,30 @@ public class AdminBootstrapService {
   audit.success("ADMIN_BOOTSTRAP_PENDING","USER",stored.getId(),null,Map.of("approvalId",authorization,"role","IT_ADMIN","activationExpiresAt",invitation.activationExpiresAt().toString()));
   return new InitialSuperadminBootstrap(new PendingSuperadmin(stored.getId(),invitation.activationToken(),invitation.activationExpiresAt()),smtpResult);
  }
+ /** Creates the first IT_ADMIN invitation only after the separately authorized Microsoft OAuth SMTP connection is active. */
+ @Transactional
+ public PendingSuperadmin createFirstSuperadminInvite(Identity identity,String authorization) {
+  validateIdentity(identity);requireBootstrapOperator();
+  if(authorization==null||!authorization.matches("[A-Za-z0-9._:/-]{3,100}"))throw new IllegalArgumentException("Invalid bootstrap approval");
+  jdbc.execute("SELECT pg_advisory_xact_lock(25250342)");
+  if(Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM identity.user_roles ur JOIN identity.roles r ON r.id=ur.role_id WHERE r.code='IT_ADMIN')",Boolean.class)))throw new IllegalStateException("An IT_ADMIN account already exists");
+  if(!microsoftOAuth.isActive())throw new IllegalStateException("Verified active Microsoft SMTP authorization required");
+  String normalizedUsername=identity.username().trim();String normalizedEmail=identity.email().trim().toLowerCase(Locale.ROOT);
+  jdbc.query("SELECT pg_advisory_xact_lock(hashtextextended('username:' || lower(?), 0))",rs->null,normalizedUsername);
+  jdbc.query("SELECT pg_advisory_xact_lock(hashtextextended(lower(?), 0))",rs->null,normalizedEmail);
+  if(users.existsByUsernameIgnoreCase(normalizedUsername)||users.existsByEmailIgnoreCase(normalizedEmail))throw new IllegalStateException("Identity already exists; no promotion performed");
+  var invitation=invitations.createWithRoles(normalizedUsername,normalizedEmail,identity.firstName(),identity.lastName(),null,List.of("IT_ADMIN"));
+  User stored=users.findByUsernameWithRoles(normalizedUsername).orElseThrow();
+  if(stored.isEnabled()||stored.getPasswordHash()!=null||stored.getRoles().size()!=1||!stored.getRoles().iterator().next().getCode().equals("IT_ADMIN")||!invitation.activationPending())throw new IllegalStateException("Bootstrap invitation verification failed");
+  audit.success("ADMIN_BOOTSTRAP_PENDING","USER",stored.getId(),null,Map.of("approvalId",authorization,"role","IT_ADMIN","activationExpiresAt",invitation.activationExpiresAt().toString()));
+  return new PendingSuperadmin(stored.getId(),invitation.activationToken(),invitation.activationExpiresAt());
+ }
  @Transactional
  public PendingSuperadmin reissueFirstSuperadminInvite(Identity identity,String authorization){
   validateIdentity(identity);requireBootstrapOperator();
   if(authorization==null||!authorization.matches("[A-Za-z0-9._:/-]{3,100}"))throw new IllegalArgumentException("Invalid bootstrap approval");
   jdbc.execute("SELECT pg_advisory_xact_lock(25250342)");
-  if(!smtp.configured())throw new IllegalStateException("Verified active SMTP configuration required");
+  if(!smtp.configured()&&!microsoftOAuth.isActive())throw new IllegalStateException("Verified active SMTP configuration required");
   String username=identity.username().trim();String email=identity.email().trim().toLowerCase(Locale.ROOT);
   User target=users.findByUsernameWithRoles(username).orElseThrow(()->new IllegalStateException("No matching pending bootstrap account"));
   if(!email.equalsIgnoreCase(target.getEmail())||target.isEnabled()||target.getPasswordHash()!=null||target.getRoles().size()!=1||!target.getRoles().iterator().next().getCode().equals("IT_ADMIN"))throw new IllegalStateException("Only the matching pending bootstrap Superadministrator invitation can be reissued");

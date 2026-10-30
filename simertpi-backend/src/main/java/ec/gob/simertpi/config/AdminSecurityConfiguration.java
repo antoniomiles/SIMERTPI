@@ -38,6 +38,7 @@ public class AdminSecurityConfiguration {
    .authorizeHttpRequests(a->a
     .requestMatchers(HttpMethod.GET,"/api/v1/admin/auth/csrf").permitAll()
     .requestMatchers(HttpMethod.POST,"/api/v1/admin/auth/login","/api/v1/admin/auth/logout").permitAll()
+    .requestMatchers(HttpMethod.GET,"/api/v1/admin/system/email/oauth/callback").permitAll()
     .anyRequest().access(new AdminPermissionPolicy()))
    .addFilterAfter(new AdminSessionFilter(auth,origin),SecurityContextHolderFilter.class);
   return http.build();

@@ -2,8 +2,33 @@ import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { PORTAL_CONFIG } from '../../core/config/portal-config';
 
-export type EmailProvider = 'GMAIL' | 'CUSTOM';
+export type EmailProvider = 'GMAIL' | 'CUSTOM' | 'MICROSOFT_OUTLOOK';
 export type EmailSecurity = 'STARTTLS' | 'SMTPS';
+
+export type MicrosoftOAuthState =
+  | 'NOT_CONFIGURED'
+  | 'PENDING_AUTHORIZATION'
+  | 'CONNECTED'
+  | 'ACTIVE'
+  | 'REAUTH_REQUIRED'
+  | 'ERROR'
+  | 'DISABLED'
+  | 'DISCONNECTED';
+
+/** Public connection metadata only. OAuth tokens must never cross the API boundary. */
+export interface MicrosoftOAuthStatus {
+  state: MicrosoftOAuthState;
+  authorizedAccount: string | null;
+  connectedAt: string | null;
+  lastRefresh: string | null;
+  expiresAt?: string | null;
+  errorCode: string | null;
+  testPassed?: boolean;
+}
+
+export interface MicrosoftOAuthStartResponse {
+  authorizationUrl: string;
+}
 
 export interface EmailConfigurationSummary {
   id: string;
@@ -100,6 +125,40 @@ export class SystemEmailApi {
 
   disable(reason: string) {
     return this.http.post<EmailConfigurationMutationResponse>(`${this.endpoint}/disable`, {
+      reason,
+    });
+  }
+
+  microsoftOAuthStatus() {
+    return this.http.get<MicrosoftOAuthStatus>(`${this.endpoint}/oauth/status`);
+  }
+
+  startMicrosoftOAuth() {
+    return this.http.post<MicrosoftOAuthStartResponse>(`${this.endpoint}/oauth/start`, null);
+  }
+
+  testMicrosoftConnection() {
+    return this.http.post<EmailConfigurationMutationResponse>(
+      `${this.endpoint}/oauth/test-connection`,
+      null,
+    );
+  }
+
+  sendMicrosoftTestEmail() {
+    return this.http.post<EmailConfigurationMutationResponse>(
+      `${this.endpoint}/oauth/test-email`,
+      null,
+    );
+  }
+
+  activateMicrosoft(reason: string) {
+    return this.http.post<EmailConfigurationMutationResponse>(`${this.endpoint}/oauth/activate`, {
+      reason,
+    });
+  }
+
+  disconnectMicrosoftOAuth(reason: string) {
+    return this.http.post<EmailConfigurationMutationResponse>(`${this.endpoint}/oauth/disconnect`, {
       reason,
     });
   }

@@ -17,6 +17,10 @@ test('proxy preserves cookies, CSRF, Origin, body, errors; isolates API and SPA'
  const response=await fetch(base+'/api/v1/admin/auth/logout?test=1',{method:'POST',headers:{cookie:'fixture=opaque','X-XSRF-TOKEN':'fixture-csrf',Origin:'https://admin.example.invalid','Content-Type':'application/json'},body:'{}'});
  assert.equal(response.status,403);assert.equal(await response.text(),'csrf rejected');assert.equal(response.headers.get('cache-control'),'no-store');assert.equal(response.headers.getSetCookie().length,2);
  assert.equal(received.headers.cookie,'fixture=opaque');assert.equal(received.headers['x-xsrf-token'],'fixture-csrf');assert.equal(received.headers.origin,'https://admin.example.invalid');assert.equal(received.body,'{}');assert.equal(received.url,'/api/v1/admin/auth/logout?test=1');
+ const oauthCallback=await fetch(base+'/api/v1/admin/system/email/oauth/callback?code=fixture-code&state=fixture-state');
+ assert.equal(oauthCallback.status,403,'OAuth callback must be handled by the backend, not by a portal mock');
+ assert.equal(received.url,'/api/v1/admin/system/email/oauth/callback?code=fixture-code&state=fixture-state');
+ assert.equal(received.headers.cookie,undefined,'proxy must not synthesize an administrative session for OAuth callback');
  for(const path of ['/api/v1/municipal/auth/activation/validate','/api/v1/municipal/auth/activate']){
   const before=forwarded.length;
   const activationResponse=await fetch(base+path,{method:'POST',headers:{'Content-Type':'application/json','X-XSRF-TOKEN':'activation-csrf','Origin':'https://admin.example.invalid'},body:'{"activationToken":"fixture-token"}'});

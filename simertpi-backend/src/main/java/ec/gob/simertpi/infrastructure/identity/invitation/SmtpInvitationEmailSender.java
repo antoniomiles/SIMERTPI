@@ -28,23 +28,35 @@ final class SmtpInvitationEmailSender implements InvitationEmailSender {
     private final JavaMailSender mailSender;
     private final ec.gob.simertpi.application.identity.smtp.SmtpConfigurationService dynamicSmtp;
     private final ec.gob.simertpi.application.identity.smtp.SmtpHostPolicy hostPolicy;
+    private final ec.gob.simertpi.application.identity.smtp.MicrosoftOAuthSmtpService microsoftOAuth;
+    private final ec.gob.simertpi.application.identity.smtp.SmtpTransport smtpTransport;
 
     SmtpInvitationEmailSender(InvitationSmtpSettings settings, JavaMailSender mailSender) {
-        this(settings, mailSender, null, null);
+        this(settings, mailSender, null, null, null, null);
     }
 
     SmtpInvitationEmailSender(InvitationSmtpSettings settings, JavaMailSender mailSender,
                               ec.gob.simertpi.application.identity.smtp.SmtpConfigurationService dynamicSmtp) {
-        this(settings, mailSender, dynamicSmtp, null);
+        this(settings, mailSender, dynamicSmtp, null, null, null);
     }
 
     SmtpInvitationEmailSender(InvitationSmtpSettings settings, JavaMailSender mailSender,
                               ec.gob.simertpi.application.identity.smtp.SmtpConfigurationService dynamicSmtp,
                               ec.gob.simertpi.application.identity.smtp.SmtpHostPolicy hostPolicy) {
+        this(settings, mailSender, dynamicSmtp, hostPolicy, null, null);
+    }
+
+    SmtpInvitationEmailSender(InvitationSmtpSettings settings, JavaMailSender mailSender,
+                              ec.gob.simertpi.application.identity.smtp.SmtpConfigurationService dynamicSmtp,
+                              ec.gob.simertpi.application.identity.smtp.SmtpHostPolicy hostPolicy,
+                              ec.gob.simertpi.application.identity.smtp.MicrosoftOAuthSmtpService microsoftOAuth,
+                              ec.gob.simertpi.application.identity.smtp.SmtpTransport smtpTransport) {
         this.settings = settings;
         this.mailSender = mailSender;
         this.dynamicSmtp = dynamicSmtp;
         this.hostPolicy = hostPolicy;
+        this.microsoftOAuth = microsoftOAuth;
+        this.smtpTransport = smtpTransport;
     }
 
     @Override
@@ -54,29 +66,33 @@ final class SmtpInvitationEmailSender implements InvitationEmailSender {
 
     @Override
     public boolean configured() {
-        return dynamicSmtp == null || dynamicSmtp.configured();
+        return dynamicSmtp == null || dynamicSmtp.configured() || microsoftOAuth != null && microsoftOAuth.isActive();
     }
 
     @Override
     public DeliveryResult send(String destination, String displayName, String username, List<String> roleNames,
                                String activationUrl, OffsetDateTime expiresAt) {
         ec.gob.simertpi.application.identity.smtp.SmtpConfigurationService.ActiveCredential active = null;
+        ec.gob.simertpi.application.identity.smtp.MicrosoftOAuthSmtpService.DeliveryCredential oauthActive = null;
         try {
             validateConfiguration();
             validateActivationUrl(activationUrl);
-            active = dynamicSmtp == null ? null : dynamicSmtp.activeCredential();
-            if (dynamicSmtp != null && active == null) return DeliveryResult.unconfigured();
+            if (microsoftOAuth != null && microsoftOAuth.isActive()) oauthActive = microsoftOAuth.activeCredential();
+            active = dynamicSmtp == null || oauthActive != null ? null : dynamicSmtp.activeCredential();
+            if (dynamicSmtp != null && active == null && oauthActive == null) return DeliveryResult.unconfigured();
             if (active != null) {
                 if (hostPolicy == null) throw new IllegalStateException("SMTP egress policy is unavailable");
                 // Re-resolve and enforce the external hostname allowlist immediately before opening SMTP.
                 // JavaMail resolves the hostname again; without socket pinning DNS rebinding remains a residual risk.
                 hostPolicy.validate(active.settings().host());
             }
-            JavaMailSender selected = dynamicSmtp == null ? mailSender : dynamicSender(active);
-            if (selected == null) return DeliveryResult.unconfigured();
-            MimeMessage message = selected.createMimeMessage();
+            if (oauthActive != null) hostPolicy.validateMicrosoftOAuthHost(oauthActive.settings().host());
+            JavaMailSender selected = oauthActive != null ? null : dynamicSmtp == null ? mailSender : dynamicSender(active);
+            if (oauthActive == null && selected == null) return DeliveryResult.unconfigured();
+            MimeMessage message = oauthActive != null ? new JavaMailSenderImpl().createMimeMessage() : selected.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, StandardCharsets.UTF_8.name());
-            if (active == null) helper.setFrom(settings.from());
+            if (oauthActive != null) helper.setFrom(new jakarta.mail.internet.InternetAddress(oauthActive.settings().fromAddress(), oauthActive.settings().displayName(), StandardCharsets.UTF_8.name()));
+            else if (active == null) helper.setFrom(settings.from());
             else helper.setFrom(new jakarta.mail.internet.InternetAddress(active.settings().fromAddress(), active.settings().displayName(), StandardCharsets.UTF_8.name()));
             helper.setTo(clean(destination));
             helper.setSubject("SIMERTPI | Activación de tu cuenta");
@@ -84,7 +100,11 @@ final class SmtpInvitationEmailSender implements InvitationEmailSender {
             String expiry = EXPIRY_FORMAT.format(expiresAt.atZoneSameInstant(ZoneId.of("America/Guayaquil")));
             helper.setText(plain(displayName, username, roleText, activationUrl, expiry),
                     html(displayName, username, roleText, activationUrl, expiry));
-            selected.send(message);
+            if (oauthActive != null) {
+                if (smtpTransport == null) throw new IllegalStateException("Microsoft SMTP transport is unavailable");
+                smtpTransport.sendMessage(oauthActive.settings(), oauthActive.accessToken(),
+                        ec.gob.simertpi.application.identity.smtp.SmtpTransport.Authentication.XOAUTH2, message);
+            } else selected.send(message);
             // No recipient, activation URL, token, or message body is logged.
             return DeliveryResult.acceptedByProvider();
         } catch (RuntimeException | MessagingException | IOException failure) {
@@ -93,6 +113,7 @@ final class SmtpInvitationEmailSender implements InvitationEmailSender {
             return DeliveryResult.failed();
         } finally {
             if (active != null) java.util.Arrays.fill(active.password(), '\0');
+            if (oauthActive != null) java.util.Arrays.fill(oauthActive.accessToken(), '\0');
         }
     }
 
@@ -120,7 +141,7 @@ final class SmtpInvitationEmailSender implements InvitationEmailSender {
     }
 
     private void validateConfiguration() {
-        if ((dynamicSmtp == null || !dynamicSmtp.configured()) && (settings.from().isBlank() || mailSender == null))
+        if ((dynamicSmtp == null || !dynamicSmtp.configured()) && (microsoftOAuth == null || !microsoftOAuth.isActive()) && (settings.from().isBlank() || mailSender == null))
             throw new IllegalStateException("Invitation sender address is not configured");
     }
 

@@ -14,7 +14,7 @@ import org.springframework.util.StringUtils;
 public class InvitationEmailConfiguration {
     InvitationEmailSender invitationEmailSender(InvitationSmtpSettings settings, Environment environment,
                                                  org.springframework.beans.factory.ObjectProvider<JavaMailSender> mailSender) {
-        return invitationEmailSender(settings, environment, mailSender, null, null);
+        return invitationEmailSender(settings, environment, mailSender, null, null, null, null);
     }
 
     @Bean
@@ -22,13 +22,15 @@ public class InvitationEmailConfiguration {
     InvitationEmailSender invitationEmailSender(InvitationSmtpSettings settings, Environment environment,
                                                  org.springframework.beans.factory.ObjectProvider<JavaMailSender> mailSender,
                                                  ec.gob.simertpi.application.identity.smtp.SmtpConfigurationService dynamicSmtp,
-                                                 ec.gob.simertpi.application.identity.smtp.SmtpHostPolicy hostPolicy) {
+                                                 ec.gob.simertpi.application.identity.smtp.SmtpHostPolicy hostPolicy,
+                                                 ec.gob.simertpi.application.identity.smtp.MicrosoftOAuthSmtpService microsoftOAuth,
+                                                 ec.gob.simertpi.application.identity.smtp.SmtpTransport smtpTransport) {
         String provider = environment.getProperty("simertpi.invitation-email.provider", "UNCONFIGURED");
         String host = environment.getProperty("spring.mail.host", "");
         JavaMailSender sender = mailSender.getIfAvailable();
         if (dynamicSmtp != null || "SMTP".equalsIgnoreCase(provider) && StringUtils.hasText(host)
                 && StringUtils.hasText(settings.from()) && validHttpsBaseUrl(settings.publicBaseUrl()) && sender != null) {
-            return new SmtpInvitationEmailSender(settings, sender, dynamicSmtp, hostPolicy);
+            return new SmtpInvitationEmailSender(settings, sender, dynamicSmtp, hostPolicy, microsoftOAuth, smtpTransport);
         }
         return new InvitationEmailSender() {
             @Override public String providerCode() { return "UNCONFIGURED"; }

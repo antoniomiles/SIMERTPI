@@ -129,6 +129,48 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.65rem;
 }
+.oauth-panel {
+  padding: 0.85rem;
+  border: 1px solid #dce9df;
+  border-radius: 0.65rem;
+  background: #fbfdfb;
+}
+.oauth-endpoint {
+  margin: 0.4rem 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+.oauth-status {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.55rem;
+  margin: 0.65rem 0 0.85rem;
+}
+.oauth-status > div {
+  min-width: 0;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid #e3ebe5;
+  border-radius: 0.5rem;
+  background: #fff;
+}
+.oauth-status dt {
+  margin-bottom: 0.2rem;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 650;
+}
+.oauth-status dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+.oauth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
 .server-grid {
   grid-template-columns: minmax(0, 1.4fr) minmax(7rem, 0.55fr) minmax(10rem, 0.8fr);
 }

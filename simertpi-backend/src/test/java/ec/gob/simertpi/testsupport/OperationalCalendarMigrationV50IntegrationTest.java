@@ -57,7 +57,7 @@ class OperationalCalendarMigrationV50IntegrationTest extends AbstractPostgresInt
         Flyway after = Flyway.configure().dataSource(url, postgres.getUsername(), postgres.getPassword())
                 .locations(migrationLocation).outOfOrder(false).load();
         after.migrate();
-        assertThat(after.info().current().getVersion().toString()).isEqualTo("52");
+        assertThat(after.info().current().getVersion().toString()).isEqualTo("53");
         try (var connection = after.getConfiguration().getDataSource().getConnection();
              var statement = connection.prepareStatement("""
                      SELECT s.row_version, s.day_of_week, s.start_time, s.end_time,

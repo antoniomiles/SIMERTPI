@@ -59,8 +59,13 @@
         <div class="security-note" role="note">
           <span class="note-mark" aria-hidden="true">i</span>
           <p>
-            Las credenciales se transmiten únicamente al guardar un reemplazo. El servidor nunca
-            devuelve la contraseña. Deje el campo vacío para conservar la credencial guardada.
+            @if (form.controls.provider.value === 'MICROSOFT_OUTLOOK') {
+              La autorización ocurre directamente entre el navegador y Microsoft mediante OAuth. Los
+              tokens permanecen cifrados en el backend y nunca se envían a Angular.
+            } @else {
+              Las credenciales se transmiten únicamente al guardar un reemplazo. El servidor nunca
+              devuelve la contraseña. Deje el campo vacío para conservar la credencial guardada.
+            }
           </p>
         </div>
 
@@ -94,6 +99,21 @@
                 <span
                   ><strong>SMTP personalizado</strong
                   ><small>Servidor institucional autorizado</small></span
+                >
+              </label>
+              <label
+                class="provider-option"
+                [class.selected]="form.controls.provider.value === 'MICROSOFT_OUTLOOK'"
+              >
+                <input
+                  type="radio"
+                  formControlName="provider"
+                  value="MICROSOFT_OUTLOOK"
+                  (change)="useMicrosoftOutlook()"
+                />
+                <span
+                  ><strong>Microsoft Outlook OAuth2</strong
+                  ><small>Autorización segura; no se usa contraseña SMTP</small></span
                 >
               </label>
             </div>
@@ -130,78 +150,203 @@
             </div>
           </section>
 
-          <section class="form-section" aria-labelledby="server-heading">
-            <div class="section-heading">
-              <span class="section-number">3</span>
-              <div>
-                <h3 id="server-heading">Servidor SMTP</h3>
-                <p>Use TLS seguro; no se permite SMTP sin cifrado.</p>
+          @if (form.controls.provider.value === 'MICROSOFT_OUTLOOK') {
+            <section class="form-section oauth-panel" aria-labelledby="oauth-heading">
+              <div class="section-heading">
+                <span class="section-number">3</span>
+                <div>
+                  <h3 id="oauth-heading">Autorización Microsoft</h3>
+                  <p>
+                    Outlook usa OAuth2 y XOAUTH2. SIMERTPI no almacena una contraseña SMTP de
+                    Outlook.
+                  </p>
+                </div>
               </div>
-            </div>
-            <div class="field-grid server-grid">
-              <label class="field"
-                ><span>Servidor <b>*</b></span
-                ><input
-                  formControlName="host"
-                  autocomplete="url"
-                  maxlength="253"
-                  placeholder="smtp.gmail.com"
-                /><small>Nombre DNS, no se admiten direcciones locales.</small></label
-              >
-              <label class="field"
-                ><span>Puerto <b>*</b></span
-                ><input
-                  formControlName="port"
-                  type="number"
-                  min="1"
-                  max="65535"
-                  inputmode="numeric"
-                /><small>Puerto autorizado del proveedor.</small></label
-              >
-              <label class="field"
-                ><span>Seguridad <b>*</b></span
-                ><select formControlName="security">
-                  <option value="STARTTLS">STARTTLS</option>
-                  <option value="SMTPS">TLS implícito (SMTPS)</option></select
-                ><small>La conexión se cifra antes de autenticar.</small></label
-              >
-              <label class="field"
-                ><span>Usuario SMTP <b>*</b></span
-                ><input
-                  formControlName="username"
-                  autocomplete="username"
-                  maxlength="254"
-                  placeholder="cuenta@dominio.com"
-                /><small>Cuenta autenticada del proveedor.</small></label
-              >
-              <label class="field field-wide"
-                ><span>Contraseña de aplicación</span
-                ><input
-                  formControlName="password"
-                  type="password"
-                  autocomplete="new-password"
-                  maxlength="512"
-                  placeholder="{{
-                    data()?.draft?.credentialConfigured || data()?.active?.credentialConfigured
-                      ? 'Configurada; escriba solo para reemplazarla'
-                      : 'Ingrese la credencial SMTP'
-                  }}"
-                /><small class="credential-state"
-                  ><span
-                    class="credential-dot"
-                    [class.configured]="
-                      data()?.draft?.credentialConfigured || data()?.active?.credentialConfigured
+              <p class="oauth-endpoint">
+                Servidor fijo: <strong>smtp-mail.outlook.com:587 · STARTTLS</strong>
+              </p>
+              @if (microsoftOAuth(); as oauth) {
+                <dl class="oauth-status" aria-label="Estado de la autorización Microsoft">
+                  <div>
+                    <dt>Estado</dt>
+                    <dd>
+                      <span
+                        class="state-badge"
+                        [class.state-active]="
+                          oauth.state === 'CONNECTED' || oauth.state === 'ACTIVE'
+                        "
+                        [class.state-empty]="
+                          oauth.state === 'NOT_CONFIGURED' || oauth.state === 'DISCONNECTED'
+                        "
+                        >{{ oauthStateLabel(oauth.state) }}</span
+                      >
+                    </dd>
+                  </div>
+                  @if (oauth.authorizedAccount) {
+                    <div>
+                      <dt>Cuenta autorizada</dt>
+                      <dd>{{ oauth.authorizedAccount }}</dd>
+                    </div>
+                  }
+                  @if (oauth.connectedAt) {
+                    <div>
+                      <dt>Autorizada</dt>
+                      <dd>
+                        {{ oauth.connectedAt | date: 'dd/MM/yyyy HH:mm' : 'America/Guayaquil' }}
+                      </dd>
+                    </div>
+                  }
+                  @if (oauth.lastRefresh) {
+                    <div>
+                      <dt>Última renovación</dt>
+                      <dd>
+                        {{ oauth.lastRefresh | date: 'dd/MM/yyyy HH:mm' : 'America/Guayaquil' }}
+                      </dd>
+                    </div>
+                  }
+                  @if (oauth.expiresAt) {
+                    <div>
+                      <dt>Vencimiento del token</dt>
+                      <dd>
+                        {{ oauth.expiresAt | date: 'dd/MM/yyyy HH:mm' : 'America/Guayaquil' }}
+                      </dd>
+                    </div>
+                  }
+                  @if (oauth.errorCode) {
+                    <div>
+                      <dt>Estado técnico</dt>
+                      <dd>{{ oauth.errorCode }}</dd>
+                    </div>
+                  }
+                  <div>
+                    <dt>Prueba de conexión</dt>
+                    <dd>{{ oauth.testPassed ? 'Aprobada' : 'Pendiente' }}</dd>
+                  </div>
+                </dl>
+                @if (
+                  oauth.state === 'NOT_CONFIGURED' ||
+                  oauth.state === 'PENDING_AUTHORIZATION' ||
+                  oauth.state === 'REAUTH_REQUIRED'
+                ) {
+                  <button
+                    class="button button-primary"
+                    type="button"
+                    (click)="startMicrosoftAuthorization()"
+                    [disabled]="
+                      busy() || !data()?.draft || data()?.draft?.provider !== 'MICROSOFT_OUTLOOK'
                     "
-                  ></span
-                  >{{
-                    data()?.draft?.credentialConfigured || data()?.active?.credentialConfigured
-                      ? 'Credencial configurada'
-                      : 'Credencial aún no configurada'
-                  }}. Nunca se muestra el valor guardado.</small
-                ></label
-              >
-            </div>
-          </section>
+                  >
+                    {{
+                      operation() === 'oauth-start'
+                        ? 'Abriendo autorización…'
+                        : oauth.state === 'REAUTH_REQUIRED'
+                          ? 'Volver a autorizar Microsoft'
+                          : 'Conectar cuenta Microsoft'
+                    }}
+                  </button>
+                }
+                @if (oauth.state === 'CONNECTED' || oauth.state === 'ACTIVE') {
+                  <div class="oauth-actions">
+                    <button
+                      class="button button-secondary"
+                      type="button"
+                      (click)="startMicrosoftAuthorization()"
+                      [disabled]="
+                        busy() || !data()?.draft || data()?.draft?.provider !== 'MICROSOFT_OUTLOOK'
+                      "
+                    >
+                      Volver a autorizar
+                    </button>
+                    <button
+                      class="button button-danger"
+                      type="button"
+                      (click)="disconnectMicrosoft()"
+                      [disabled]="busy()"
+                    >
+                      Desconectar cuenta
+                    </button>
+                  </div>
+                }
+              } @else {
+                <p class="empty-state">
+                  El estado de autorización Microsoft aún no está disponible en el servidor.
+                </p>
+              }
+            </section>
+          } @else {
+            <section class="form-section" aria-labelledby="server-heading">
+              <div class="section-heading">
+                <span class="section-number">3</span>
+                <div>
+                  <h3 id="server-heading">Servidor SMTP</h3>
+                  <p>Use TLS seguro; no se permite SMTP sin cifrado.</p>
+                </div>
+              </div>
+              <div class="field-grid server-grid">
+                <label class="field"
+                  ><span>Servidor <b>*</b></span
+                  ><input
+                    formControlName="host"
+                    autocomplete="url"
+                    maxlength="253"
+                    placeholder="smtp.gmail.com"
+                  /><small>Nombre DNS, no se admiten direcciones locales.</small></label
+                >
+                <label class="field"
+                  ><span>Puerto <b>*</b></span
+                  ><input
+                    formControlName="port"
+                    type="number"
+                    min="1"
+                    max="65535"
+                    inputmode="numeric"
+                  /><small>Puerto autorizado del proveedor.</small></label
+                >
+                <label class="field"
+                  ><span>Seguridad <b>*</b></span
+                  ><select formControlName="security">
+                    <option value="STARTTLS">STARTTLS</option>
+                    <option value="SMTPS">TLS implícito (SMTPS)</option></select
+                  ><small>La conexión se cifra antes de autenticar.</small></label
+                >
+                <label class="field"
+                  ><span>Usuario SMTP <b>*</b></span
+                  ><input
+                    formControlName="username"
+                    autocomplete="username"
+                    maxlength="254"
+                    placeholder="cuenta@dominio.com"
+                  /><small>Cuenta autenticada del proveedor.</small></label
+                >
+                <label class="field field-wide"
+                  ><span>Contraseña de aplicación</span
+                  ><input
+                    formControlName="password"
+                    type="password"
+                    autocomplete="new-password"
+                    maxlength="512"
+                    placeholder="{{
+                      data()?.draft?.credentialConfigured || data()?.active?.credentialConfigured
+                        ? 'Configurada; escriba solo para reemplazarla'
+                        : 'Ingrese la credencial SMTP'
+                    }}"
+                  /><small class="credential-state"
+                    ><span
+                      class="credential-dot"
+                      [class.configured]="
+                        data()?.draft?.credentialConfigured || data()?.active?.credentialConfigured
+                      "
+                    ></span
+                    >{{
+                      data()?.draft?.credentialConfigured || data()?.active?.credentialConfigured
+                        ? 'Credencial configurada'
+                        : 'Credencial aún no configurada'
+                    }}. Nunca se muestra el valor guardado.</small
+                  ></label
+                >
+              </div>
+            </section>
+          }
 
           <section class="form-section reason-section" aria-labelledby="reason-heading">
             <div class="section-heading">
@@ -230,7 +375,11 @@
               class="button button-secondary"
               type="button"
               (click)="testConnection()"
-              [disabled]="busy() || !data()?.draft"
+              [disabled]="
+                busy() ||
+                !data()?.draft ||
+                (data()?.draft?.provider === 'MICROSOFT_OUTLOOK' && !canTestMicrosoft())
+              "
             >
               {{ operation() === 'connection' ? 'Probando conexión…' : 'Probar conexión' }}
             </button>
@@ -238,7 +387,12 @@
               class="button button-secondary"
               type="button"
               (click)="sendTestEmail()"
-              [disabled]="busy() || !data()?.draft || !data()?.testRecipientConfigured"
+              [disabled]="
+                busy() ||
+                !data()?.draft ||
+                !data()?.testRecipientConfigured ||
+                (data()?.draft?.provider === 'MICROSOFT_OUTLOOK' && !canTestMicrosoft())
+              "
             >
               {{ operation() === 'test-email' ? 'Enviando prueba…' : 'Enviar correo de prueba' }}
             </button>
@@ -246,7 +400,7 @@
               class="button button-primary"
               type="button"
               (click)="activate()"
-              [disabled]="busy() || !data()?.draft"
+              [disabled]="busy() || !canActivate()"
             >
               {{ operation() === 'activate' ? 'Activando…' : 'Activar configuración' }}
             </button>
@@ -286,7 +440,7 @@
             <dl class="summary-list">
               <div>
                 <dt>Proveedor</dt>
-                <dd>{{ active.provider === 'GMAIL' ? 'Gmail' : 'SMTP personalizado' }}</dd>
+                <dd>{{ providerLabel(active.provider) }}</dd>
               </div>
               <div>
                 <dt>Remitente</dt>
@@ -348,7 +502,7 @@
                     <p>
                       {{ entry.actor || 'Responsable no registrado' }} · versión {{ entry.version }}
                       @if (entry.provider || entry.host || entry.from) {
-                        · {{ entry.provider === 'GMAIL' ? 'Gmail' : 'SMTP personalizado' }}
+                        · {{ providerLabel(entry.provider) }}
                         {{ entry.host ? '· ' + entry.host : '' }}
                         {{ entry.from ? '· ' + entry.from : '' }}
                       }

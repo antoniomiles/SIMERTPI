@@ -20,7 +20,7 @@ class AdminSmtpConfigurationMigrationIntegrationTest extends AbstractPostgresInt
                 .locations("classpath:db/migration").target("51").load();
         before.migrate();
         Flyway after = Flyway.configure().dataSource(url, postgres.getUsername(), postgres.getPassword())
-                .locations("classpath:db/migration").load();
+                .locations("classpath:db/migration").target("52").load();
         assertThat(after.migrate().migrationsExecuted).isEqualTo(1);
         after.validate();
         try (var connection = after.getConfiguration().getDataSource().getConnection();

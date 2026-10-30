@@ -53,7 +53,7 @@ class DynamicRolesV51MigrationIntegrationTest extends AbstractPostgresIntegratio
         }
 
         Flyway after = Flyway.configure().dataSource(url, postgres.getUsername(), postgres.getPassword())
-                .locations(location).outOfOrder(false).load();
+                .locations(location).target("52").outOfOrder(false).load();
         // V51 adds dynamic roles/permissions and V52 adds administrator-managed SMTP.
         assertThat(after.migrate().migrationsExecuted).isEqualTo(2);
         after.validate();

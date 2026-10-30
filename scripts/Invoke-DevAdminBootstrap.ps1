@@ -7,10 +7,13 @@ param(
  [Parameter(Mandatory=$true)][string]$ApprovalId,
  [Parameter(Mandatory=$true)][string]$JavaHome,
  [string]$BackendDirectory,
+ [string]$ExpectedSuperadminEmail,
  [switch]$PreflightOnly,
  [switch]$Superadministrator,
  [switch]$MunicipalAdministrator,
- [switch]$ResendSuperadminInvitation
+ [switch]$ResendSuperadminInvitation,
+ [switch]$AuthorizeMicrosoftSmtp,
+ [switch]$ActivateMicrosoftSmtp
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
@@ -21,7 +24,16 @@ $modeCount=0
 if($Superadministrator){$modeCount++}
 if($MunicipalAdministrator){$modeCount++}
 if($ResendSuperadminInvitation){$modeCount++}
-if($modeCount -ne 1){throw 'Indique exactamente un modo: -Superadministrator, -MunicipalAdministrator o -ResendSuperadminInvitation'}
+if($AuthorizeMicrosoftSmtp){$modeCount++}
+if($ActivateMicrosoftSmtp){$modeCount++}
+if($modeCount -ne 1){throw 'Indique exactamente un modo: -Superadministrator, -MunicipalAdministrator, -ResendSuperadminInvitation, -AuthorizeMicrosoftSmtp o -ActivateMicrosoftSmtp'}
+if($Superadministrator -or $ResendSuperadminInvitation){
+ if([string]::IsNullOrWhiteSpace($ExpectedSuperadminEmail) -or $ExpectedSuperadminEmail.Length -gt 255 -or $ExpectedSuperadminEmail -notmatch '^[^\s@]+@[^\s@]+\.[^\s@]+$'){throw 'Para bootstrap o reenvío indique el correo aprobado del Superadministrador'}
+}
+if($AuthorizeMicrosoftSmtp -or $ActivateMicrosoftSmtp){
+ foreach($name in @('SIMERTPI_SMTP_ENCRYPTION_KEY','SIMERTPI_MICROSOFT_CLIENT_ID','SIMERTPI_MICROSOFT_CLIENT_SECRET','SIMERTPI_MICROSOFT_REDIRECT_URI','SIMERTPI_MICROSOFT_AUTHORIZED_SENDER','SIMERTPI_ADMIN_WEB_ORIGIN')){if([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name,'Process'))){throw "Falta configurar $name en el entorno seguro del operador"}}
+ if($env:SIMERTPI_MICROSOFT_AUTHORIZED_SENDER.Trim() -ine 'simertpi@outlook.com'){throw 'El remitente Microsoft autorizado no coincide con la cuenta DEV aprobada'}
+}
 $java=Join-Path $JavaHome 'bin/java.exe'
 if(!(Test-Path -LiteralPath $java -PathType Leaf)){throw 'Java 21 no disponible'}
 $probe=New-Object Diagnostics.ProcessStartInfo; $probe.FileName=$java; $probe.Arguments='-version'; $probe.UseShellExecute=$false; $probe.RedirectStandardError=$true; $probe.CreateNoWindow=$true; $process=[Diagnostics.Process]::Start($probe); $version=$process.StandardError.ReadToEnd(); $process.WaitForExit()
@@ -39,7 +51,7 @@ $keytool=Join-Path $JavaHome 'bin/keytool.exe'
 $probe=New-Object Diagnostics.ProcessStartInfo; $probe.FileName=$keytool; $probe.Arguments='-printcert -file "'+$ca+'"'; $probe.UseShellExecute=$false; $probe.RedirectStandardOutput=$true; $probe.RedirectStandardError=$true; $probe.CreateNoWindow=$true; $process=[Diagnostics.Process]::Start($probe); $null=$process.StandardOutput.ReadToEnd(); $null=$process.StandardError.ReadToEnd(); $process.WaitForExit()
 if($process.ExitCode -ne 0){throw 'Certificado CA no válido'}
 if($PreflightOnly){Write-Host 'Preflight local correcto. No se abrió conexión a DEV.';return}
-$names=@('DB_URL','DB_USERNAME','DB_PASSWORD')
+$names=@('DB_URL','DB_USERNAME','DB_PASSWORD','SIMERTPI_BOOTSTRAP_SUPERADMIN_EMAIL')
 $previous=@{}
 foreach($name in $names){$previous[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
 $secure=$null
@@ -47,13 +59,14 @@ $pointer=[IntPtr]::Zero
 try{
  $env:DB_URL='jdbc:postgresql://'+$ExpectedHost+':5432/simertpi?sslmode=verify-full&sslrootcert='+[Uri]::EscapeDataString($ca.Replace('\','/'))
  $env:DB_USERNAME=$ExpectedDbUser
+ if($Superadministrator -or $ResendSuperadminInvitation){$env:SIMERTPI_BOOTSTRAP_SUPERADMIN_EMAIL=$ExpectedSuperadminEmail.Trim()}
  # Prefer an already injected, process-scoped managed secret; otherwise prompt without echo.
  if([string]::IsNullOrWhiteSpace($env:DB_PASSWORD)){
   $secure=Read-Host 'Contraseña de conexión PostgreSQL DEV (no contraseña del administrador)' -AsSecureString
   $pointer=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
   $env:DB_PASSWORD=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
  }
- $bootstrapMode=if($ResendSuperadminInvitation){'--resend-dev-superadmin-invitation'}elseif($Superadministrator){'--bootstrap-dev-superadmin'}else{'--bootstrap-dev-admin'}
+ $bootstrapMode=if($AuthorizeMicrosoftSmtp){'--authorize-dev-microsoft-smtp'}elseif($ActivateMicrosoftSmtp){'--activate-dev-microsoft-smtp'}elseif($ResendSuperadminInvitation){'--resend-dev-superadmin-invitation'}elseif($Superadministrator){'--bootstrap-dev-superadmin'}else{'--bootstrap-dev-admin'}
  $arguments=@('-cp',('"'+$classpath+'"'),'ec.gob.simertpiadmin.bootstrap.AdminBootstrapCli',$bootstrapMode,"--expected-host=$ExpectedHost","--expected-db-user=$ExpectedDbUser","--operator=$Operator","--approval-id=$ApprovalId"); $process=Start-Process -FilePath $java -ArgumentList $arguments -NoNewWindow -Wait -PassThru
  if($process.ExitCode -eq 2){throw 'La cuenta permanece pendiente pero el proveedor no confirmó la invitación; verificar estado por auditoría y usar el modo de reenvío autorizado antes de reintentar'}
  if($process.ExitCode -ne 0){throw 'Bootstrap detenido; consultar resultado por vía autorizada antes de reintentar'}

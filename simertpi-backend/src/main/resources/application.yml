@@ -98,6 +98,11 @@ simertpi:
     allowed-hosts: ${SIMERTPI_SMTP_ALLOWED_HOSTS:smtp.gmail.com}
     test-recipient: ${SIMERTPI_SMTP_TEST_RECIPIENT:}
     test-email-enabled: ${SIMERTPI_SMTP_TEST_EMAIL_ENABLED:false}
+    microsoft:
+      client-id: ${SIMERTPI_MICROSOFT_CLIENT_ID:}
+      client-secret: ${SIMERTPI_MICROSOFT_CLIENT_SECRET:}
+      redirect-uri: ${SIMERTPI_MICROSOFT_REDIRECT_URI:}
+      authorized-sender: ${SIMERTPI_MICROSOFT_AUTHORIZED_SENDER:}
   parking:
     availability:
       # UX threshold, not a municipal duration/tolerance rule.

@@ -23,11 +23,13 @@ public class SmtpConfigurationService {
     private final AuditService audit;
     private final String testRecipient;
     private final boolean testEmailEnabled;
+    private final String microsoftSender;
 
     public SmtpConfigurationService(JdbcTemplate jdbc, SmtpCredentialCipher cipher, SmtpHostPolicy hostPolicy,
                                     SmtpTransport transport, AuditService audit,
                                     @Value("${simertpi.smtp.test-recipient:}") String testRecipient,
-                                    @Value("${simertpi.smtp.test-email-enabled:false}") boolean testEmailEnabled) {
+                                    @Value("${simertpi.smtp.test-email-enabled:false}") boolean testEmailEnabled,
+                                    @Value("${simertpi.smtp.microsoft.authorized-sender:}") String microsoftSender) {
         this.jdbc = jdbc;
         this.cipher = cipher;
         this.hostPolicy = hostPolicy;
@@ -35,15 +37,17 @@ public class SmtpConfigurationService {
         this.audit = audit;
         this.testRecipient = testRecipient == null ? "" : testRecipient.trim();
         this.testEmailEnabled = testEmailEnabled;
+        this.microsoftSender = microsoftSender == null ? "" : microsoftSender.trim().toLowerCase(java.util.Locale.ROOT);
     }
 
     @Transactional(readOnly = true)
     public Snapshot getConfiguration() {
+        boolean microsoftCredentialConfigured = hasMicrosoftCredential();
         List<ConfigView> configs = jdbc.query("""
                 SELECT id, version, provider, display_name, from_address, smtp_host, smtp_port, security_mode,
                        smtp_username, state, created_by, created_at, updated_by, updated_at, activated_at, reason
                 FROM identity.admin_smtp_configuration ORDER BY version DESC LIMIT 50
-                """, (rs, row) -> view(rs));
+                """, (rs, row) -> view(rs, microsoftCredentialConfigured));
         ConfigView active = configs.stream().filter(c -> "ACTIVE".equals(c.state())).findFirst().orElse(null);
         ConfigView draft = configs.stream().filter(c -> "DRAFT".equals(c.state())).findFirst().orElse(null);
         List<HistoryEvent> history = jdbc.query("""
@@ -65,7 +69,13 @@ public class SmtpConfigurationService {
         Existing credentialSource = latestDraftOrActive();
         char[] supplied = candidate.password();
         SmtpCredentialCipher.Encrypted encrypted;
-        if (supplied != null && supplied.length > 0) {
+        if ("MICROSOFT_OUTLOOK".equals(candidate.provider())) {
+            if (supplied != null && supplied.length > 0) {
+                java.util.Arrays.fill(supplied, '\0');
+                throw new IllegalArgumentException("Microsoft Outlook OAuth does not accept SMTP passwords");
+            }
+            encrypted = null;
+        } else if (supplied != null && supplied.length > 0) {
             try {
                 if (supplied.length > 512) throw new IllegalArgumentException("La contraseña SMTP supera el tamaño permitido");
                 encrypted = cipher.encrypt(supplied);
@@ -84,7 +94,7 @@ public class SmtpConfigurationService {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?, ?)
                 """, id, candidate.provider(), clean(candidate.displayName()), candidate.fromAddress().trim(),
                 candidate.host().trim().toLowerCase(java.util.Locale.ROOT), candidate.port(), candidate.security(),
-                candidate.username().trim(), encrypted.nonce(), encrypted.ciphertext(), safeReason(reason), actor, actor);
+                candidate.username().trim(), encrypted == null ? null : encrypted.nonce(), encrypted == null ? null : encrypted.ciphertext(), safeReason(reason), actor, actor);
         audit.recordOutcome("SMTP_DRAFT_SAVED", "SMTP_CONFIGURATION", id, "SUCCESS", Map.of(
                 "provider", candidate.provider(), "host", candidate.host().trim(), "port", candidate.port(), "security", candidate.security()));
         return find(id);
@@ -94,6 +104,7 @@ public class SmtpConfigurationService {
     public OperationResult testConnection(long version, String actor) {
         Stored stored = byVersion(version, "DRAFT");
         if (stored == null) throw new SmtpOperationException("El borrador SMTP ya no existe o fue reemplazado", 404);
+        if ("MICROSOFT_OUTLOOK".equals(stored.provider())) throw new SmtpOperationException("Prueba Outlook mediante su flujo OAuth", 409);
         checkRate(actor, "CONNECTION");
         char[] secret = cipher.decrypt(stored.nonce(), stored.ciphertext());
         UUID attemptId = insertAttempt(stored.id(), "CONNECTION", "STARTED", actor, null, null);
@@ -117,6 +128,7 @@ public class SmtpConfigurationService {
         if (!testEmailEnabled || testRecipient.isBlank()) throw new SmtpOperationException("El envío de prueba no está habilitado en este ambiente");
         Stored stored = latestDraft();
         if (stored == null) throw new SmtpOperationException("Guarda un borrador SMTP antes de enviar una prueba", 409);
+        if ("MICROSOFT_OUTLOOK".equals(stored.provider())) throw new SmtpOperationException("Prueba Outlook mediante su flujo OAuth", 409);
         checkRate(actor, "EMAIL");
         char[] secret = cipher.decrypt(stored.nonce(), stored.ciphertext());
         String fingerprint = sha256(testRecipient.toLowerCase(java.util.Locale.ROOT));
@@ -140,8 +152,10 @@ public class SmtpConfigurationService {
     public OperationResult activate(long version, String reason, String actor) {
         Stored target = byVersion(version, "DRAFT");
         if (target == null) throw new SmtpOperationException("El borrador SMTP ya no existe o fue reemplazado", 404);
+        if ("MICROSOFT_OUTLOOK".equals(target.provider())) throw new SmtpOperationException("Activa Outlook mediante su flujo OAuth", 409);
         Integer tests = jdbc.queryForObject("SELECT count(*) FROM identity.admin_smtp_test_attempt WHERE configuration_id=? AND test_kind='CONNECTION' AND result='SUCCESS' AND created_at >= now() - interval '15 minutes'", Integer.class, target.id());
         if (tests == null || tests < 1) throw new SmtpOperationException("Prueba primero la conexión de esta versión antes de activarla", 409);
+        jdbc.update("UPDATE identity.admin_smtp_oauth_connection SET state='CONNECTED',test_passed_at=NULL,updated_by=?,updated_at=now(),row_version=row_version+1 WHERE singleton_id=1 AND state='ACTIVE'", actor);
         jdbc.update("UPDATE identity.admin_smtp_configuration SET state='DISABLED', updated_at=now(), updated_by=? WHERE state='ACTIVE'", actor);
         int updated = jdbc.update("""
                 UPDATE identity.admin_smtp_configuration SET state='ACTIVE', reason=?, activated_at=now(), updated_at=now(), updated_by=?, row_version=row_version+1
@@ -208,30 +222,43 @@ public class SmtpConfigurationService {
     public boolean configured() { return hasActive(); }
 
     private void validate(SmtpCandidate c) {
-        if (c == null || !List.of("GMAIL", "CUSTOM").contains(c.provider())
+        if (c == null || !List.of("GMAIL", "CUSTOM", "MICROSOFT_OUTLOOK").contains(c.provider())
                 || !List.of("STARTTLS", "SMTPS").contains(c.security())
                 || c.displayName() == null || c.displayName().isBlank() || c.displayName().length() > 150
                 || c.fromAddress() == null || !c.fromAddress().matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$") || c.fromAddress().length() > 255
                 || c.host() == null || c.host().isBlank() || c.host().length() > 253
                 || c.username() == null || c.username().isBlank() || c.username().length() > 255
                 || c.port() < 1 || c.port() > 65535) throw new IllegalArgumentException("Los datos de configuración SMTP no son válidos");
+        validateMicrosoftCandidate(c);
         if ("GMAIL".equals(c.provider()) && (!"smtp.gmail.com".equalsIgnoreCase(c.host().trim())
                 || !(c.port() == 587 && "STARTTLS".equals(c.security()) || c.port() == 465 && "SMTPS".equals(c.security())))) {
             throw new IllegalArgumentException("La configuración de Gmail debe usar smtp.gmail.com con STARTTLS/587 o SMTPS/465");
         }
     }
 
+    private void validateMicrosoftCandidate(SmtpCandidate candidate) {
+        if ("MICROSOFT_OUTLOOK".equals(candidate.provider())
+                && (!"smtp-mail.outlook.com".equalsIgnoreCase(candidate.host().trim())
+                || candidate.port() != 587 || !"STARTTLS".equals(candidate.security())
+                || microsoftSender.isBlank()
+                || !microsoftSender.equalsIgnoreCase(candidate.fromAddress().trim())
+                || !microsoftSender.equalsIgnoreCase(candidate.username().trim()))) {
+            throw new IllegalArgumentException("Outlook requires the configured institutional sender and smtp-mail.outlook.com:587 with STARTTLS");
+        }
+    }
+
     private Existing latestDraftOrActive() {
-        try { return jdbc.queryForObject("SELECT credential_nonce, credential_ciphertext FROM identity.admin_smtp_configuration WHERE state IN ('DRAFT','ACTIVE') ORDER BY CASE state WHEN 'DRAFT' THEN 0 ELSE 1 END LIMIT 1", (rs, row) -> new Existing(rs.getBytes(1), rs.getBytes(2))); }
+        try { return jdbc.queryForObject("SELECT credential_nonce, credential_ciphertext FROM identity.admin_smtp_configuration WHERE state IN ('DRAFT','ACTIVE') AND credential_ciphertext IS NOT NULL ORDER BY CASE state WHEN 'DRAFT' THEN 0 ELSE 1 END LIMIT 1", (rs, row) -> new Existing(rs.getBytes(1), rs.getBytes(2))); }
         catch (EmptyResultDataAccessException none) { return null; }
     }
     private Stored latestDraft() { try { return jdbc.queryForObject("SELECT id,version,provider,display_name,from_address,smtp_host,smtp_port,security_mode,smtp_username,credential_nonce,credential_ciphertext,state,updated_at FROM identity.admin_smtp_configuration WHERE state='DRAFT'", (rs,row)->stored(rs)); } catch (EmptyResultDataAccessException none) { return null; } }
     private Stored byVersion(long version, String state) { try { return jdbc.queryForObject("SELECT id,version,provider,display_name,from_address,smtp_host,smtp_port,security_mode,smtp_username,credential_nonce,credential_ciphertext,state,updated_at FROM identity.admin_smtp_configuration WHERE version=? AND state=?", (rs,row)->stored(rs), version, state); } catch (EmptyResultDataAccessException none) { return null; } }
-    private ConfigView find(UUID id) { return jdbc.queryForObject("SELECT id,version,provider,display_name,from_address,smtp_host,smtp_port,security_mode,smtp_username,state,created_by,created_at,updated_by,updated_at,activated_at,reason FROM identity.admin_smtp_configuration WHERE id=?", (rs,row)->view(rs), id); }
+    private ConfigView find(UUID id) { boolean microsoftCredentialConfigured=hasMicrosoftCredential(); return jdbc.queryForObject("SELECT id,version,provider,display_name,from_address,smtp_host,smtp_port,security_mode,smtp_username,state,created_by,created_at,updated_by,updated_at,activated_at,reason FROM identity.admin_smtp_configuration WHERE id=?", (rs,row)->view(rs,microsoftCredentialConfigured), id); }
     private boolean hasActive() { Integer count=jdbc.queryForObject("SELECT count(*) FROM identity.admin_smtp_configuration WHERE state='ACTIVE'", Integer.class); return count != null && count > 0; }
     private Stored activeStored() { try { return jdbc.queryForObject("SELECT id,version,provider,display_name,from_address,smtp_host,smtp_port,security_mode,smtp_username,credential_nonce,credential_ciphertext,state,updated_at FROM identity.admin_smtp_configuration WHERE state='ACTIVE'", (rs,row)->stored(rs)); } catch (EmptyResultDataAccessException none) { return null; } }
     private Stored stored(java.sql.ResultSet rs) throws java.sql.SQLException { return new Stored(rs.getObject("id",UUID.class),rs.getLong("version"),rs.getString("provider"),rs.getString("display_name"),rs.getString("from_address"),rs.getString("smtp_host"),rs.getInt("smtp_port"),rs.getString("security_mode"),rs.getString("smtp_username"),rs.getBytes("credential_nonce"),rs.getBytes("credential_ciphertext"),rs.getString("state"),rs.getObject("updated_at",OffsetDateTime.class)); }
-    private ConfigView view(java.sql.ResultSet rs) throws java.sql.SQLException { return new ConfigView(rs.getObject("id",UUID.class),rs.getLong("version"),rs.getString("provider"),rs.getString("display_name"),rs.getString("from_address"),rs.getString("smtp_host"),rs.getInt("smtp_port"),rs.getString("security_mode"),rs.getString("smtp_username"),true,rs.getString("state"),rs.getString("created_by"),rs.getObject("created_at",OffsetDateTime.class),rs.getString("updated_by"),rs.getObject("updated_at",OffsetDateTime.class),rs.getObject("activated_at",OffsetDateTime.class),rs.getString("reason")); }
+    private ConfigView view(java.sql.ResultSet rs,boolean microsoftCredentialConfigured) throws java.sql.SQLException { String provider=rs.getString("provider"); return new ConfigView(rs.getObject("id",UUID.class),rs.getLong("version"),provider,rs.getString("display_name"),rs.getString("from_address"),rs.getString("smtp_host"),rs.getInt("smtp_port"),rs.getString("security_mode"),rs.getString("smtp_username"),"MICROSOFT_OUTLOOK".equals(provider)?microsoftCredentialConfigured:true,rs.getString("state"),rs.getString("created_by"),rs.getObject("created_at",OffsetDateTime.class),rs.getString("updated_by"),rs.getObject("updated_at",OffsetDateTime.class),rs.getObject("activated_at",OffsetDateTime.class),rs.getString("reason")); }
+    private boolean hasMicrosoftCredential() { Integer count=jdbc.queryForObject("SELECT count(*) FROM identity.admin_smtp_oauth_connection WHERE singleton_id=1 AND state IN ('CONNECTED','ACTIVE')",Integer.class); return count!=null&&count==1; }
     private SmtpTransport.SmtpSettings settings(SmtpCandidate c) { return new SmtpTransport.SmtpSettings(c.host().trim().toLowerCase(java.util.Locale.ROOT),c.port(),c.security(),c.username().trim(),c.fromAddress().trim(),clean(c.displayName())); }
     private SmtpTransport.SmtpSettings settings(Stored s) { return new SmtpTransport.SmtpSettings(s.host(),s.port(),s.security(),s.username(),s.fromAddress(),s.displayName()); }
     private void checkRate(String actor,String kind) { jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Void>) connection -> { try (var statement=connection.prepareStatement("SELECT pg_advisory_xact_lock(hashtextextended(?,0))")) { statement.setString(1,"smtp-test-"+actor+"-"+kind); statement.execute(); } return null; }); Integer count=jdbc.queryForObject("SELECT count(*) FROM identity.admin_smtp_test_attempt WHERE actor=? AND test_kind=? AND created_at >= now() - interval '15 minutes'",Integer.class,actor,kind); if(count!=null&&count>=3) throw new SmtpOperationException("Se alcanzó el límite temporal de pruebas SMTP", 429); }

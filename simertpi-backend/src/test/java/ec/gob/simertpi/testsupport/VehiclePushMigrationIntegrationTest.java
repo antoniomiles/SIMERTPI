@@ -16,7 +16,7 @@ class VehiclePushMigrationIntegrationTest extends AbstractPostgresIntegrationTes
         var before=Flyway.configure().dataSource(url,pg.getUsername(),pg.getPassword()).target("39").load();
         assertThat(before.migrate().migrationsExecuted).isEqualTo(38);
         var checksums=Arrays.stream(before.info().applied()).collect(Collectors.toMap(i->i.getVersion().toString(),i->i.getChecksum()));
-        var after=Flyway.configure().dataSource(url,pg.getUsername(),pg.getPassword()).outOfOrder(false).load();
+        var after=Flyway.configure().dataSource(url,pg.getUsername(),pg.getPassword()).target("52").outOfOrder(false).load();
         assertThat(after.migrate().migrationsExecuted).isEqualTo(13);after.validate();
         assertThat(Arrays.stream(after.info().applied()).collect(Collectors.toMap(i->i.getVersion().toString(),i->i.getChecksum())))
             .containsAllEntriesOf(checksums).containsKey("40").doesNotContainKey("36");

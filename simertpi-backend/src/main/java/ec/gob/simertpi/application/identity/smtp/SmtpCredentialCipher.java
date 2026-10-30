@@ -67,6 +67,14 @@ public final class SmtpCredentialCipher {
         }
     }
 
+    /** Checks key availability without exposing key material or performing a database write. */
+    boolean available() {
+        byte[] bytes = null;
+        try { bytes = key(); return true; }
+        catch (RuntimeException unavailable) { return false; }
+        finally { if (bytes != null) java.util.Arrays.fill(bytes, (byte) 0); }
+    }
+
     private byte[] key() {
         try {
             byte[] bytes = Base64.getDecoder().decode(encodedKey);
