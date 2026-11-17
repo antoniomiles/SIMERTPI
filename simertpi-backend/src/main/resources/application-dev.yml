@@ -1,0 +1,8 @@
+# Local/Render DEV uses the deterministic backend simulator until a real
+# provider is integrated. Never activate this profile in production.
+simertpi:
+  payments:
+    provider: ${SIMERTPI_PAYMENT_PROVIDER:SANDBOX_STUB}
+    sandbox:
+      enabled: ${SIMERTPI_PAYMENT_SANDBOX_ENABLED:true}
+      outcome: APPROVED

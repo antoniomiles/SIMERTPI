@@ -7,6 +7,7 @@ import 'package:simertpi_citizen_app/core/errors/app_failure.dart';
 import 'package:simertpi_citizen_app/features/parking/data/parking_contract.dart';
 import 'package:simertpi_citizen_app/features/payments/presentation/payments_page.dart';
 import 'package:simertpi_citizen_app/features/payments/state/payments_controller.dart';
+import 'package:simertpi_citizen_app/features/payments/data/payment_contract.dart';
 import 'parking_test.dart' as p;
 import 'payments_test.dart' as pay;
 import 'cp2453_auth_test.dart' as bio;
@@ -21,6 +22,90 @@ class IntegratedParking extends p.FakeParking {
 }
 
 void main() {
+  testWidgets('Forbidden payment lookup shows access error and recovers confirmation',
+      (tester) async {
+    final parking = IntegratedParking()
+      ..existing = [pay.session('ACTIVE')];
+    final gateway = pay.FakePayments()
+      ..failure = const AppFailure(FailureKind.forbidden, httpStatus: 403);
+    final store = pay.MemoryPaymentStore()
+      ..value = PaymentIntent('fixture-citizen', 'receipt', 'TEST',
+          paymentId: 'payment-fixture', createdAt: pay.clock);
+    final payment = pay.controller(
+        parking: parking, payments: gateway, store: store);
+    addTearDown(payment.dispose);
+    await tester.pumpWidget(await pay.page(payment));
+    await tester.pumpAndSettle();
+    expect(payment.phase, PaymentPhase.error);
+    expect(find.text('Resultado por confirmar'), findsNothing);
+    expect(find.text('Vehículo estacionado correctamente'), findsNothing);
+    gateway.failure = null;
+    await tester.ensureVisible(find.text('Reintentar'));
+    await tester.tap(find.text('Reintentar'));
+    await tester.pumpAndSettle();
+    expect(find.text('Vehículo estacionado correctamente'), findsOneWidget);
+    expect(find.text('Aceptar'), findsOneWidget);
+    expect(gateway.creates, 0);
+    expect(parking.creates, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  test('Recovered approved checkout never starts a second payment', () async {
+    final parking = IntegratedParking();
+    final selection = p.controller(parking);
+    final gateway = pay.FakePayments();
+    final store = pay.MemoryPaymentStore()
+      ..value = PaymentIntent('fixture-citizen', 'receipt', 'TEST',
+          paymentId: 'payment-fixture', createdAt: pay.clock);
+    final payment = pay.controller(
+        parking: parking, payments: gateway, store: store);
+    addTearDown(selection.dispose);
+    addTearDown(payment.dispose);
+    await selection.load();
+    payment.stageDraft(selection);
+    parking.existing = [pay.session('ACTIVE')];
+    await payment.startParking();
+    expect(payment.phase, PaymentPhase.result);
+    expect(payment.activated, true);
+    expect(gateway.gets, 1);
+    expect(gateway.creates, 0);
+    expect(parking.creates, 0);
+    expect(store.value!.paymentId, 'payment-fixture');
+  });
+
+  test('GET 403 preserves checkout and permits only same-operation recovery', () async {
+    final parking = IntegratedParking();
+    final selection = p.controller(parking);
+    final gateway = pay.FakePayments()
+      ..failure = const AppFailure(FailureKind.forbidden, httpStatus: 403);
+    final store = pay.MemoryPaymentStore()
+      ..value = PaymentIntent('fixture-citizen', 'receipt', 'TEST',
+          paymentId: 'payment-fixture', createdAt: pay.clock);
+    final key = store.value!.key;
+    final payment = pay.controller(
+        parking: parking, payments: gateway, store: store);
+    addTearDown(selection.dispose);
+    addTearDown(payment.dispose);
+    await selection.load();
+    payment.stageDraft(selection);
+    parking.existing = [pay.session('ACTIVE')];
+    await payment.startParking();
+    expect(payment.phase, PaymentPhase.error);
+    expect(payment.message, paymentError(gateway.failure!));
+    expect(payment.activated, false);
+    await payment.startParking();
+    expect(gateway.gets, 1);
+    expect(gateway.creates, 0);
+    expect(parking.creates, 0);
+    expect(store.value!.key, key);
+    gateway.failure = null;
+    await payment.check();
+    expect(payment.activated, true);
+    expect(gateway.gets, 2);
+    expect(gateway.creates, 0);
+    expect(store.value!.key, key);
+  });
+
   testWidgets('PR2 password, biometric, inactivity, selections and final Pay integrate', (tester) async {
     final f = bio.Fixture();
     addTearDown(f.dispose);

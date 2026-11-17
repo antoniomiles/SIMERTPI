@@ -1,6 +1,7 @@
 import '../../discovery/data/parking_catalog.dart';
 
 import 'package:flutter/foundation.dart';
+import '../../../core/errors/app_failure.dart';
 
 import '../../parking/data/parking_contract.dart';
 import '../../parking/state/parking_controller.dart';
@@ -114,7 +115,11 @@ class PaymentsController extends ChangeNotifier {
           return;
         }
         await _accept(await payments.status(stored.paymentId!));
-        if (_disposed || payment!.waiting) return;
+        if (_disposed ||
+            payment!.waiting ||
+            payment!.status == PaymentStatus.approved) {
+          return;
+        }
         intent = null;
         payment = null;
         session = null;
@@ -155,9 +160,7 @@ class PaymentsController extends ChangeNotifier {
       if (_disposed) return;
       await _accept(await payments.create(next));
     } catch (error) {
-      phase = saved || intent != null
-          ? PaymentPhase.uncertain
-          : PaymentPhase.error;
+      phase = _failurePhase(error, unresolved: saved || intent != null);
       message = paymentError(error);
     } finally {
       _busy = false;
@@ -250,7 +253,7 @@ class PaymentsController extends ChangeNotifier {
       }
       await _prepare(target);
     } catch (error) {
-      phase = intent != null ? PaymentPhase.uncertain : PaymentPhase.error;
+      phase = _failurePhase(error, unresolved: intent != null);
       message = paymentError(error);
     } finally {
       _busy = false;
@@ -341,7 +344,11 @@ class PaymentsController extends ChangeNotifier {
       if (_disposed) return;
       await _accept(await payments.create(next));
     } catch (error) {
-      phase = saved ? PaymentPhase.uncertain : PaymentPhase.ready;
+      phase = _accessDenied(error)
+          ? PaymentPhase.error
+          : saved
+          ? PaymentPhase.uncertain
+          : PaymentPhase.ready;
       message = paymentError(error);
     } finally {
       _busy = false;
@@ -407,13 +414,25 @@ class PaymentsController extends ChangeNotifier {
       }
       await _accept(value);
     } catch (error) {
-      phase = PaymentPhase.uncertain;
+      phase = _failurePhase(error, unresolved: true);
       message = paymentError(error);
     } finally {
       _busy = false;
       _notify();
     }
   }
+
+  // Access denial is an explicit server response, not a payment outcome.
+  // Retain the durable intent so recovery cannot create a second operation.
+  bool _accessDenied(Object error) =>
+      error is AppFailure &&
+      (error.kind == FailureKind.forbidden ||
+          error.kind == FailureKind.unauthorized);
+
+  PaymentPhase _failurePhase(Object error, {required bool unresolved}) =>
+      _accessDenied(error) || !unresolved
+          ? PaymentPhase.error
+          : PaymentPhase.uncertain;
 
   Future<void> reviewRetry() async {
     if (!canRetry || _disposed) return;

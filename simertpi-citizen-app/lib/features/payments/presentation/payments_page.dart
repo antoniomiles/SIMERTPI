@@ -235,7 +235,9 @@ class _PaymentsPageState extends State<PaymentsPage> {
                   ] else if (c.phase == PaymentPhase.error)
                     ErrorState(
                       message: c.message ?? 'No pudimos preparar el pago.',
-                      onRetry: widget.parkingController == null
+                      onRetry: c.intent != null
+                          ? c.check
+                          : widget.parkingController == null
                           ? () => c.load(widget.sessionId)
                           : c.reviewStartedCheckout,
                     )
@@ -383,7 +385,8 @@ class _PaymentsPageState extends State<PaymentsPage> {
                         ),
                       ),
                     const SizedBox(height: AppSpace.md),
-                    if (p?.waiting == true)
+                    if (p?.waiting == true ||
+                        (p?.status == PaymentStatus.approved && !c.activated))
                       AsyncButton(
                         label: 'Comprobar resultado',
                         processingLabel: 'Comprobando...',
