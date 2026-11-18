@@ -5,6 +5,7 @@ import ec.gob.simertpi.api.enforcement.dto.EvidenceResponse;
 import ec.gob.simertpi.application.enforcement.EvidenceService;
 import ec.gob.simertpi.application.enforcement.EnforcementIdempotencyService;
 import ec.gob.simertpi.domain.enforcement.entity.Evidence;
+import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -13,7 +14,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 import java.io.IOException;
 import java.time.OffsetDateTime;
@@ -62,17 +62,14 @@ public class EvidenceController {
     }
 
     @GetMapping("/{id}/content")
-    public ResponseEntity<StreamingResponseBody> download(
+    public ResponseEntity<InputStreamResource> download(
             @PathVariable UUID id, Authentication authentication
     ) {
         EvidenceService.EvidenceDownload download = evidenceService.download(authentication.getName(), id);
         var object = download.object();
         String filename = safeDownloadFilename(download.evidence().getOriginalFilename());
-        StreamingResponseBody body = output -> {
-            try (object) {
-                object.stream().transferTo(output);
-            }
-        };
+        // Let MVC write and close the stream on the request thread, keeping header commit single-threaded.
+        InputStreamResource body = new InputStreamResource(object.stream());
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
                 .contentType(MediaType.parseMediaType(object.contentType()))
