@@ -1,4 +1,5 @@
 package ec.gob.simertpi.config;
+import ec.gob.simertpi.api.identity.AdminCredentialRecoveryController;
 import ec.gob.simertpi.application.identity.admin.AdminAuthenticationService;
 import ec.gob.simertpi.application.identity.admin.AdminSessionExpiredAuthenticationException;
 import ec.gob.simertpi.api.OperationalRequestLogFilter;
@@ -21,7 +22,9 @@ public class AdminSessionFilter extends OncePerRequestFilter {
   if(!microsoftOAuthCallback&&("cross-site".equals(request.getHeader("Sec-Fetch-Site"))||(origin!=null&&!origin.equals(allowedOrigin.isBlank()?actual:allowedOrigin)))){reject(request,response,403,"ORIGIN_REJECTED");return;}
   if(request.getHeader("Authorization")!=null){reject(request,response,401,"AUTHORIZATION_HEADER_REJECTED");return;}
   boolean publicRoute=path.equals("/api/v1/admin/auth/login")||path.equals("/api/v1/admin/auth/csrf")||path.equals("/api/v1/admin/auth/logout")||microsoftOAuthCallback;
-  if(!publicRoute){
+  boolean recoveryRoute="POST".equals(request.getMethod())&&(path.equals(AdminCredentialRecoveryController.USERNAME)
+    ||path.equals(AdminCredentialRecoveryController.PASSWORD)||path.equals(AdminCredentialRecoveryController.RESET));
+  if(!publicRoute&&!recoveryRoute){
    String sessionCookie=cookie(request);
    try { request.setAttribute("admin.identity",auth.authenticate(sessionCookie)); }
    catch(AdminSessionExpiredAuthenticationException expired){SecurityContextHolder.clearContext();reject(request,response,401,"SESSION_EXPIRED");return;}

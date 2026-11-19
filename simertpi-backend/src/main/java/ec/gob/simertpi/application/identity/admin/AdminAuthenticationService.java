@@ -108,6 +108,9 @@ public class AdminAuthenticationService {
    (rs,n)->new Stored(rs.getObject(1,UUID.class),rs.getObject(2,UUID.class),rs.getString(3),rs.getObject(4,OffsetDateTime.class),rs.getObject(5,OffsetDateTime.class),rs.getBoolean(6)),hash(token));
   return list.isEmpty()?null:list.getFirst();
  }
+ boolean isRecoveryEligible(User user) {
+  return allowed(user,authorizationSnapshot(user.getId()));
+ }
  private AuthorizationSnapshot authorizationSnapshot(UUID userId) {
   record RoleGrant(String code,boolean enabled,boolean portal,long version,String permission) { }
   List<RoleGrant> grants=jdbc.query("""

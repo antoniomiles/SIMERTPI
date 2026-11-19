@@ -1,4 +1,5 @@
 package ec.gob.simertpi.config;
+import ec.gob.simertpi.api.identity.AdminCredentialRecoveryController;
 import ec.gob.simertpi.application.identity.admin.AdminAuthenticationService;
 import ec.gob.simertpi.application.identity.admin.authorization.AdminPermissionPolicy;
 import ec.gob.simertpi.api.OperationalRequestLogFilter;
@@ -38,6 +39,8 @@ public class AdminSecurityConfiguration {
    .authorizeHttpRequests(a->a
     .requestMatchers(HttpMethod.GET,"/api/v1/admin/auth/csrf").permitAll()
     .requestMatchers(HttpMethod.POST,"/api/v1/admin/auth/login","/api/v1/admin/auth/logout").permitAll()
+    .requestMatchers(HttpMethod.POST,AdminCredentialRecoveryController.USERNAME,
+        AdminCredentialRecoveryController.PASSWORD,AdminCredentialRecoveryController.RESET).permitAll()
     .requestMatchers(HttpMethod.GET,"/api/v1/admin/system/email/oauth/callback").permitAll()
     .anyRequest().access(new AdminPermissionPolicy()))
    .addFilterAfter(new AdminSessionFilter(auth,origin),SecurityContextHolderFilter.class);

@@ -14,6 +14,9 @@ const ADMIN_AUTH_PATHS = new Set([
   '/api/v1/admin/auth/login',
   '/api/v1/admin/auth/me',
   '/api/v1/admin/auth/logout',
+  '/api/v1/admin/auth/recovery/username',
+  '/api/v1/admin/auth/recovery/password',
+  '/api/v1/admin/auth/recovery/reset',
 ]);
 export function requestTimeoutMs(pathname: string): number {
   return ADMIN_AUTH_PATHS.has(pathname) ? ADMIN_AUTH_TIMEOUT_MS : ADMIN_API_TIMEOUT_MS;

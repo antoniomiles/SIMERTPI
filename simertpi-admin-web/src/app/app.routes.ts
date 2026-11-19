@@ -123,6 +123,21 @@ export const routes: Routes = [
     loadComponent: () => import('./features/auth/activate-account').then((m) => m.ActivateAccount),
   },
   {
+    path: 'recuperar-usuario',
+    data: { recovery: 'username' },
+    loadComponent: () => import('./features/auth/credential-recovery').then((m) => m.CredentialRecovery),
+  },
+  {
+    path: 'recuperar-contrasena',
+    data: { recovery: 'password' },
+    loadComponent: () => import('./features/auth/credential-recovery').then((m) => m.CredentialRecovery),
+  },
+  {
+    path: 'restablecer-contrasena',
+    data: { recovery: 'reset' },
+    loadComponent: () => import('./features/auth/credential-recovery').then((m) => m.CredentialRecovery),
+  },
+  {
     path: 'login',
     title: 'Acceso administrativo | SIMERTPI',
     loadComponent: () => import('./features/auth/login').then((m) => m.Login),

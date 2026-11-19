@@ -86,9 +86,14 @@
           {{ submitting() ? 'Procesando…' : 'Iniciar sesión' }} <span aria-hidden="true">→</span>
         </button>
       </form>
-      <p class="access-help">
-        El restablecimiento de acceso estará disponible con la autenticación administrativa.
-      </p>
+      @if (enabled) {
+        <p class="access-help"><a routerLink="/recuperar-usuario">¿Olvidaste tu usuario?</a></p>
+        <p class="access-help"><a routerLink="/recuperar-contrasena">¿Olvidaste tu contraseña?</a></p>
+      } @else {
+        <p class="access-help">
+          El restablecimiento de acceso estará disponible con la autenticación administrativa.
+        </p>
+      }
       @if (canPreview) {
         <div class="preview-entry">
           <span class="eyebrow">REVISIÓN DE INTERFAZ</span>

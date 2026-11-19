@@ -142,7 +142,7 @@ class AdminReportsPostgresIntegrationTest extends AbstractPostgresIntegrationTes
         String latestVersion = jdbc.queryForObject(
                 "SELECT version FROM flyway_schema_history WHERE success=TRUE ORDER BY installed_rank DESC LIMIT 1",
                 String.class);
-        assertThat(latestVersion).isEqualTo("53");
+        assertThat(latestVersion).isEqualTo("54");
     }
 
     private Fixture fixture() {
