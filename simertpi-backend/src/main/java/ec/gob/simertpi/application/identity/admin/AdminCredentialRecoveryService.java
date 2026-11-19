@@ -60,7 +60,11 @@ public class AdminCredentialRecoveryService {
                 try {
                     Message message = transactions.execute(status -> prepare(address, resetPassword));
                     if (message != null) {
-                        mail.send(message.recipient(), message.subject(), message.body());
+                        if (message.passwordReset()) {
+                            mail.sendPasswordReset(message.recipient(), message.value());
+                        } else {
+                            mail.sendUsername(message.recipient(), message.value());
+                        }
                     }
                 } catch (RuntimeException failure) {
                     log.warn("Administrative credential recovery email was not sent ({})",
@@ -72,7 +76,7 @@ public class AdminCredentialRecoveryService {
         }
     }
 
-    private record Message(String recipient, String subject, String body) {
+    private record Message(String recipient, String value, boolean passwordReset) {
         @Override public String toString() { return "AdminRecoveryMessage[redacted]"; }
     }
 
@@ -83,9 +87,7 @@ public class AdminCredentialRecoveryService {
         User user = users.findById(matches.getFirst()).orElse(null);
         if (!eligible(user)) return null;
         if (!resetPassword) {
-            return new Message(user.getEmail(), "SIMERTPI | Recuperación de usuario",
-                    "Tu usuario del portal administrativo es: " + user.getUsername() + "\n"
-                            + "Si no solicitaste esta información, puedes ignorar este mensaje.");
+            return new Message(user.getEmail(), user.getUsername(), false);
         }
         if (portalOrigin == null) {
             throw new IllegalStateException("Administrative HTTPS origin is unavailable");
@@ -102,10 +104,7 @@ public class AdminCredentialRecoveryService {
                 WHERE t.expires_at <= clock_timestamp() OR t.account_stamp <> EXCLUDED.account_stamp
                 """, user.getId(), hash(token), stamp(user));
         if (issued != 1) return null;
-        return new Message(user.getEmail(), "SIMERTPI | Restablecimiento de contraseña",
-                "Abre este enlace para establecer una nueva contraseña. Caduca en 30 minutos y solo se puede usar una vez.\n\n"
-                        + portalOrigin + "/restablecer-contrasena#token=" + token
-                        + "\n\nSi no solicitaste el cambio, ignora este mensaje.");
+        return new Message(user.getEmail(), portalOrigin + "/restablecer-contrasena#token=" + token, true);
     }
 
     public boolean reset(String token, String password, String source) {

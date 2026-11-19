@@ -79,9 +79,9 @@ class AdminCredentialRecoveryPostgresIntegrationTest extends AbstractPostgresInt
             assertThat(response.getContentAsString()).isEmpty();
         }
         var body = ArgumentCaptor.forClass(String.class);
-        verify(mail, timeout(5000)).send(eq(email), anyString(), body.capture());
+        verify(mail, timeout(5000)).sendUsername(eq(email), body.capture());
         assertThat(body.getValue()).contains(username);
-        verify(mail, after(300).times(1)).send(anyString(), anyString(), anyString());
+        verify(mail, after(300).times(1)).sendUsername(anyString(), anyString());
 
         mvc.perform(post(RECOVERY + "/username").secure(true)
                 .contentType("application/json").content(emailJson(email)))
@@ -124,7 +124,7 @@ class AdminCredentialRecoveryPostgresIntegrationTest extends AbstractPostgresInt
     private String requestReset() throws Exception {
         mvc.perform(request("/password", email)).andExpect(status().isAccepted());
         var body = ArgumentCaptor.forClass(String.class);
-        verify(mail, timeout(5000)).send(eq(email), anyString(), body.capture());
+        verify(mail, timeout(5000)).sendPasswordReset(eq(email), body.capture());
         var token = Pattern.compile(Pattern.quote(ORIGIN + "/restablecer-contrasena#token=") + "([A-Za-z0-9_-]{43})")
                 .matcher(body.getValue());
         assertThat(token.find()).isTrue();

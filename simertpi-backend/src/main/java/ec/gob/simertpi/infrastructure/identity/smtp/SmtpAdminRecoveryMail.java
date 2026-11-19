@@ -30,7 +30,16 @@ class SmtpAdminRecoveryMail implements AdminRecoveryMail {
     }
 
     @Override
-    public void send(String recipient, String subject, String body) {
+    public void sendUsername(String recipient, String username) {
+        send(recipient, "SIMERTPI | Recuperación de usuario", RecoveryEmailLayout.username(username));
+    }
+
+    @Override
+    public void sendPasswordReset(String recipient, String resetUrl) {
+        send(recipient, "SIMERTPI | Restablecimiento de contraseña", RecoveryEmailLayout.password(resetUrl));
+    }
+
+    private void send(String recipient, String subject, String body) {
         if (microsoft.isActive()) {
             var credential = microsoft.activeCredential();
             if (credential == null) throw new IllegalStateException("Microsoft SMTP credential unavailable");
@@ -57,7 +66,7 @@ class SmtpAdminRecoveryMail implements AdminRecoveryMail {
             helper.setFrom(new InternetAddress(settings.fromAddress(), settings.displayName(), StandardCharsets.UTF_8.name()));
             helper.setTo(new InternetAddress(recipient, true));
             helper.setSubject(subject);
-            helper.setText(body);
+            helper.setText(body, true);
             transport.sendMessage(settings, secret, mode, message);
         } catch (MessagingException | UnsupportedEncodingException invalid) {
             throw new IllegalStateException("Administrative recovery message could not be prepared", invalid);
