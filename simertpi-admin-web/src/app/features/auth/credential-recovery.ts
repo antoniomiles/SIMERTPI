@@ -4,10 +4,10 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
 import { PORTAL_CONFIG } from '../../core/config/portal-config';
 import { ApiClient } from '../../core/http/api-client';
-import { Brand } from '../../shared/ui/brand';
+import { AuthStory } from './auth-story';
 
 @Component({
-  imports: [Brand, ReactiveFormsModule, RouterLink],
+  imports: [AuthStory, ReactiveFormsModule, RouterLink],
   templateUrl: './credential-recovery.html',
 })
 export class CredentialRecovery {

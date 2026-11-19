@@ -6,10 +6,10 @@ import { AdminSession } from '../../core/auth/admin-session';
 import { safeReturnUrl } from '../../core/auth/admin-session-state';
 import { PORTAL_CONFIG, localPreviewAllowed } from '../../core/config/portal-config';
 import { normalizeError } from '../../core/http/portal-error';
-import { Brand } from '../../shared/ui/brand';
+import { AuthStory } from './auth-story';
 @Component({
   selector: 'app-login',
-  imports: [ReactiveFormsModule, RouterLink, Brand],
+  imports: [ReactiveFormsModule, RouterLink, AuthStory],
   templateUrl: './login.html',
 })
 export class Login {
